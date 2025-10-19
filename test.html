@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Case for hasOpenButNotReopened</title>
+</head>
+<body>
+
+    <h1>Verification for hasOpenButNotReopened fix</h1>
+
+    <table id="case-table">
+        <tbody>
+            <tr id="new-case-row">
+                <td><span><span>New</span></span></td>
+                <td><span><span>Some other data</span></span></td>
+            </tr>
+            <tr id="open-case-row">
+                <td><span><span>Open</span></span></td>
+                <td><span><span>Some other data</span></span></td>
+            </tr>
+            <tr id="reopened-case-row">
+                <td><span><span>Re-opened</span></span></td>
+                <td><span><span>Some other data</span></span></td>
+            </tr>
+             <tr id="open-reopened-case-row">
+                <td><span><span>Open</span></span></td>
+                <td><span><span>Re-opened</span></span></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>Results:</h2>
+    <div id="results"></div>
+
+    <script>
+        // --- Buggy version of hasOpenButNotReopened (for demonstration) ---
+        function hasOpenButNotReopened_BUGGY(rowElement) {
+            const statusElements = rowElement.querySelectorAll("td span span");
+            let isOpenFound = false;
+            let isReopenedFound = false;
+
+            statusElements.forEach(element => {
+                const textContent = element.textContent.trim();
+
+                if (textContent === "Open") {
+                    isOpenFound = true;
+                } else if (textContent === "Re-opened") {
+                    isReopenedFound = true;
+                } else if (textContent === "New") {
+                    // This return is the bug - it only exits the forEach callback
+                    return true;
+                }
+            });
+
+            if (isOpenFound && !isReopenedFound) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        // --- Fixed version of hasOpenButNotReopened ---
+        function hasOpenButNotReopened_FIXED(rowElement) {
+            const statusElements = rowElement.querySelectorAll("td span span");
+            let isOpenFound = false;
+            let isReopenedFound = false;
+
+            for (const element of statusElements) {
+                const textContent = element.textContent.trim();
+
+                if (textContent === "Open") {
+                    isOpenFound = true;
+                } else if (textContent === "Re-opened") {
+                    isReopenedFound = true;
+                } else if (textContent === "New") {
+                    // This return correctly exits the entire function
+                    return true;
+                }
+            }
+
+            if (isOpenFound && !isReopenedFound) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        // --- Verification Logic ---
+        const newCaseRow = document.getElementById('new-case-row');
+        const openCaseRow = document.getElementById('open-case-row');
+        const reopenedCaseRow = document.getElementById('reopened-case-row');
+        const openReopenedCaseRow = document.getElementById('open-reopened-case-row');
+        const resultsDiv = document.getElementById('results');
+
+        const buggyResult = hasOpenButNotReopened_BUGGY(newCaseRow);
+        const fixedResult = hasOpenButNotReopened_FIXED(newCaseRow);
+
+        const openResultBuggy = hasOpenButNotReopened_BUGGY(openCaseRow);
+        const openResultFixed = hasOpenButNotReopened_FIXED(openCaseRow);
+
+        const reopenedResultBuggy = hasOpenButNotReopened_BUGGY(reopenedCaseRow);
+        const reopenedResultFixed = hasOpenButNotReopened_FIXED(reopenedCaseRow);
+
+        const openReopenedResultBuggy = hasOpenButNotReopened_BUGGY(openReopenedCaseRow);
+        const openReopenedResultFixed = hasOpenButNotReopened_FIXED(openReopenedCaseRow);
+
+        let output = `<p>'New' case row with buggy function: <b>${buggyResult}</b> (Incorrect)</p>`;
+        output += `<p>'New' case row with fixed function: <b>${fixedResult}</b> (Correct)</p>`;
+        output += `<hr>`;
+        output += `<p>'Open' case row with buggy function: <b>${openResultBuggy}</b> (Correct)</p>`;
+        output += `<p>'Open' case row with fixed function: <b>${openResultFixed}</b> (Correct)</p>`;
+        output += `<hr>`;
+        output += `<p>'Re-opened' case row with buggy function: <b>${reopenedResultBuggy}</b> (Correct)</p>`;
+        output += `<p>'Re-opened' case row with fixed function: <b>${reopenedResultFixed}</b> (Correct)</p>`;
+        output += `<hr>`;
+        output += `<p>'Open' and 'Re-opened' case row with buggy function: <b>${openReopenedResultBuggy}</b> (Correct)</p>`;
+        output += `<p>'Open' and 'Re-opened' case row with fixed function: <b>${openReopenedResultFixed}</b> (Correct)</p>`;
+
+        resultsDiv.innerHTML = output;
+
+        // Simple pass/fail check
+        if (buggyResult === false && fixedResult === true) {
+            resultsDiv.innerHTML += "<h3>✅ Verification PASSED</h3>";
+        } else {
+            resultsDiv.innerHTML += "<h3>❌ Verification FAILED</h3>";
+        }
+
+    </script>
+</body>
+</html>

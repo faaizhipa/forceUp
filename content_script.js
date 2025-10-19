@@ -850,7 +850,7 @@ function hasOpenButNotReopened(rowElement) {
   let isOpenFound = false;
   let isReopenedFound = false;
 
-  statusElements.forEach(element => {
+  for (const element of statusElements) {
     const textContent = element.textContent.trim();
 
     if (textContent === "Open") {
@@ -860,7 +860,7 @@ function hasOpenButNotReopened(rowElement) {
     } else if (textContent === "New") {
       return true;
     }
-  });
+  }
 
   if (isOpenFound && !isReopenedFound) {
     return true
