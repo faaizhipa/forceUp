@@ -1,21 +1,22 @@
 /**
- * @file background.js
- * @description This script runs in the background of the Chrome extension.
- * It is responsible for detecting URL changes in tabs, identifying the type of Salesforce page being viewed,
- * and communicating this information to the content script. It also handles saving and retrieving settings
- * from chrome.storage.
+ * @file This script runs in the background of the Chrome extension, acting as the central controller.
+ * @description It is responsible for monitoring browser navigation to identify and classify Salesforce pages,
+ * sending this information to the content script, and managing settings persistence via `chrome.storage`.
+ * This script is crucial for initializing the extension's features at the right time and on the right pages.
+ * @author Jules
+ * @see {@link https://developer.chrome.com/docs/extensions/mv3/background_pages/}
  */
 
 // --- Page Identification Logic ---
 
 /**
  * Identifies the type of Salesforce or related page based on its URL.
- * This function uses a series of checks to match parts of the URL to a known page type.
- * This is the central logic that allows the content script to know which features to activate.
- *
- * @param {string} url - The full URL of the web page to be identified.
+ * @description This function contains the core URL matching rules. It is the single source of truth
+ * for determining what kind of page the user is currently viewing, which in turn decides which
+ * features the content script should activate.
+ * @param {string} url The full URL of the web page to be identified.
  * @returns {string|null} A string representing the identified page type (e.g., 'Case_Page', 'Cases_List_Page')
- * or null if the URL does not match any known patterns.
+ * or `null` if the URL does not match any known patterns.
  */
 function getPageType(url) {
     if (url.includes('/lightning/r/Case/') && url.endsWith('/view')) {
@@ -45,14 +46,13 @@ function getPageType(url) {
 // --- Event Listeners ---
 
 /**
- * Listens for updates to any tab in the browser.
- * When a tab's URL changes and the page has finished loading, this listener
- * triggers the page identification logic and sends the result to the content script
- * running in that tab.
- *
- * @param {number} tabId - The ID of the tab that was updated.
- * @param {object} changeInfo - An object containing details about the change. We are interested in `changeInfo.url`.
- * @param {object} tab - An object containing full details about the state of the tab.
+ * Listens for updates to any tab, such as a URL change from a full page reload.
+ * @description When a tab completes loading with a new URL, this listener triggers the page identification
+ * logic. If a known page type is detected, it sends a message to the content script in that tab,
+ * initiating the feature injection process.
+ * @param {number} tabId The unique identifier of the tab that was updated.
+ * @param {object} changeInfo An object containing details about what changed in the tab. We are interested in `changeInfo.url`.
+ * @param {object} tab An object containing the full, updated state of the tab.
  */
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     // We only proceed if the URL has changed and the tab is completely loaded to avoid running on intermediate states.
@@ -71,13 +71,16 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 /**
  * Listens for history state updates, which are common in Single Page Applications (SPAs) like Salesforce Lightning.
- * This is crucial for detecting navigation that doesn't trigger a full page reload (e.g., clicking between cases).
- *
- * @param {object} details - An object containing details about the navigation event, including the URL.
+ * @description This is a critical listener for detecting client-side navigation that does not trigger a full page
+ * reload (e.g., navigating between different cases). It ensures the extension can react to these
+ * "soft" navigations in the same way it handles full page loads.
+ * @param {object} details An object containing details about the navigation event.
+ * @param {number} details.tabId The ID of the tab where the navigation occurred.
+ * @param {string} details.url The new URL after the history state update.
  */
 chrome.webNavigation.onHistoryStateUpdated.addListener((details) => {
-    // We filter for Salesforce URLs to ensure we only act on relevant pages.
-    if (details.url && (details.url.includes('.lightning.force.com') || details.url.includes('.salesforce.com'))) {
+    // We filter for Salesforce and specific wiki URLs to ensure we only act on relevant pages.
+    if (details.url && (details.url.includes('.lightning.force.com') || details.url.includes('.salesforce.com') || details.url.includes('wiki.clarivate.io'))) {
         const pageType = getPageType(details.url);
         if (pageType) {
             // A known page type was identified, so we send a message to the content script.
@@ -93,28 +96,28 @@ chrome.webNavigation.onHistoryStateUpdated.addListener((details) => {
 // --- Message Handling for Settings ---
 
 /**
- * Listens for incoming messages from other parts of the extension, primarily the popup and content scripts.
- * This handler is responsible for two main actions:
- * 1.  Saving a user's selection (e.g., from a dropdown in the popup) to `chrome.storage.sync`.
- * 2.  Retrieving a saved selection from storage and sending it back to the requester.
- *
- * @param {object} request - The message object sent by the other script. Must contain a 'message' property.
- * @param {object} sender - An object containing information about the script that sent the message.
- * @param {function} sendResponse - A function to call to send a response back to the message sender.
- *                                  This is used for asynchronous operations.
- * @returns {boolean} Returns true to indicate that the `sendResponse` function will be called asynchronously.
+ * Listens for incoming messages from other parts of the extension (popup and content scripts).
+ * @description This acts as a central message hub. It is primarily used for handling the saving and
+ * retrieving of user settings from `chrome.storage`, ensuring a clear separation of concerns
+ * where the background script manages all storage interactions.
+ * @param {object} request The message object sent by the other script. It must contain a `message` property identifying the action.
+ * @param {object} sender An object with information about the script that sent the message.
+ * @param {function} sendResponse A callback function to send a response back to the message sender.
+ * This is used for asynchronous operations like fetching data from storage.
+ * @returns {boolean} Returns `true` to indicate that the `sendResponse` function will be called asynchronously.
+ * This is required when the response is not sent in the same execution cycle.
  */
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     if (request.message === 'saveSelection') {
-      // Handles the 'saveSelection' message to persist data.
+      // Handles the 'saveSelection' message to persist data to synchronized storage.
       chrome.storage.sync.set({ 'savedSelection': request.data }, function() {
         console.log('Selection saved: ' + request.data);
       });
     } else if (request.message === 'getSavedSelection') {
-      // Handles the 'getSavedSelection' message to retrieve persisted data.
+      // Handles the 'getSavedSelection' message to retrieve persisted data from storage.
       chrome.storage.sync.get('savedSelection', function(items) {
         if (chrome.runtime.lastError) {
-          // If there was an error, send a failure response.
+          // If there was an error during storage access, send a failure response.
           sendResponse({ status: false, error: chrome.runtime.lastError });
         } else {
           // Otherwise, send a success response with the retrieved data.
