@@ -7,6 +7,11 @@
         "server",
         "start"
       ]
+    },
+    "browsermcp": {
+      "command": "npx",
+      // "@browsermcp/mcp@latest" runs the Browser MCP server for local development and testing.
+      "args": ["@browsermcp/mcp@latest"]
     }
   }
 }
