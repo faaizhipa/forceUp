@@ -1,0 +1,124 @@
+/**
+ * External CSS for Flexipage Panel Injection
+ * MV3 and Salesforce CSP compliant (no inline styles)
+ */
+
+/* Panel container */
+.exl-panel {
+    background-color: #f3f3f3;
+    border: 1px solid #d8d8d8;
+    border-radius: 4px;
+    padding: 12px;
+    margin: 12px 0;
+    font-family: 'Salesforce Sans', Arial, sans-serif;
+}
+
+/* Slot 1: Button group and data display */
+.exl-panel-slot1 {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Button group */
+.exl-button-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* Button styles */
+.exl-btn {
+    background-color: #0070d2;
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 400;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.exl-btn:hover {
+    background-color: #005fb2;
+}
+
+.exl-btn:active {
+    background-color: #00396b;
+}
+
+.exl-btn:disabled {
+    background-color: #c9c9c9;
+    cursor: not-allowed;
+}
+
+/* Data display */
+.exl-data-display {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 8px;
+    background-color: #ffffff;
+    border: 1px solid #d8d8d8;
+    border-radius: 4px;
+}
+
+.exl-data-item {
+    font-size: 13px;
+    font-weight: 600;
+    color: #3e3e3c;
+}
+
+.exl-data-value {
+    font-weight: 400;
+    color: #706e6b;
+    margin-left: 4px;
+}
+
+/* Slot 2: Expandable content */
+.exl-panel-slot2 {
+    margin-top: 12px;
+    padding: 12px;
+    background-color: #ffffff;
+    border: 1px solid #d8d8d8;
+    border-radius: 4px;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+.exl-panel-slot2[aria-expanded="false"] {
+    max-height: 0;
+    padding: 0;
+    margin-top: 0;
+    border: none;
+}
+
+.exl-panel-slot2[aria-expanded="true"] {
+    max-height: 500px;
+}
+
+.exl-slot2-content h3 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #3e3e3c;
+}
+
+.exl-slot2-content p {
+    margin: 0;
+    font-size: 14px;
+    color: #706e6b;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .exl-button-group {
+        flex-direction: column;
+    }
+    
+    .exl-data-display {
+        flex-direction: column;
+        gap: 8px;
+    }
+}

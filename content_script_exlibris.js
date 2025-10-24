@@ -38,6 +38,12 @@
     async init() {
       console.log('[ExLibris Extension] Initializing...');
 
+      // Initialize Logger first
+      if (typeof Logger !== 'undefined') {
+        Logger.init({ debugMode: false }); // Set to true for debug logging
+        Logger.info('Logger initialized');
+      }
+
       // Initialize SettingsManager first
       if (typeof SettingsManager !== 'undefined') {
         await SettingsManager.init();
@@ -61,6 +67,17 @@
         console.log('[ExLibris Extension] CacheManager initialized');
       } else {
         console.warn('[ExLibris Extension] CacheManager not loaded');
+      }
+
+      // Initialize NavigationObserver for SPA navigation
+      if (typeof NavigationObserver !== 'undefined') {
+        NavigationObserver.start();
+        NavigationObserver.onRouteChange((url) => {
+          Logger?.info('Navigation detected:', url);
+          // Re-identify page type and reinitialize features
+          this.handleNavigationChange(url);
+        });
+        Logger?.info('NavigationObserver initialized');
       }
 
       // Initialize ContextMenuHandler
@@ -227,6 +244,22 @@
           SettingsManager.isFeatureEnabled('multiTabSync')) {
         MultiTabSync.init(this.currentCaseId);
         console.log('[ExLibris Extension] MultiTabSync initialized');
+      }
+
+      // Initialize FlexipagePanelInjector (new MV3-compliant panel)
+      if (typeof FlexipagePanelInjector !== 'undefined') {
+        const injected = FlexipagePanelInjector.ensureInjected();
+        
+        if (injected) {
+          // Update context data
+          FlexipagePanelInjector.updateContext({
+            customerId: caseData.customer_id || '—',
+            institutionId: caseData.institution_id || '—',
+            server: caseData.server || '—',
+            timezone: this.settings.timezone || '—'
+          });
+          Logger?.info('FlexipagePanelInjector initialized and context updated');
+        }
       }
 
       console.log('[ExLibris Extension] Case page features initialized');
@@ -474,6 +507,23 @@
     },
 
     /**
+     * Handles navigation changes detected by NavigationObserver
+     * @param {string} url - New URL
+     */
+    async handleNavigationChange(url) {
+      Logger?.info('Handling navigation to:', url);
+      
+      // Teardown existing features
+      this.cleanup();
+      
+      // Re-identify page type
+      if (typeof PageIdentifier !== 'undefined') {
+        const pageInfo = PageIdentifier.identifyPage(url);
+        await this.handlePageChange(pageInfo);
+      }
+    },
+
+    /**
      * Cleans up existing features
      */
     cleanup() {
@@ -518,6 +568,11 @@
       if (typeof MultiTabSync !== 'undefined' && MultiTabSync.cleanup) {
         MultiTabSync.cleanup();
       }
+
+      // Cleanup FlexipagePanelInjector
+      if (typeof FlexipagePanelInjector !== 'undefined' && FlexipagePanelInjector.teardown) {
+        FlexipagePanelInjector.teardown();
+      }
     },
 
     /**
@@ -543,6 +598,12 @@
       }
       if (typeof MultiTabSync !== 'undefined' && MultiTabSync.cleanup) {
         MultiTabSync.cleanup();
+      }
+      if (typeof NavigationObserver !== 'undefined' && NavigationObserver.stop) {
+        NavigationObserver.stop();
+      }
+      if (typeof FlexipagePanelInjector !== 'undefined' && FlexipagePanelInjector.teardown) {
+        FlexipagePanelInjector.teardown();
       }
       
       this.isInitialized = false;
