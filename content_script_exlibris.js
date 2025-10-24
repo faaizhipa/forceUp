@@ -375,8 +375,8 @@
     async getCaseData(caseId) {
       // Check CacheManager first
       if (typeof CacheManager !== 'undefined') {
-        const currentLastModified = this.getLastModifiedDate();
-        const cached = await CacheManager.get(caseId, currentLastModified);
+        // CacheManager internally validates last-modified; only pass caseId
+        const cached = await CacheManager.get(caseId);
         
         if (cached) {
           console.log('[ExLibris Extension] Using cached case data from CacheManager');

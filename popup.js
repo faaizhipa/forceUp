@@ -224,6 +224,17 @@ function showSuccess(message) {
 document.addEventListener("DOMContentLoaded", async () => {
   const activeTab = await getActiveTabURL();
   
+  // Set About tab version from manifest dynamically
+  try {
+    const manifest = chrome.runtime.getManifest();
+    const versionEl = document.getElementById('versionValue');
+    if (versionEl && manifest?.version) {
+      versionEl.textContent = manifest.version;
+    }
+  } catch (_) {
+    // ignore if not available
+  }
+  
   // Check if on Salesforce
   const isSalesforce = activeTab.url.includes("clarivateanalytics.lightning.force.com") || 
                       activeTab.url.includes("clarivateanalytics--preprod.sandbox.lightning.force.com") || 
