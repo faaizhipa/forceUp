@@ -23,6 +23,8 @@
     currentCaseId: null,
     lastUrl: null, // Track last URL for navigation detection
     isInitialized: false,
+    initializationDebounceTimer: null,
+    isInitializing: false,
     caseToolkit: {
       metadata: null,
       caseData: null,
@@ -183,54 +185,81 @@
     },
 
     /**
-     * Handles page changes
+     * Handles page changes with debouncing to prevent duplicate initializations
      * @param {Object} pageInfo
      */
     async handlePageChange(pageInfo) {
-      console.log('[ExLibris Extension] Page changed:', pageInfo);
-
-      // Track URL to detect actual navigation
-      const newUrl = window.location.href;
-      const urlChanged = this.lastUrl && this.lastUrl !== newUrl;
-      this.lastUrl = newUrl;
-
-      this.currentPage = pageInfo;
-      this.currentCaseId = pageInfo.caseId;
-
-      // Update persistent banner with initial info
-      if (typeof PersistentBanner !== 'undefined') {
-        PersistentBanner.updateCurrentPage({
-          type: pageInfo.type || 'Unknown',
-          caseNumber: null, // Will be updated when case data is extracted
-          subject: null,
-          status: null,
-          subStatus: null
-        });
+      // Prevent duplicate initialization attempts
+      if (this.isInitializing) {
+        console.log('[ExLibris Extension] Initialization already in progress, skipping duplicate call');
+        return;
       }
 
-      // Clear any existing features
-      this.cleanup();
-
-      // If URL changed, add a delay to allow DOM to settle
-      if (urlChanged) {
-        console.log('[ExLibris Extension] URL changed, waiting for page to settle...');
-        await new Promise(resolve => setTimeout(resolve, 800));
+      // Debounce rapid page change events
+      if (this.initializationDebounceTimer) {
+        clearTimeout(this.initializationDebounceTimer);
       }
 
-      // Initialize features based on page type
-      console.log('[ExLibris Extension] Checking page type:', pageInfo.type);
-      console.log('[ExLibris Extension] CASES_LIST constant:', PageIdentifier.pageTypes.CASES_LIST);
-      console.log('[ExLibris Extension] Match?', pageInfo.type === PageIdentifier.pageTypes.CASES_LIST);
+      this.initializationDebounceTimer = setTimeout(async () => {
+        await this.performPageInitialization(pageInfo);
+      }, 100);
+    },
+
+    /**
+     * Performs the actual page initialization (called after debounce)
+     * @param {Object} pageInfo
+     */
+    async performPageInitialization(pageInfo) {
+      this.isInitializing = true;
       
-      if (pageInfo.type === PageIdentifier.pageTypes.CASE_PAGE) {
-        await this.initializeCasePageFeatures();
-      } else if (pageInfo.type === PageIdentifier.pageTypes.CASE_COMMENTS) {
-        await this.initializeCaseCommentsFeatures();
-      } else if (pageInfo.type === PageIdentifier.pageTypes.CASES_LIST) {
-        await this.initializeCaseListFeatures();
-      } else {
-        // Silently skip unsupported page types (reports, dashboards, etc.)
-        console.log('[ExLibris Extension] Page type not supported for features:', pageInfo.type);
+      try {
+        console.log('[ExLibris Extension] Page changed:', pageInfo);
+
+        // Track URL to detect actual navigation
+        const newUrl = window.location.href;
+        const urlChanged = this.lastUrl && this.lastUrl !== newUrl;
+        this.lastUrl = newUrl;
+
+        this.currentPage = pageInfo;
+        this.currentCaseId = pageInfo.caseId;
+
+        // Update persistent banner with initial info
+        if (typeof PersistentBanner !== 'undefined') {
+          PersistentBanner.updateCurrentPage({
+            type: pageInfo.type || 'Unknown',
+            caseNumber: null, // Will be updated when case data is extracted
+            subject: null,
+            status: null,
+            subStatus: null
+          });
+        }
+
+        // Clear any existing features
+        this.cleanup();
+
+        // If URL changed, add a delay to allow DOM to settle
+        if (urlChanged) {
+          console.log('[ExLibris Extension] URL changed, waiting for page to settle...');
+          await new Promise(resolve => setTimeout(resolve, 800));
+        }
+
+        // Initialize features based on page type
+        console.log('[ExLibris Extension] Checking page type:', pageInfo.type);
+        console.log('[ExLibris Extension] CASES_LIST constant:', PageIdentifier.pageTypes.CASES_LIST);
+        console.log('[ExLibris Extension] Match?', pageInfo.type === PageIdentifier.pageTypes.CASES_LIST);
+        
+        if (pageInfo.type === PageIdentifier.pageTypes.CASE_PAGE) {
+          await this.initializeCasePageFeatures();
+        } else if (pageInfo.type === PageIdentifier.pageTypes.CASE_COMMENTS) {
+          await this.initializeCaseCommentsFeatures();
+        } else if (pageInfo.type === PageIdentifier.pageTypes.CASES_LIST) {
+          await this.initializeCaseListFeatures();
+        } else {
+          // Silently skip unsupported page types (reports, dashboards, etc.)
+          console.log('[ExLibris Extension] Page type not supported for features:', pageInfo.type);
+        }
+      } finally {
+        this.isInitializing = false;
       }
     },
 
@@ -339,11 +368,10 @@
         FlexipagePanelInjector.setSlot2Message('Prepare tools to populate the reference workspace.');
       }
 
-      // Initialize case comment memory
+      // Initialize case comment memory (handles its own initialization via URL monitoring)
       if (typeof CaseCommentMemory !== 'undefined' &&
           SettingsManager.isFeatureEnabled('caseCommentMemory')) {
-        CaseCommentMemory.init(this.currentCaseId);
-        CaseCommentMemory.addRestoreButton(this.currentCaseId);
+        CaseCommentMemory.init();
       }
 
       if (typeof CharacterCounter !== 'undefined' &&
@@ -374,11 +402,10 @@
 
       await this.waitForElements();
 
-      // Initialize case comment memory
+      // Initialize case comment memory (handles its own initialization via URL monitoring)
       if (typeof CaseCommentMemory !== 'undefined' &&
           SettingsManager.isFeatureEnabled('caseCommentMemory')) {
-        CaseCommentMemory.init(this.currentCaseId);
-        CaseCommentMemory.addRestoreButton(this.currentCaseId);
+        CaseCommentMemory.init();
       }
 
       // Initialize character counter

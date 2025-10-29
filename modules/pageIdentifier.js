@@ -22,68 +22,107 @@ const PageIdentifier = {
     const url = window.location.href;
     const hash = window.location.hash;
 
+    console.log('PageIdentifier: Identifying page for URL:', url);
+
     // Case Page (Details, Communication, or Files Tab)
-    const casePageMatch = url.match(/\/lightning\/r\/Case\/([^\/]+)\/view/);
+    const casePageMatch = url.match(/\/lightning\/r\/Case\/([^\/]+)\/view(?:\?|$)/);
     if (casePageMatch) {
-      return {
+      const result = {
         type: this.pageTypes.CASE_PAGE,
         caseId: casePageMatch[1],
         reportId: null
       };
+      console.log('PageIdentifier: Detected CASE_PAGE:', result);
+      return result;
     }
 
     // Case Comments "View All" Page
-    const caseCommentsMatch = url.match(/\/lightning\/r\/Case\/([^\/]+)\/related\/CaseComments\/view/);
+    const caseCommentsMatch = url.match(/\/lightning\/r\/Case\/([^\/]+)\/related\/CaseComments\/view(?:\?|$)/);
     if (caseCommentsMatch) {
-      return {
+      const result = {
         type: this.pageTypes.CASE_COMMENTS,
         caseId: caseCommentsMatch[1],
         reportId: null
       };
+      console.log('PageIdentifier: Detected CASE_COMMENTS:', result);
+      return result;
     }
 
     // Cases List Page
     if (url.includes('/lightning/o/Case/list')) {
-      return {
+      const result = {
         type: this.pageTypes.CASES_LIST,
         caseId: null,
         reportId: null
       };
+      console.log('PageIdentifier: Detected CASES_LIST:', result);
+      return result;
     }
 
-    // Salesforce Reports Home
+    // Salesforce Reports Home (including with query parameters)
     if (url.includes('/lightning/o/Report/home')) {
-      return {
+      const result = {
         type: this.pageTypes.REPORT_HOME,
         caseId: null,
         reportId: null
       };
+      console.log('PageIdentifier: Detected REPORT_HOME:', result);
+      return result;
     }
 
-    // Report Page
-    const reportMatch = url.match(/\/lightning\/r\/Report\/([^\/]+)\/view/);
+    // Report Page (with or without query parameters)
+    const reportMatch = url.match(/\/lightning\/r\/Report\/([^\/\?]+)(?:\/view)?(?:\?|$)/);
     if (reportMatch) {
-      return {
+      const result = {
         type: this.pageTypes.REPORT_PAGE,
         caseId: null,
         reportId: reportMatch[1]
       };
+      console.log('PageIdentifier: Detected REPORT_PAGE:', result);
+      return result;
     }
 
     // Search Page
     if (url.includes('/one/one.app#') && (url.includes('forceSearch:searchPageDesktop') || hash.includes('forceSearch:searchPageDesktop'))) {
-      return {
+      const result = {
         type: this.pageTypes.SEARCH_PAGE,
         caseId: null,
         reportId: null
       };
+      console.log('PageIdentifier: Detected SEARCH_PAGE (direct):', result);
+      return result;
     }
 
-    return {
+    // Search Page with encoded JSON (base64)
+    if (url.includes('/one/one.app#') && hash.length > 1) {
+      try {
+        // Remove the # and decode the base64 JSON
+        const encodedData = hash.substring(1);
+        const decodedData = atob(encodedData);
+        const jsonData = JSON.parse(decodedData);
+        
+        if (jsonData.componentDef === 'forceSearch:searchPageDesktop') {
+          const result = {
+            type: this.pageTypes.SEARCH_PAGE,
+            caseId: null,
+            reportId: null
+          };
+          console.log('PageIdentifier: Detected SEARCH_PAGE (encoded):', result);
+          return result;
+        }
+      } catch (e) {
+        console.log('PageIdentifier: Failed to decode hash data:', e.message);
+        // If decoding fails, continue with other checks
+      }
+    }
+
+    const result = {
       type: this.pageTypes.UNKNOWN,
       caseId: null,
       reportId: null
     };
+    console.log('PageIdentifier: Detected UNKNOWN page type:', result);
+    return result;
   },
 
   /**
@@ -92,7 +131,9 @@ const PageIdentifier = {
    */
   isCasePage() {
     const page = this.identifyPage();
-    return page.type === this.pageTypes.CASE_PAGE || page.type === this.pageTypes.CASE_COMMENTS;
+    const result = page.type === this.pageTypes.CASE_PAGE || page.type === this.pageTypes.CASE_COMMENTS;
+    console.log('PageIdentifier: isCasePage():', result, 'for page type:', page.type);
+    return result;
   },
 
   /**
@@ -101,6 +142,7 @@ const PageIdentifier = {
    */
   getCurrentCaseId() {
     const page = this.identifyPage();
+    console.log('PageIdentifier: getCurrentCaseId():', page.caseId, 'for page type:', page.type);
     return page.caseId;
   },
 
@@ -111,7 +153,9 @@ const PageIdentifier = {
   monitorPageChanges(callback) {
     let lastUrl = window.location.href;
     let lastPageInfo = this.identifyPage();
-    let debounceTimer = null;
+    let exlDebounceTimerUrlCheck = null;
+
+    console.log('PageIdentifier: Starting page monitoring. Initial page:', lastPageInfo);
 
     // Call immediately
     callback(lastPageInfo);
@@ -120,6 +164,7 @@ const PageIdentifier = {
     const checkUrlChange = () => {
       const currentUrl = window.location.href;
       if (currentUrl !== lastUrl) {
+        console.log('PageIdentifier: URL changed from', lastUrl, 'to', currentUrl);
         lastUrl = currentUrl;
         const newPageInfo = this.identifyPage();
 
@@ -127,8 +172,11 @@ const PageIdentifier = {
         if (newPageInfo.type !== lastPageInfo.type ||
             newPageInfo.caseId !== lastPageInfo.caseId ||
             newPageInfo.reportId !== lastPageInfo.reportId) {
+          console.log('PageIdentifier: Page changed from', lastPageInfo, 'to', newPageInfo);
           lastPageInfo = newPageInfo;
           callback(newPageInfo);
+        } else {
+          console.log('PageIdentifier: URL changed but page info unchanged:', newPageInfo);
         }
       }
     };
@@ -136,12 +184,12 @@ const PageIdentifier = {
     // Monitor URL changes with debouncing to prevent multiple triggers
     const observer = new MutationObserver(() => {
       // Clear existing timer
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
+      if (exlDebounceTimerUrlCheck) {
+        clearTimeout(exlDebounceTimerUrlCheck);
       }
       
       // Set new timer - only check URL after DOM has settled
-      debounceTimer = setTimeout(checkUrlChange, 300);
+      exlDebounceTimerUrlCheck = setTimeout(checkUrlChange, 300);
     });
 
     observer.observe(document.body, {
@@ -151,9 +199,11 @@ const PageIdentifier = {
 
     // Also listen to popstate for back/forward navigation
     window.addEventListener('popstate', () => {
+      console.log('PageIdentifier: Popstate event detected');
       const newPageInfo = this.identifyPage();
       if (newPageInfo.type !== lastPageInfo.type ||
           newPageInfo.caseId !== lastPageInfo.caseId) {
+        console.log('PageIdentifier: Popstate page change from', lastPageInfo, 'to', newPageInfo);
         lastPageInfo = newPageInfo;
         callback(newPageInfo);
       }

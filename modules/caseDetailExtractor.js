@@ -189,11 +189,17 @@ const CaseDetailExtractor = (() => {
             }
         }
         
-        // Build Kibana/server log link if server is available
-        if (details.server) {
+        // Build Kibana/server log link using URLBuilder if available
+        if (details.server && typeof URLBuilder !== 'undefined') {
+            details.serverLogLink = URLBuilder.getKibanaURL(details);
+            console.log('[CaseDetailExtractor] Kibana URL from URLBuilder:', details.serverLogLink);
+        } else if (details.server) {
+            // Fallback to old format if URLBuilder not available
             details.serverLogLink = `https://kibana-${details.server}.obs.exlibrisgroup.com/`;
+            console.log('[CaseDetailExtractor] Kibana URL (fallback):', details.serverLogLink);
         } else {
             details.serverLogLink = null;
+            console.log('[CaseDetailExtractor] No server available, Kibana URL is null');
         }
         
         // Build environment URLs using URLBuilder if we have the necessary data
@@ -213,14 +219,23 @@ const CaseDetailExtractor = (() => {
             }
         };
         
-        // Build URLs using the data we have (prioritize caseData, fallback to details)
-        const urlData = caseData || details;
+        // Build URLs - use details object which already has all the data merged
+        // Check if we have the minimum required data (institutionCode and server)
+        console.log('[CaseDetailExtractor] Checking URL building requirements:', {
+            institutionCode: details.institutionCode,
+            server: details.server,
+            URLBuilderAvailable: typeof URLBuilder !== 'undefined'
+        });
         
-        if (urlData.institutionCode && urlData.server && typeof URLBuilder !== 'undefined') {
+        if (details.institutionCode && details.server && typeof URLBuilder !== 'undefined') {
             try {
-                // Production URLs
-                const prodLV = URLBuilder.buildProductionLiveViewURL(urlData);
-                const prodBO = URLBuilder.buildProductionBackOfficeURL(urlData);
+                console.log('[CaseDetailExtractor] Building URLs with URLBuilder...');
+                
+                // Production URLs - use correct method names
+                const prodLV = URLBuilder.buildLiveViewURL(details);
+                const prodBO = URLBuilder.buildBackOfficeURL(details);
+                
+                console.log('[CaseDetailExtractor] Production URLs:', { prodLV, prodBO });
                 
                 if (prodLV) {
                     details.environmentUrls.production.researchPortal = prodLV;
@@ -233,10 +248,13 @@ const CaseDetailExtractor = (() => {
                 const customDomain = customerRecord?.portalCustomDomain || caseData?.portalCustomDomain;
                 if (customDomain) {
                     details.environmentUrls.production.customPortalUrl = customDomain;
+                    console.log('[CaseDetailExtractor] Custom portal domain:', customDomain);
                 }
                 
                 // Sandbox and SQA URLs
-                const sandboxButtons = URLBuilder.buildSandboxURLs(urlData);
+                const sandboxButtons = URLBuilder.buildSandboxURLs(details);
+                console.log('[CaseDetailExtractor] Sandbox buttons:', sandboxButtons);
+                
                 sandboxButtons.forEach(btn => {
                     if (btn.tooltip?.includes('Sandbox') && btn.tooltip?.includes('Live View')) {
                         details.environmentUrls.sandbox.researchPortal = btn.url;
@@ -248,9 +266,17 @@ const CaseDetailExtractor = (() => {
                         details.environmentUrls.sqa.researchManagement = btn.url;
                     }
                 });
+                
+                console.log('[CaseDetailExtractor] Final environment URLs:', details.environmentUrls);
             } catch (error) {
-                console.warn('[CaseDetailExtractor] Could not build URLs:', error);
+                console.error('[CaseDetailExtractor] Error building URLs:', error);
             }
+        } else {
+            console.warn('[CaseDetailExtractor] Cannot build URLs - missing data:', {
+                hasInstitutionCode: !!details.institutionCode,
+                hasServer: !!details.server,
+                hasURLBuilder: typeof URLBuilder !== 'undefined'
+            });
         }
         
         console.log('Extracted case details:', details);

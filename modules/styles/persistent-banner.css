@@ -16,6 +16,11 @@ body > div.desktop.container.forceStyle.oneOne.navexDesktopLayoutContainer.lafAp
     top: 95px;
 }
 
+div.toolbar.top.fadeOut.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar, 
+div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar {
+    top: 45px;
+}
+
 /* Banner container - fixed at top */
 #exl-persistent-banner {
     position: fixed !important;

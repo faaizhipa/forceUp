@@ -55,13 +55,27 @@ const ContextMenuHandler = (function() {
     });
 
     document.addEventListener('focusout', (e) => {
-      // Keep reference for a short time in case context menu is opened
+      // Keep reference for longer to allow context menu operations
       setTimeout(() => {
-        if (document.activeElement !== activeTextarea) {
-          activeTextarea = null;
+        // Only clear if focus moved to something that's not a textarea
+        if (document.activeElement && 
+            document.activeElement.tagName !== 'TEXTAREA' && 
+            !document.activeElement.isContentEditable) {
+          // Don't clear immediately - context menu might still be open
+          setTimeout(() => {
+            activeTextarea = null;
+          }, 2000);
         }
-      }, 500);
+      }, 100);
     });
+
+    // Track mousedown on textareas to maintain reference
+    document.addEventListener('mousedown', (e) => {
+      if (e.target.tagName === 'TEXTAREA' || 
+          (e.target.tagName === 'DIV' && e.target.isContentEditable)) {
+        activeTextarea = e.target;
+      }
+    }, true);
   }
 
   /**
@@ -134,9 +148,13 @@ const ContextMenuHandler = (function() {
       
       textarea.value = before + formattedText + after;
       
-      // Restore cursor position
+      // Restore cursor position and select the newly formatted text
+      const newStart = context.start;
       const newEnd = context.start + formattedText.length;
-      textarea.setSelectionRange(newEnd, newEnd);
+      textarea.setSelectionRange(newStart, newEnd);
+      
+      // Focus the textarea to maintain context
+      textarea.focus();
       
       // Trigger input event for auto-save
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
@@ -146,10 +164,12 @@ const ContextMenuHandler = (function() {
       // For contenteditable
       const range = context.range;
       range.deleteContents();
-      range.insertNode(document.createTextNode(formattedText));
+      const textNode = document.createTextNode(formattedText);
+      range.insertNode(textNode);
       
-      // Move cursor to end of inserted text
-      range.collapse(false);
+      // Select the newly inserted text
+      range.setStartBefore(textNode);
+      range.setEndAfter(textNode);
       const selection = window.getSelection();
       selection.removeAllRanges();
       selection.addRange(range);
@@ -157,10 +177,8 @@ const ContextMenuHandler = (function() {
       console.log('[ContextMenuHandler] Replaced text in contenteditable');
     }
 
-    // Clear active textarea after replacement
-    setTimeout(() => {
-      activeTextarea = null;
-    }, 100);
+    // Keep active textarea reference - don't clear it
+    // This allows multiple consecutive formatting operations
   }
 
   /**
@@ -170,9 +188,28 @@ const ContextMenuHandler = (function() {
   function handleContextMenuClick(info) {
     console.log('[ContextMenuHandler] Context menu clicked:', info.menuItemId);
 
+    // Handle symbol insertion (can work without selection)
+    if (info.menuItemId.startsWith('exlibris-symbol-')) {
+      const symbol = info.menuItemId.replace('exlibris-symbol-', '');
+      
+      // Check if there's a selection
+      const context = getSelectionContext();
+      
+      if (context && context.text) {
+        // If there's selected text, append symbol after it
+        const formattedText = context.text + ' ' + symbol;
+        replaceSelection(formattedText);
+      } else {
+        // If no selection, just insert symbol at cursor position
+        insertSymbolAtCursor(symbol);
+      }
+      return;
+    }
+
+    // For all other formatting options, selection is required
     const context = getSelectionContext();
     if (!context) {
-      console.warn('[ContextMenuHandler] No selection available');
+      console.warn('[ContextMenuHandler] No selection available for formatting');
       return;
     }
 
@@ -205,15 +242,53 @@ const ContextMenuHandler = (function() {
     } else if (info.menuItemId === MENU_IDS.CASE_SENTENCE) {
       formattedText = TextFormatter.toSentenceCase(selectedText);
     }
-    // Handle symbol insertion
-    else if (info.menuItemId.startsWith('exlibris-symbol-')) {
-      const symbol = info.menuItemId.replace('exlibris-symbol-', '');
-      formattedText = selectedText + ' ' + symbol;
-    }
 
     // Replace the selected text
     if (formattedText !== selectedText) {
       replaceSelection(formattedText);
+    }
+  }
+
+  /**
+   * Inserts symbol at cursor position (no selection needed)
+   * @param {string} symbol
+   */
+  function insertSymbolAtCursor(symbol) {
+    if (!activeTextarea) {
+      console.warn('[ContextMenuHandler] No active textarea for symbol insertion');
+      return;
+    }
+
+    if (activeTextarea.tagName === 'TEXTAREA') {
+      const start = activeTextarea.selectionStart || 0;
+      const end = activeTextarea.selectionEnd || 0;
+      const before = activeTextarea.value.substring(0, start);
+      const after = activeTextarea.value.substring(end);
+      
+      activeTextarea.value = before + symbol + after;
+      
+      // Place cursor after the symbol
+      const newPos = start + symbol.length;
+      activeTextarea.setSelectionRange(newPos, newPos);
+      activeTextarea.focus();
+      
+      // Trigger input event
+      activeTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+      
+      console.log('[ContextMenuHandler] Inserted symbol at cursor');
+    } else if (activeTextarea.isContentEditable) {
+      // For contenteditable
+      const selection = window.getSelection();
+      const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : document.createRange();
+      
+      range.deleteContents();
+      range.insertNode(document.createTextNode(symbol));
+      range.collapse(false);
+      
+      selection.removeAllRanges();
+      selection.addRange(range);
+      
+      console.log('[ContextMenuHandler] Inserted symbol in contenteditable');
     }
   }
 

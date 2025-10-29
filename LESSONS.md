@@ -98,6 +98,77 @@ document.querySelector('forceListViewManager')
 - Standard `querySelector` may not find elements inside shadow DOM
 - Sometimes need to query inside specific Lightning component boundaries
 
+---
+
+## 6. Element Visibility in Multi-Tab Navigation
+
+### Problem
+When navigating between case tabs in Salesforce Lightning, the extension was injecting buttons into non-visible flexipage elements and extracting data from hidden previous case tables instead of the currently visible case.
+
+### Root Cause
+Salesforce Lightning's single-page application architecture keeps previous case page DOM elements in memory but hidden when users navigate to new cases. This creates multiple matching elements in the DOM:
+- Multiple action bar containers (one visible, others hidden from previous cases)
+- Multiple Case Comments tables (one visible, others cached from previous cases)
+- Multiple metadata field containers (one visible, others from previous cases)
+
+Using `querySelector()` or `querySelectorAll()` without visibility checks always returns the first match in DOM order, which is often the hidden element from a previous case.
+
+### Solution
+Implemented comprehensive visibility filtering across all DOM query operations:
+
+#### Created Helper Function
+```javascript
+function isElementVisible(element) {
+  if (!element) return false;
+  
+  // Check element and all parents for display:none or visibility:hidden
+  let el = element;
+  while (el && el !== document.body) {
+    const style = window.getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden') {
+      return false;
+    }
+    el = el.parentElement;
+  }
+  
+  // Check element has dimensions
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+```
+
+#### Applied to All DOM Queries
+1. **Button Injection** (`tryInjectButtons`):
+   - Changed from `querySelector()` to `querySelectorAll()`
+   - Iterate through all matches and check `isElementVisible()`
+   - Only inject into first visible action bar container
+   
+2. **Table Finding** (`findCommentsTable`):
+   - Applied visibility checks to all 5 search code paths:
+     - Container selector queries
+     - Fallback table header matching
+     - Table-within-container searches
+   - Return only visible Case Comments table
+   
+3. **Metadata Extraction** (`extractCaseMetadata`):
+   - Added visibility check in field element loop
+   - Skip non-visible `record-layout-item` elements
+   - Only extract from currently visible case fields
+
+### Key Takeaway
+**In navigation-heavy SPAs, always validate element visibility before interaction or extraction.** Using `querySelector()` or `querySelectorAll()` alone is insufficient when the DOM contains multiple matching elements from navigation history. Implement visibility checks that:
+- Traverse parent chain for CSS `display:none` or `visibility:hidden`
+- Validate element has actual dimensions via `getBoundingClientRect()`
+- Filter `querySelectorAll()` results to use only visible matches
+
+This ensures UI components (buttons, panels) inject into the correct location and data extraction operations target the currently active page content, not cached/hidden elements from previous navigation states.
+
+### Related Implementation
+- `modules/caseCommentExtractor.js` lines 707-745: `isElementVisible()` helper
+- `modules/caseCommentExtractor.js` lines 747-784: Button injection with visibility filtering
+- `modules/caseCommentExtractor.js` lines 294-387: Table finding with visibility filtering
+- `modules/caseCommentExtractor.js` lines 252-285: Metadata extraction with visibility filtering
+
 #### Dynamic Class Names
 - Salesforce generates unique class identifiers (e.g., `lwc-2c0jakuf71q`)
 - Don't rely on these for selectors

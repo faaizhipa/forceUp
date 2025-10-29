@@ -29,6 +29,7 @@
             "modules/settingsManager.js",
             "modules/customerDataManager.js",
             "modules/cacheManager.js",
+            "modules/timezoneStorage.js",
             "modules/caseDataExtractor.js",
             "modules/caseCommentExtractor.js",
             "modules/fieldHighlighter.js",

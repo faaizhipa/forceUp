@@ -54,17 +54,24 @@ const TextFormatter = {
     const normal = this.characterMaps.normal;
     let result = '';
 
-    for (let char of text) {
+    // Convert text to array to properly handle multi-byte characters
+    const chars = Array.from(text);
+    
+    for (let char of chars) {
       const lowerIndex = normal.lowercase.indexOf(char);
       const upperIndex = normal.uppercase.indexOf(char);
       const digitIndex = normal.digits.indexOf(char);
 
       if (lowerIndex !== -1) {
-        result += map.lowercase[lowerIndex];
+        // Get character from styled alphabet using Array.from for proper Unicode handling
+        const styledChars = Array.from(map.lowercase);
+        result += styledChars[lowerIndex] || char;
       } else if (upperIndex !== -1) {
-        result += map.uppercase[upperIndex];
+        const styledChars = Array.from(map.uppercase);
+        result += styledChars[upperIndex] || char;
       } else if (digitIndex !== -1) {
-        result += map.digits[digitIndex];
+        const styledChars = Array.from(map.digits);
+        result += styledChars[digitIndex] || char;
       } else {
         // Keep other characters unchanged
         result += char;
@@ -83,7 +90,10 @@ const TextFormatter = {
     let result = '';
     const normal = this.characterMaps.normal;
 
-    for (let char of text) {
+    // Convert text to array to properly handle multi-byte characters
+    const chars = Array.from(text);
+
+    for (let char of chars) {
       let found = false;
 
       // Check each style map
@@ -92,9 +102,14 @@ const TextFormatter = {
 
         const map = this.characterMaps[style];
 
-        const lowerIndex = map.lowercase.indexOf(char);
-        const upperIndex = map.uppercase.indexOf(char);
-        const digitIndex = map.digits.indexOf(char);
+        // Use Array.from to properly handle Unicode characters
+        const lowerChars = Array.from(map.lowercase);
+        const upperChars = Array.from(map.uppercase);
+        const digitChars = Array.from(map.digits);
+
+        const lowerIndex = lowerChars.indexOf(char);
+        const upperIndex = upperChars.indexOf(char);
+        const digitIndex = digitChars.indexOf(char);
 
         if (lowerIndex !== -1) {
           result += normal.lowercase[lowerIndex];
@@ -126,15 +141,20 @@ const TextFormatter = {
    */
   detectStyle(text) {
     const styles = {};
+    const chars = Array.from(text);
 
-    for (let char of text) {
+    for (let char of chars) {
       for (let style in this.characterMaps) {
         if (style === 'normal') continue;
 
         const map = this.characterMaps[style];
-        if (map.lowercase.includes(char) ||
-            map.uppercase.includes(char) ||
-            map.digits.includes(char)) {
+        const lowerChars = Array.from(map.lowercase);
+        const upperChars = Array.from(map.uppercase);
+        const digitChars = Array.from(map.digits);
+        
+        if (lowerChars.includes(char) ||
+            upperChars.includes(char) ||
+            digitChars.includes(char)) {
           styles[style] = (styles[style] || 0) + 1;
         }
       }

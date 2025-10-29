@@ -13,13 +13,20 @@ const CaseTimezoneResolver = {
      * Initialize the timezone resolver
      * @param {string} accountName - Current case's account name
      */
-    init(accountName = null) {
+    async init(accountName = null) {
         if (this.isInitialized) {
             return;
         }
 
         console.log('[CaseTimezoneResolver] Initializing...');
         this.currentCaseAccountName = accountName;
+
+        // Initialize TimezoneStorage
+        if (typeof TimezoneStorage !== 'undefined') {
+            await TimezoneStorage.init();
+        } else {
+            console.warn('[CaseTimezoneResolver] TimezoneStorage module not loaded');
+        }
 
         // Initialize AccountAddressExtractor
         if (typeof AccountAddressExtractor !== 'undefined') {
@@ -32,6 +39,17 @@ const CaseTimezoneResolver = {
         document.addEventListener('exlibris:addressExtracted', (event) => {
             this.handleAddressExtracted(event.detail);
         });
+
+        // Check for cached timezone if account name is provided
+        if (accountName && typeof TimezoneStorage !== 'undefined') {
+            const cachedTimezone = await TimezoneStorage.getTimezoneString(accountName);
+            if (cachedTimezone) {
+                console.log(`[CaseTimezoneResolver] Found cached timezone for ${accountName}: ${cachedTimezone}`);
+                this.resolvedTimezone = cachedTimezone;
+                this.updateFlexipagePanel(cachedTimezone);
+                this.notifyTimezoneResolved(cachedTimezone, accountName);
+            }
+        }
 
         this.isInitialized = true;
         console.log('[CaseTimezoneResolver] Initialized');
@@ -75,6 +93,9 @@ const CaseTimezoneResolver = {
                 this.resolvedTimezone = timezone;
                 console.log('[CaseTimezoneResolver] Resolved timezone:', timezone);
 
+                // Save timezone to storage
+                await this.saveTimezoneToStorage(accountName, timezone);
+
                 // Update FlexipagePanelInjector
                 this.updateFlexipagePanel(timezone);
 
@@ -93,6 +114,46 @@ const CaseTimezoneResolver = {
             }
         } catch (error) {
             console.error('[CaseTimezoneResolver] Error resolving timezone:', error);
+        }
+    },
+
+    /**
+     * Save timezone to storage with account name and institution code
+     * @param {string} accountName
+     * @param {string} timezone
+     */
+    async saveTimezoneToStorage(accountName, timezone) {
+        if (typeof TimezoneStorage === 'undefined') {
+            console.warn('[CaseTimezoneResolver] TimezoneStorage not available');
+            return;
+        }
+
+        try {
+            // Try to find institution code from CustomerDataManager
+            let institutionCode = null;
+            
+            if (typeof CustomerDataManager !== 'undefined') {
+                const customers = CustomerDataManager.getAllCustomers();
+                
+                // Find matching customer by name
+                const customer = customers.find(c => 
+                    c.name && accountName && 
+                    (c.name.toLowerCase() === accountName.toLowerCase() ||
+                     c.name.toLowerCase().includes(accountName.toLowerCase()) ||
+                     accountName.toLowerCase().includes(c.name.toLowerCase()))
+                );
+                
+                if (customer) {
+                    institutionCode = customer.institutionCode;
+                    console.log(`[CaseTimezoneResolver] Matched customer: ${customer.name} (${institutionCode})`);
+                }
+            }
+
+            // Save timezone with account name and institution code
+            await TimezoneStorage.saveTimezone(accountName, timezone, institutionCode);
+            console.log(`[CaseTimezoneResolver] Saved timezone to storage: ${accountName} -> ${timezone}`);
+        } catch (error) {
+            console.error('[CaseTimezoneResolver] Error saving timezone to storage:', error);
         }
     },
 
@@ -130,7 +191,26 @@ const CaseTimezoneResolver = {
     async resolveForAccount(accountName) {
         console.log('[CaseTimezoneResolver] Manually resolving timezone for:', accountName);
 
-        // Check cache first
+        // Check timezone storage first
+        if (typeof TimezoneStorage !== 'undefined') {
+            const cachedTimezone = await TimezoneStorage.getTimezoneString(accountName);
+            if (cachedTimezone) {
+                console.log('[CaseTimezoneResolver] Using cached timezone from storage');
+                this.resolvedTimezone = cachedTimezone;
+                this.updateFlexipagePanel(cachedTimezone);
+                this.notifyTimezoneResolved(cachedTimezone, accountName);
+                
+                if (typeof FlexipagePanelInjector !== 'undefined') {
+                    FlexipagePanelInjector.setStatusMessage(
+                        `Using cached timezone for ${accountName}: ${cachedTimezone}`,
+                        'success'
+                    );
+                }
+                return;
+            }
+        }
+
+        // Check address cache
         if (typeof AccountAddressExtractor !== 'undefined') {
             const cachedAddress = AccountAddressExtractor.getCachedAddress(accountName);
             if (cachedAddress) {
@@ -149,6 +229,24 @@ const CaseTimezoneResolver = {
         }
 
         alert(`To auto-detect timezone:\n\n1. Hover your mouse over the Account Name "${accountName}"\n2. Wait for the preview panel to appear\n3. The timezone will be automatically detected and updated`);
+    },
+
+    /**
+     * Get cached timezone from storage
+     * @param {string} accountName
+     * @returns {Promise<string|null>}
+     */
+    async getCachedTimezone(accountName) {
+        if (typeof TimezoneStorage === 'undefined') {
+            return null;
+        }
+
+        try {
+            return await TimezoneStorage.getTimezoneString(accountName);
+        } catch (error) {
+            console.error('[CaseTimezoneResolver] Error getting cached timezone:', error);
+            return null;
+        }
     },
 
     /**

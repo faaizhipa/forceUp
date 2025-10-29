@@ -58,25 +58,61 @@ const FlexipagePanelInjector = {
     },
 
     /**
+     * Check if an element is visible (not hidden by CSS or dimensions)
+     * @param {Element} element - The element to check
+     * @returns {boolean}
+     */
+    isElementVisible(element) {
+        if (!element) return false;
+        
+        // Check element and all parents for display:none or visibility:hidden
+        let el = element;
+        while (el && el !== document.body) {
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden') {
+                return false;
+            }
+            el = el.parentElement;
+        }
+        
+        // Check element has dimensions
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+    },
+
+    /**
      * Find flexipage header element - targets div.secondaryFields container
+     * Only returns visible elements to avoid injecting into hidden previous case pages
      * @returns {Element|null}
      */
     findFlexipageHeader() {
         // Primary strategy: Target div.secondaryFields within records-highlights2
-        const secondaryFields = document.querySelector('records-highlights2 div.secondaryFields');
-        if (secondaryFields) {
-            console.log('[EXL] FlexipagePanelInjector: Found div.secondaryFields in records-highlights2');
-            return secondaryFields;
+        const secondaryFieldsList = document.querySelectorAll('records-highlights2 div.secondaryFields');
+        for (const secondaryFields of secondaryFieldsList) {
+            if (this.isElementVisible(secondaryFields)) {
+                console.log('[EXL] FlexipagePanelInjector: Found visible div.secondaryFields in records-highlights2');
+                return secondaryFields;
+            } else {
+                console.log('[EXL] FlexipagePanelInjector: Skipping non-visible div.secondaryFields');
+            }
         }
 
         // Secondary strategy: Find records-highlights-details-item and get its parent slot
-        const detailsItem = document.querySelector('records-highlights-details-item');
-        if (detailsItem) {
+        const detailsItems = document.querySelectorAll('records-highlights-details-item');
+        for (const detailsItem of detailsItems) {
+            if (!this.isElementVisible(detailsItem)) {
+                console.log('[EXL] FlexipagePanelInjector: Skipping non-visible records-highlights-details-item');
+                continue;
+            }
+            
             const parentSlot = detailsItem.parentElement;
             
             if (parentSlot && parentSlot.tagName === 'SLOT') {
-                console.log('[EXL] FlexipagePanelInjector: Found parent slot of records-highlights-details-item');
-                return parentSlot.parentElement; // The div.secondaryFields
+                const secondaryFields = parentSlot.parentElement; // The div.secondaryFields
+                if (this.isElementVisible(secondaryFields)) {
+                    console.log('[EXL] FlexipagePanelInjector: Found visible parent slot of records-highlights-details-item');
+                    return secondaryFields;
+                }
             }
         }
 
@@ -90,10 +126,14 @@ const FlexipagePanelInjector = {
         ];
 
         for (const selector of selectors) {
-            const element = document.querySelector(selector);
-            if (element) {
-                console.log(`[EXL] FlexipagePanelInjector: Found header with fallback selector: ${selector}`);
-                return element;
+            const elements = document.querySelectorAll(selector);
+            for (const element of elements) {
+                if (this.isElementVisible(element)) {
+                    console.log(`[EXL] FlexipagePanelInjector: Found visible header with fallback selector: ${selector}`);
+                    return element;
+                } else {
+                    console.log(`[EXL] FlexipagePanelInjector: Skipping non-visible element for selector: ${selector}`);
+                }
             }
         }
 

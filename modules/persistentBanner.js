@@ -25,6 +25,10 @@ const PersistentBanner = {
         subStatus: null
     },
 
+    // URL monitoring
+    lastKnownUrl: null,
+    urlMonitorInterval: null,
+
     /**
      * Initialize the persistent banner
      */
@@ -45,8 +49,66 @@ const PersistentBanner = {
         // Observe DOM for the right injection point
         this.observeForInjection();
         
+        // Start URL monitoring to detect navigation changes
+        this.startUrlMonitoring();
+        
         this.isInitialized = true;
         console.log('[PersistentBanner] Initialized');
+    },
+
+    /**
+     * Start monitoring URL changes
+     */
+    startUrlMonitoring() {
+        this.lastKnownUrl = window.location.href;
+        
+        // Check URL every 500ms
+        this.urlMonitorInterval = setInterval(() => {
+            const currentUrl = window.location.href;
+            if (currentUrl !== this.lastKnownUrl) {
+                console.log('[PersistentBanner] URL changed:', currentUrl);
+                this.lastKnownUrl = currentUrl;
+                this.handleUrlChange(currentUrl);
+            }
+        }, 500);
+        
+        console.log('[PersistentBanner] URL monitoring started');
+    },
+
+    /**
+     * Stop monitoring URL changes
+     */
+    stopUrlMonitoring() {
+        if (this.urlMonitorInterval) {
+            clearInterval(this.urlMonitorInterval);
+            this.urlMonitorInterval = null;
+            console.log('[PersistentBanner] URL monitoring stopped');
+        }
+    },
+
+    /**
+     * Handle URL change - reset current page data
+     * @param {string} newUrl
+     */
+    handleUrlChange(newUrl) {
+        console.log('[PersistentBanner] Handling URL change, resetting current page data');
+        
+        // Reset current page to initial state
+        this.currentPage = {
+            type: 'Unknown',
+            caseNumber: null,
+            subject: null,
+            status: null,
+            subStatus: null,
+            url: newUrl,
+            timestamp: new Date().toISOString()
+        };
+        
+        // Update UI to show loading/unknown state
+        this.updateBannerUI();
+        
+        // The content script will call updateCurrentPage with proper data after page analysis
+        console.log('[PersistentBanner] Waiting for content script to update page data...');
     },
 
     /**
@@ -262,25 +324,64 @@ const PersistentBanner = {
             return;
         }
 
-        try {
-            // Initialize the extractor (this will inject buttons and set up observers)
-            CaseCommentExtractor.initialize();
-            
-            // Wait a moment for the extractor to set up
-            await new Promise(resolve => setTimeout(resolve, 500));
+        // Force refresh of cached case data to ensure we're using current page data
+        console.log('[PersistentBanner] Forcing refresh of case data before comment extraction');
+        if (typeof window.ExLibrisExtension !== 'undefined' && 
+            typeof CaseDataExtractor !== 'undefined') {
+            try {
+                // Clear cached data
+                if (window.ExLibrisExtension.caseToolkit) {
+                    window.ExLibrisExtension.caseToolkit.caseData = null;
+                }
+                
+                // Extract fresh data from current page
+                const freshCaseData = await CaseDataExtractor.getData();
+                
+                // Update toolkit cache
+                if (window.ExLibrisExtension.caseToolkit && freshCaseData) {
+                    window.ExLibrisExtension.caseToolkit.caseData = freshCaseData;
+                    console.log('[PersistentBanner] Refreshed case data:', freshCaseData.caseNumber);
+                }
+            } catch (error) {
+                console.warn('[PersistentBanner] Error refreshing case data:', error);
+            }
+        }
 
-            // Try to extract comments
+        try {
+            // Get fresh comments data from current page
             const data = CaseCommentExtractor.extractCaseComments();
             
-            if (data && data.comments && data.comments.length > 0) {
+            if (!data || !data.comments || data.comments.length === 0) {
                 this.showNotification(
-                    `Found ${data.comments.length} comment(s). Copy buttons injected in the case page.`,
+                    'No comments found. Make sure you are on the Communications tab and Case Comments section is loaded.',
+                    'warning'
+                );
+                return;
+            }
+
+            console.log(`[PersistentBanner] Found ${data.comments.length} comment(s), attempting to inject buttons...`);
+
+            // Re-initialize the extractor to use current page elements
+            CaseCommentExtractor.initialize();
+            
+            // Wait for the buttons to be injected
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // Check if buttons were actually injected
+            const injectedButtons = document.querySelectorAll('[data-cc-extractor="true"]');
+            
+            if (injectedButtons.length > 0) {
+                this.showNotification(
+                    `Found ${data.comments.length} comment(s). Copy buttons injected successfully.`,
                     'success'
                 );
-            } else if (data) {
-                this.showNotification('No comments found for this case', 'info');
             } else {
-                this.showNotification('Could not extract comments. Make sure you are on the Communications tab.', 'warning');
+                // Buttons not injected, but we have data - offer alternative
+                console.warn('[PersistentBanner] Buttons not injected, action bar not found');
+                this.showNotification(
+                    `Found ${data.comments.length} comment(s), but could not inject buttons. The action bar may not be visible on this view.`,
+                    'warning'
+                );
             }
         } catch (error) {
             console.error('[PersistentBanner] Error extracting comments:', error);
@@ -346,6 +447,29 @@ const PersistentBanner = {
         if (typeof CaseDetailExtractor === 'undefined') {
             this.showNotification('Case Detail Extractor module not loaded', 'error');
             return;
+        }
+
+        // Force refresh of cached case data to ensure we're using current page data
+        console.log('[PersistentBanner] Forcing refresh of case data before extraction');
+        if (typeof window.ExLibrisExtension !== 'undefined' && 
+            typeof CaseDataExtractor !== 'undefined') {
+            try {
+                // Clear cached data
+                if (window.ExLibrisExtension.caseToolkit) {
+                    window.ExLibrisExtension.caseToolkit.caseData = null;
+                }
+                
+                // Extract fresh data from current page
+                const freshCaseData = await CaseDataExtractor.getData();
+                
+                // Update toolkit cache
+                if (window.ExLibrisExtension.caseToolkit && freshCaseData) {
+                    window.ExLibrisExtension.caseToolkit.caseData = freshCaseData;
+                    console.log('[PersistentBanner] Refreshed case data:', freshCaseData.caseNumber);
+                }
+            } catch (error) {
+                console.warn('[PersistentBanner] Error refreshing case data:', error);
+            }
         }
 
         // Create a simple menu to choose format
@@ -698,6 +822,7 @@ const PersistentBanner = {
      * Clean up
      */
     cleanup() {
+        this.stopUrlMonitoring();
         this.remove();
         this.isInitialized = false;
         console.log('[PersistentBanner] Cleaned up');

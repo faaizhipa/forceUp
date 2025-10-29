@@ -12,11 +12,11 @@ function createContextMenus() {
   }
 
   chrome.contextMenus.removeAll(() => {
-    // Parent menu
+    // Parent menu - show on both selection and editable fields
     chrome.contextMenus.create({
       id: 'exlibris-text-format',
       title: 'Ex Libris Format',
-      contexts: ['selection']
+      contexts: ['selection', 'editable']
     });
 
     // Style submenu
@@ -117,7 +117,7 @@ function createContextMenus() {
       id: 'exlibris-symbols',
       parentId: 'exlibris-text-format',
       title: 'Insert Symbol',
-      contexts: ['selection']
+      contexts: ['selection', 'editable']
     });
 
     const symbols = ['▪', '∘', '▫', '►', '▻', '▸', '▹', '▿', '▾', '⋯', '⋮'];
@@ -126,7 +126,7 @@ function createContextMenus() {
         id: `exlibris-symbol-${symbol}`,
         parentId: 'exlibris-symbols',
         title: symbol,
-        contexts: ['selection']
+        contexts: ['selection', 'editable']
       });
     });
 

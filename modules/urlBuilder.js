@@ -111,14 +111,24 @@ const URLBuilder = {
 
   /**
    * Gets Kibana URL for the affected environment
-   * @param {Object} caseData
+   * @param {Object} caseData - Object with affectedEnvironment or server property
    * @returns {string|null}
    */
   getKibanaURL(caseData) {
-    if (!caseData.affectedEnvironment) return null;
-
-    // Extract first 4 characters of environment
-    const envPrefix = caseData.affectedEnvironment.substring(0, 4).toUpperCase();
+    let envPrefix = null;
+    
+    // Try affectedEnvironment first
+    if (caseData.affectedEnvironment) {
+      // Extract first 4 characters of environment
+      envPrefix = caseData.affectedEnvironment.substring(0, 4).toUpperCase();
+    } 
+    // Fallback to server property (e.g., 'na05', 'eu01')
+    else if (caseData.server) {
+      // Server might be lowercase, extract first 4 chars and uppercase
+      envPrefix = caseData.server.substring(0, 4).toUpperCase();
+    }
+    
+    if (!envPrefix) return null;
 
     return this.kibanaMapping[envPrefix] || null;
   },

@@ -251,6 +251,11 @@ const CaseCommentExtractor = (() => {
         };
         
         document.querySelectorAll('records-record-layout-item, div.forcePageBlockItem').forEach((item) => {
+            // Skip non-visible items to avoid getting metadata from hidden/cached cases
+            if (!isElementVisible(item)) {
+                return;
+            }
+            
             const labelElement = item.querySelector('.slds-form-element__label, .test-id__field-label, label');
             if (labelElement) {
                 const labelText = labelElement.textContent.trim();
@@ -291,7 +296,7 @@ const CaseCommentExtractor = (() => {
     }
 
     /**
-     * Finds the case comments table on the page
+     * Finds the case comments table on the page (only visible tables)
      * @returns {Element|null} The comments table element or null
      */
     function findCommentsTable() {
@@ -321,20 +326,33 @@ const CaseCommentExtractor = (() => {
                     // Manual check for "Case Comments" text
                     const candidates = document.querySelectorAll('div.slds-card, div.forceListViewManager, lst-list-view-manager-header');
                     for (const candidate of candidates) {
+                        // Skip non-visible candidates
+                        if (!isElementVisible(candidate)) {
+                            console.log('[CaseCommentExtractor] Skipping non-visible candidate container');
+                            continue;
+                        }
+                        
                         const text = candidate.textContent || '';
                         const title = candidate.getAttribute('title') || '';
                         if (text.includes('Case Comments') || title.includes('Case Comments')) {
                             commentsContainer = candidate;
-                            console.log('Comments container found with text/title match');
+                            console.log('Comments container found with text/title match (visible)');
                             break;
                         }
                     }
                 } else {
-                    commentsContainer = document.querySelector(selector);
+                    // Get all matching elements and find the visible one
+                    const candidates = document.querySelectorAll(selector);
+                    for (const candidate of candidates) {
+                        if (isElementVisible(candidate)) {
+                            commentsContainer = candidate;
+                            console.log('Comments container found with selector (visible):', selector);
+                            break;
+                        }
+                    }
                 }
                 
                 if (commentsContainer) {
-                    console.log('Comments container found with selector:', selector);
                     break;
                 }
             } catch (e) {
@@ -344,13 +362,19 @@ const CaseCommentExtractor = (() => {
         
         if (!commentsContainer) {
             console.error('Case Comments container not found. Trying broader search...');
-            // Last resort: find any table with comment-related columns
+            // Last resort: find any visible table with comment-related columns
             const allTables = document.querySelectorAll('table[role="grid"], table.slds-table');
             for (const table of allTables) {
+                // Only check visible tables
+                if (!isElementVisible(table)) {
+                    console.log('[CaseCommentExtractor] Skipping non-visible table');
+                    continue;
+                }
+                
                 const headers = Array.from(table.querySelectorAll('thead th'));
                 const headerTexts = headers.map(h => (h.textContent || '').trim().toLowerCase());
-                if (headerTexts.includes('comment') || headerTexts.includes('user') && headerTexts.includes('public')) {
-                    console.log('Found table with comment-related headers (fallback)');
+                if (headerTexts.includes('comment') || (headerTexts.includes('user') && headerTexts.includes('public'))) {
+                    console.log('Found visible table with comment-related headers (fallback)');
                     return table;
                 }
             }
@@ -368,11 +392,15 @@ const CaseCommentExtractor = (() => {
         
         let commentsTable = null;
         for (const selector of tableSelectors) {
-            commentsTable = commentsContainer.querySelector(selector);
-            if (commentsTable) {
-                console.log('Comments table found with selector:', selector);
-                break;
+            const tables = commentsContainer.querySelectorAll(selector);
+            for (const table of tables) {
+                if (isElementVisible(table)) {
+                    commentsTable = table;
+                    console.log('Comments table found with selector (visible):', selector);
+                    break;
+                }
             }
+            if (commentsTable) break;
         }
         
         if (!commentsTable) {
@@ -380,7 +408,7 @@ const CaseCommentExtractor = (() => {
             return null;
         }
         
-        console.log('Comments table found:', commentsTable);
+        console.log('Visible comments table found:', commentsTable);
         return commentsTable;
     }
 
@@ -491,24 +519,45 @@ const CaseCommentExtractor = (() => {
         xml += '  </metadata>\n';
         xml += '  <updates>\n';
         
-        // Sort comments by date (ascending)
+        // Sort comments by date (ascending - oldest to newest)
         const sortedComments = [...data.comments].sort((a, b) => {
             try {
-                const parseFormattedDate = (formattedStr) => {
-                    if (!formattedStr || formattedStr === 'N/A') return null;
-                    const parts = formattedStr.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/);
-                    if (!parts) return null;
-                    return new Date(parts[3], parts[2] - 1, parts[1], parts[4], parts[5]);
+                const parseDateString = (dateStr) => {
+                    if (!dateStr || dateStr === 'N/A') return null;
+                    
+                    // Try parsing original date string directly
+                    let date = new Date(dateStr.replace(/,/g, ''));
+                    if (!isNaN(date.getTime())) return date;
+                    
+                    // Try DD/MM/YYYY HH:MM format (24hr)
+                    const parts24 = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/);
+                    if (parts24) {
+                        return new Date(parts24[3], parts24[2] - 1, parts24[1], parts24[4], parts24[5]);
+                    }
+                    
+                    // Try DD/MM/YYYY HH:MM AM/PM format
+                    const parts12 = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s+(AM|PM)/i);
+                    if (parts12) {
+                        let hours = parseInt(parts12[4], 10);
+                        const ampm = parts12[6].toUpperCase();
+                        if (ampm === 'PM' && hours < 12) hours += 12;
+                        if (ampm === 'AM' && hours === 12) hours = 0;
+                        return new Date(parts12[3], parts12[2] - 1, parts12[1], hours, parts12[5]);
+                    }
+                    
+                    return null;
                 };
                 
-                const dateA = parseFormattedDate(formatCommentDate(a.date));
-                const dateB = parseFormattedDate(formatCommentDate(b.date));
+                const dateA = parseDateString(a.date);
+                const dateB = parseDateString(b.date);
                 
+                // Sort ascending (oldest first)
                 if (dateA && dateB) return dateA - dateB;
-                if (dateA) return -1;
+                if (dateA) return -1; // Valid dates before invalid
                 if (dateB) return 1;
                 return 0;
             } catch (e) {
+                console.warn('Error sorting comments by date:', e);
                 return 0;
             }
         });
@@ -545,24 +594,45 @@ const CaseCommentExtractor = (() => {
         table += '\n';
         table += 'Author\tPublic\tDate\tComment\n';
         
-        // Sort comments by date (ascending)
+        // Sort comments by date (ascending - oldest to newest)
         const sortedComments = [...data.comments].sort((a, b) => {
             try {
-                const parseFormattedDate = (formattedStr) => {
-                    if (!formattedStr || formattedStr === 'N/A') return null;
-                    const parts = formattedStr.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/);
-                    if (!parts) return null;
-                    return new Date(parts[3], parts[2] - 1, parts[1], parts[4], parts[5]);
+                const parseDateString = (dateStr) => {
+                    if (!dateStr || dateStr === 'N/A') return null;
+                    
+                    // Try parsing original date string directly
+                    let date = new Date(dateStr.replace(/,/g, ''));
+                    if (!isNaN(date.getTime())) return date;
+                    
+                    // Try DD/MM/YYYY HH:MM format (24hr)
+                    const parts24 = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/);
+                    if (parts24) {
+                        return new Date(parts24[3], parts24[2] - 1, parts24[1], parts24[4], parts24[5]);
+                    }
+                    
+                    // Try DD/MM/YYYY HH:MM AM/PM format
+                    const parts12 = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s+(AM|PM)/i);
+                    if (parts12) {
+                        let hours = parseInt(parts12[4], 10);
+                        const ampm = parts12[6].toUpperCase();
+                        if (ampm === 'PM' && hours < 12) hours += 12;
+                        if (ampm === 'AM' && hours === 12) hours = 0;
+                        return new Date(parts12[3], parts12[2] - 1, parts12[1], hours, parts12[5]);
+                    }
+                    
+                    return null;
                 };
                 
-                const dateA = parseFormattedDate(formatCommentDate(a.date));
-                const dateB = parseFormattedDate(formatCommentDate(b.date));
+                const dateA = parseDateString(a.date);
+                const dateB = parseDateString(b.date);
                 
+                // Sort ascending (oldest first)
                 if (dateA && dateB) return dateA - dateB;
-                if (dateA) return -1;
+                if (dateA) return -1; // Valid dates before invalid
                 if (dateB) return 1;
                 return 0;
             } catch (e) {
+                console.warn('Error sorting comments by date:', e);
                 return 0;
             }
         });
@@ -659,25 +729,73 @@ const CaseCommentExtractor = (() => {
     }
 
     /**
+     * Checks if an element is visible
+     * @param {HTMLElement} element - Element to check
+     * @returns {boolean} True if element is visible
+     */
+    function isElementVisible(element) {
+        if (!element) return false;
+        
+        // Check if element or any parent has display:none or visibility:hidden
+        let current = element;
+        while (current && current !== document.body) {
+            const style = window.getComputedStyle(current);
+            if (style.display === 'none' || style.visibility === 'hidden') {
+                return false;
+            }
+            current = current.parentElement;
+        }
+        
+        // Check if element has dimensions
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+    }
+
+    /**
      * Attempts to find and inject buttons into the action bar
      * @returns {boolean} Success status
      */
     function tryInjectButtons() {
-        // Look for the action bar container (next to "New" button)
-        const actionContainer = document.querySelector(
-            '.branding-actions.slds-button-group[data-aura-class="oneActionsRibbon forceActionsContainer"]'
-        );
-        
-        if (actionContainer) {
-            if (actionContainer.querySelector('[data-cc-extractor="true"]')) {
+        // Try multiple selectors for the action bar container
+        const actionBarSelectors = [
+            // Primary: Standard action bar (next to "New" button)
+            '.branding-actions.slds-button-group[data-aura-class="oneActionsRibbon forceActionsContainer"]',
+            // Fallback 1: Alternative action container
+            '.branding-actions.slds-button-group',
+            // Fallback 2: Any button group in the header area
+            '.slds-page-header__detail-row .slds-button-group',
+            // Fallback 3: Related list action bar
+            'div[class*="forceRelatedListViewManager"] .slds-button-group',
+            // Fallback 4: Case Comments related list action bar
+            'article[aria-label*="Case Comments"] .slds-button-group'
+        ];
+
+        for (const selector of actionBarSelectors) {
+            // Get ALL matching elements (not just the first one)
+            const actionContainers = document.querySelectorAll(selector);
+            
+            for (const actionContainer of actionContainers) {
+                // Skip if not visible
+                if (!isElementVisible(actionContainer)) {
+                    console.log('[CaseCommentExtractor] Skipping non-visible action container:', selector);
+                    continue;
+                }
+                
+                // Check if buttons already exist in this container
+                if (actionContainer.querySelector('[data-cc-extractor="true"]')) {
+                    console.log('[CaseCommentExtractor] Buttons already injected in visible container');
+                    buttonsInjected = true;
+                    return true;
+                }
+                
+                console.log('[CaseCommentExtractor] Found visible action container with selector:', selector);
+                addCopyButtons(actionContainer);
                 buttonsInjected = true;
                 return true;
             }
-            addCopyButtons(actionContainer);
-            buttonsInjected = true;
-            return true;
         }
         
+        console.log('[CaseCommentExtractor] No suitable visible action container found');
         return false;
     }
 
