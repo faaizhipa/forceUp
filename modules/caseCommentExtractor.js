@@ -297,31 +297,86 @@ const CaseCommentExtractor = (() => {
     function findCommentsTable() {
         // Try multiple selectors for the Comments tab/section
         const containerSelectors = [
+            // Standard related list containers
             'article.slds-card[title*="Case Comments"]',
             'div.forceRelatedListContainer[title*="Case Comments"]',
             'div[aria-label*="Case Comments"]',
             '#CaseComments_body',
-            '.related_list_container[id*="CaseComments"]'
+            '.related_list_container[id*="CaseComments"]',
+            // List view manager containers (for when viewing related list in full view)
+            'div.forceListViewManager',
+            'div.test-listViewManager',
+            // Broader fallback - look for any container with Case Comments header
+            'div.slds-card:has(h2:contains("Case Comments"))',
+            'div.slds-card:has(span[title="Case Comments"])',
+            // Look for list-view-manager-header with Case Comments
+            'lst-list-view-manager-header:has(span[title="Case Comments"])'
         ];
         
         let commentsContainer = null;
         for (const selector of containerSelectors) {
-            commentsContainer = document.querySelector(selector);
-            if (commentsContainer) {
-                console.log('Comments container found with selector:', selector);
-                break;
+            try {
+                // Use querySelectorAll and check title/text content for :has() compatibility
+                if (selector.includes(':has(') || selector.includes(':contains(')) {
+                    // Manual check for "Case Comments" text
+                    const candidates = document.querySelectorAll('div.slds-card, div.forceListViewManager, lst-list-view-manager-header');
+                    for (const candidate of candidates) {
+                        const text = candidate.textContent || '';
+                        const title = candidate.getAttribute('title') || '';
+                        if (text.includes('Case Comments') || title.includes('Case Comments')) {
+                            commentsContainer = candidate;
+                            console.log('Comments container found with text/title match');
+                            break;
+                        }
+                    }
+                } else {
+                    commentsContainer = document.querySelector(selector);
+                }
+                
+                if (commentsContainer) {
+                    console.log('Comments container found with selector:', selector);
+                    break;
+                }
+            } catch (e) {
+                console.warn(`Selector "${selector}" failed:`, e);
             }
         }
         
         if (!commentsContainer) {
-            console.error('Case Comments container not found.');
+            console.error('Case Comments container not found. Trying broader search...');
+            // Last resort: find any table with comment-related columns
+            const allTables = document.querySelectorAll('table[role="grid"], table.slds-table');
+            for (const table of allTables) {
+                const headers = Array.from(table.querySelectorAll('thead th'));
+                const headerTexts = headers.map(h => (h.textContent || '').trim().toLowerCase());
+                if (headerTexts.includes('comment') || headerTexts.includes('user') && headerTexts.includes('public')) {
+                    console.log('Found table with comment-related headers (fallback)');
+                    return table;
+                }
+            }
             return null;
         }
         
-        // Find the table within the container
-        const commentsTable = commentsContainer.querySelector('table.slds-table, table.list');
+        // Find the table within the container - try multiple selectors
+        const tableSelectors = [
+            'table.slds-table',
+            'table.list',
+            'table.forceRecordLayout',
+            'table.uiVirtualDataTable',
+            'table[role="grid"]'
+        ];
+        
+        let commentsTable = null;
+        for (const selector of tableSelectors) {
+            commentsTable = commentsContainer.querySelector(selector);
+            if (commentsTable) {
+                console.log('Comments table found with selector:', selector);
+                break;
+            }
+        }
+        
         if (!commentsTable) {
-            console.warn('Case Comments table not found. Might be empty or using different structure.');
+            console.warn('Case Comments table not found in container. Might be empty or using different structure.');
             return null;
         }
         

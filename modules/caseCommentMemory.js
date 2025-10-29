@@ -14,14 +14,152 @@ const CaseCommentMemory = {
    * Initializes the comment memory system for a case
    * @param {string} caseId
    */
-  init(caseId) {
+  async init(caseId) {
     if (!caseId) return;
 
-    // Load existing history
-    this.loadHistory(caseId);
+    console.log(`[CaseCommentMemory] Initializing for case ${caseId}`);
 
-    // Set up textarea monitoring
-    this.monitorTextarea(caseId);
+    // Load existing history
+    await this.loadHistory(caseId);
+
+    // Set up monitoring with tab detection
+    await this.setupMonitoring(caseId);
+  },
+
+  /**
+   * Sets up all monitoring including tab changes
+   * @param {string} caseId
+   */
+  async setupMonitoring(caseId) {
+    // Try to set up textarea monitoring immediately if Communication tab is active
+    if (this.isCommunicationTabActive()) {
+      await this.monitorTextarea(caseId);
+    }
+
+    // Monitor for tab changes
+    this.monitorTabChanges(caseId);
+
+    // Monitor for textarea appearance (in case it's added dynamically)
+    this.monitorTextareaAppearance(caseId);
+  },
+
+  /**
+   * Monitors for tab changes to re-inject buttons
+   * @param {string} caseId
+   */
+  monitorTabChanges(caseId) {
+    // Find the tab bar
+    const tabBar = document.querySelector('ul.slds-tabs_default__nav[role="tablist"]');
+    if (!tabBar) {
+      console.warn('[CaseCommentMemory] Tab bar not found, retrying...');
+      setTimeout(() => this.monitorTabChanges(caseId), 1000);
+      return;
+    }
+
+    // Listen for clicks on Communication tab
+    const commTab = tabBar.querySelector('li[data-label="Communication"]');
+    if (commTab) {
+      const link = commTab.querySelector('a');
+      if (link) {
+        link.addEventListener('click', async () => {
+          console.log('[CaseCommentMemory] Communication tab clicked');
+          // Wait a bit for tab content to load
+          setTimeout(async () => {
+            await this.monitorTextarea(caseId);
+          }, 500);
+        });
+      }
+    }
+
+    // Use MutationObserver to detect tab activation
+    const observer = new MutationObserver(async (mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+          const target = mutation.target;
+          if (target.classList.contains('slds-is-active') && 
+              target.getAttribute('data-label') === 'Communication') {
+            console.log('[CaseCommentMemory] Communication tab became active');
+            setTimeout(async () => {
+              await this.monitorTextarea(caseId);
+            }, 500);
+          }
+        }
+      }
+    });
+
+    const tabs = tabBar.querySelectorAll('li.slds-tabs_default__item');
+    tabs.forEach(tab => {
+      observer.observe(tab, { attributes: true });
+    });
+
+    console.log('[CaseCommentMemory] Tab change monitoring set up');
+  },
+
+  /**
+   * Monitors for textarea appearance in the DOM
+   * Only starts monitoring after specific buttons are clicked
+   * @param {string} caseId
+   */
+  monitorTextareaAppearance(caseId) {
+    let observer = null;
+    
+    // Function to start monitoring for textarea
+    const startTextareaMonitoring = () => {
+      console.log('[CaseCommentMemory] Button clicked, starting textarea monitoring');
+      
+      // Create observer if it doesn't exist
+      if (!observer) {
+        observer = new MutationObserver(async (mutations) => {
+          // Check if Communication tab is active
+          if (!this.isCommunicationTabActive()) return;
+
+          // Check if textarea is now available
+          const textarea = this.getTextarea();
+          if (textarea && !textarea.dataset.caseCommentMemoryInitialized) {
+            console.log('[CaseCommentMemory] Textarea appeared, setting up monitoring');
+            await this.monitorTextarea(caseId);
+            // Once textarea is set up, disconnect observer
+            observer.disconnect();
+            observer = null;
+          }
+        });
+
+        // Observe the main content area
+        const mainContent = document.querySelector('.slds-template__content') || document.body;
+        observer.observe(mainContent, {
+          childList: true,
+          subtree: true
+        });
+      }
+    };
+
+    // Function to attach click listeners to target buttons
+    const attachButtonListeners = () => {
+      const createButton = document.querySelector('button[title="Create new..."]');
+      const adButton = document.querySelector('button[title="Ad"]');
+
+      if (createButton && !createButton.dataset.caseCommentListenerAttached) {
+        createButton.addEventListener('click', startTextareaMonitoring);
+        createButton.dataset.caseCommentListenerAttached = 'true';
+        console.log('[CaseCommentMemory] Listener attached to "Create new..." button');
+      }
+
+      if (adButton && !adButton.dataset.caseCommentListenerAttached) {
+        adButton.addEventListener('click', startTextareaMonitoring);
+        adButton.dataset.caseCommentListenerAttached = 'true';
+        console.log('[CaseCommentMemory] Listener attached to "Ad" button');
+      }
+
+      // If buttons not found yet, retry
+      if (!createButton || !adButton) {
+        setTimeout(attachButtonListeners, 500);
+      }
+    };
+
+    // Start attaching button listeners
+    attachButtonListeners();
+
+    console.log('[CaseCommentMemory] Textarea appearance monitoring configured (waiting for button clicks)');
   },
 
   /**
@@ -29,26 +167,80 @@ const CaseCommentMemory = {
    * @returns {HTMLTextAreaElement|null}
    */
   getTextarea() {
-    return document.querySelector('textarea[name="inputComment"]');
+    // Try multiple selectors
+    return document.querySelector('textarea[name="inputComment"]') ||
+           document.querySelector('lightning-textarea[data-id="inputComment"] textarea') ||
+           document.querySelector('textarea[id*="input-"]');
+  },
+
+  /**
+   * Checks if Communication tab is active
+   * @returns {boolean}
+   */
+  isCommunicationTabActive() {
+    const activeTab = document.querySelector('li.slds-tabs_default__item.slds-is-active[data-label="Communication"]');
+    return !!activeTab;
+  },
+
+  /**
+   * Waits for Communication tab to be active and textarea to be available
+   * @returns {Promise<HTMLTextAreaElement>}
+   */
+  waitForCommunicationTab() {
+    return new Promise((resolve, reject) => {
+      let attempts = 0;
+      const maxAttempts = 50;
+      
+      const checkTab = () => {
+        attempts++;
+        
+        if (this.isCommunicationTabActive()) {
+          const textarea = this.getTextarea();
+          if (textarea) {
+            resolve(textarea);
+            return;
+          }
+        }
+        
+        if (attempts >= maxAttempts) {
+          reject(new Error('Communication tab or textarea not found'));
+          return;
+        }
+        
+        setTimeout(checkTab, 200);
+      };
+      
+      checkTab();
+    });
   },
 
   /**
    * Monitors textarea for changes
    * @param {string} caseId
    */
-  monitorTextarea(caseId) {
+  async monitorTextarea(caseId) {
     const textarea = this.getTextarea();
     if (!textarea) {
-      // Retry after a delay if textarea not found yet
-      setTimeout(() => this.monitorTextarea(caseId), 1000);
+      console.warn('[CaseCommentMemory] Textarea not found yet');
       return;
     }
 
+    // Check if already initialized for this textarea
+    if (textarea.dataset.caseCommentMemoryInitialized === 'true') {
+      console.log('[CaseCommentMemory] Textarea already initialized, skipping');
+      return;
+    }
+
+    // Mark as initialized
+    textarea.dataset.caseCommentMemoryInitialized = 'true';
+    console.log('[CaseCommentMemory] Setting up textarea monitoring');
+
     // Check if there's an active entry for this case
     const activeEntry = this.activeEntries.get(caseId);
-    if (activeEntry && activeEntry.isActive) {
+    if (activeEntry && activeEntry.isActive && activeEntry.text) {
       // Restore the last saved text
       textarea.value = activeEntry.text;
+      console.log('[CaseCommentMemory] Restored previous text to textarea');
     }
 
     // Listen for focus (activation)
@@ -64,14 +256,22 @@ const CaseCommentMemory = {
     // Listen for save button click
     this.monitorSaveButton(caseId);
 
+    // Add restore button
+    await this.addRestoreButton(caseId);
+
     // Listen for page visibility changes
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) {
-        this.pauseEntry(caseId);
-      } else {
-        this.resumeEntry(caseId);
-      }
-    });
+    if (!document.hasVisibilityChangeListener) {
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+          this.pauseEntry(caseId);
+        } else {
+          this.resumeEntry(caseId);
+        }
+      });
+      document.hasVisibilityChangeListener = true;
+    }
+
+    console.log('[CaseCommentMemory] Textarea monitoring fully set up');
   },
 
   /**
@@ -349,15 +549,25 @@ const CaseCommentMemory = {
    * @returns {HTMLElement|null}
    */
   findSaveButton() {
-    // Look for button with "Save" text near the textarea
-    const buttons = document.querySelectorAll('button');
+    // Look for "Add New Comment" button (the actual submit button)
+    const buttons = document.querySelectorAll('button[type="submit"]');
     for (let button of buttons) {
-      if (button.textContent.trim() === 'Save' ||
-          button.textContent.trim() === 'Submit' ||
-          button.title === 'Save') {
+      if (button.textContent.includes('Add New Comment')) {
         return button;
       }
     }
+
+    // Fallback: look for any button with these texts
+    const allButtons = document.querySelectorAll('button');
+    for (let button of allButtons) {
+      const text = button.textContent.trim();
+      if (text === 'Add New Comment' ||
+          text === 'Save' ||
+          text === 'Submit') {
+        return button;
+      }
+    }
+    
     return null;
   },
 
@@ -510,13 +720,16 @@ const CaseCommentMemory = {
   async createRestoreButton(caseId) {
     const history = await this.getHistory(caseId);
 
-    if (history.length === 0) return null;
+    if (history.length === 0) {
+      console.log('[CaseCommentMemory] No history available, skipping button creation');
+      return null;
+    }
 
     const container = document.createElement('div');
     container.className = 'case-comment-restore';
+    container.setAttribute('data-case-comment-restore-button', 'true');
     container.style.cssText = `
       display: inline-block;
-      margin-left: 10px;
       position: relative;
     `;
 
@@ -531,6 +744,7 @@ const CaseCommentMemory = {
       gap: 4px;
     `;
     button.title = `${history.length} saved comment${history.length > 1 ? 's' : ''} available`;
+    button.type = 'button'; // Prevent form submission
 
     const dropdown = document.createElement('div');
     dropdown.className = 'restore-dropdown';
@@ -688,15 +902,46 @@ const CaseCommentMemory = {
    */
   async addRestoreButton(caseId) {
     const textarea = this.getTextarea();
-    if (!textarea) return;
+    if (!textarea) {
+      console.warn('[CaseCommentMemory] Textarea not found for restore button');
+      return;
+    }
 
-    // Find save button row
-    const saveButton = this.findSaveButton();
-    if (!saveButton) return;
+    // Check if button already exists
+    if (document.querySelector('[data-case-comment-restore-button]')) {
+      console.log('[CaseCommentMemory] Restore button already exists');
+      return;
+    }
+
+    // Find the button container (div with slds-float_right class)
+    const buttonContainer = document.querySelector('.slds-clearfix .slds-float_right');
+    if (!buttonContainer) {
+      console.warn('[CaseCommentMemory] Button container not found, trying alternative...');
+      
+      // Alternative: find "Add New Comment" button and insert before it
+      const saveButton = this.findSaveButton();
+      if (saveButton && saveButton.parentElement) {
+        const restoreButton = await this.createRestoreButton(caseId);
+        if (restoreButton) {
+          restoreButton.style.marginRight = '8px';
+          saveButton.parentElement.insertBefore(restoreButton, saveButton);
+          console.log('[CaseCommentMemory] Restore button added (alternative method)');
+        }
+      }
+      return;
+    }
 
     const restoreButton = await this.createRestoreButton(caseId);
     if (restoreButton) {
-      saveButton.parentElement.appendChild(restoreButton);
+      restoreButton.style.marginRight = '8px';
+      // Insert before the "Add New Comment" button
+      const saveButtonWrapper = buttonContainer.querySelector('lightning-button');
+      if (saveButtonWrapper) {
+        buttonContainer.insertBefore(restoreButton, saveButtonWrapper);
+      } else {
+        buttonContainer.insertBefore(restoreButton, buttonContainer.firstChild);
+      }
+      console.log('[CaseCommentMemory] Restore button added successfully');
     }
   },
 

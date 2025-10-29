@@ -30,6 +30,7 @@
             "modules/customerDataManager.js",
             "modules/cacheManager.js",
             "modules/caseDataExtractor.js",
+            "modules/caseCommentExtractor.js",
             "modules/fieldHighlighter.js",
             "modules/urlBuilder.js",
             "modules/textFormatter.js",
@@ -44,13 +45,21 @@
             "modules/scrollController.js",
             "modules/navigationObserver.js",
             "modules/timezoneDetector.js",
+            "modules/addressTimezoneResolver.js",
+            "modules/accountAddressExtractor.js",
+            "modules/caseTimezoneResolver.js",
+            "modules/caseDetailExtractor.js",
+            "modules/persistentBanner.js",
             "modules/implementationStatus.js",
             "modules/flexipagePanelInjector.js",
             "content_script_exlibris.js"
          ],
          "matches": [ "https://proquestllc.lightning.force.com/*" ],
          "run_at": "document_idle",
-         "css": [ "modules/styles/injected-panel.css" ]
+         "css": [ 
+            "modules/styles/injected-panel.css",
+            "modules/styles/persistent-banner.css"
+         ]
       }
    ],
    "description": "Change the styles, especially the background color, of elements or ancestor/enclosing elements with specific content.",

@@ -6,7 +6,10 @@ let contextMenusCreated = false;
  * Creates context menus for text formatting
  */
 function createContextMenus() {
-  if (contextMenusCreated) return;
+  if (contextMenusCreated) {
+    console.log('[Background] Context menus already created, skipping.');
+    return;
+  }
 
   chrome.contextMenus.removeAll(() => {
     // Parent menu

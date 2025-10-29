@@ -111,12 +111,13 @@ const PageIdentifier = {
   monitorPageChanges(callback) {
     let lastUrl = window.location.href;
     let lastPageInfo = this.identifyPage();
+    let debounceTimer = null;
 
     // Call immediately
     callback(lastPageInfo);
 
-    // Monitor URL changes
-    const observer = new MutationObserver(() => {
+    // Debounced URL check function
+    const checkUrlChange = () => {
       const currentUrl = window.location.href;
       if (currentUrl !== lastUrl) {
         lastUrl = currentUrl;
@@ -130,6 +131,17 @@ const PageIdentifier = {
           callback(newPageInfo);
         }
       }
+    };
+
+    // Monitor URL changes with debouncing to prevent multiple triggers
+    const observer = new MutationObserver(() => {
+      // Clear existing timer
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+      
+      // Set new timer - only check URL after DOM has settled
+      debounceTimer = setTimeout(checkUrlChange, 300);
     });
 
     observer.observe(document.body, {

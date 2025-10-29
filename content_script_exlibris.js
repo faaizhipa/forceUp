@@ -21,7 +21,17 @@
   const ExLibrisExtension = {
     currentPage: null,
     currentCaseId: null,
+    lastUrl: null, // Track last URL for navigation detection
     isInitialized: false,
+    caseToolkit: {
+      metadata: null,
+      caseData: null,
+      menuConfig: null,
+      buttonGroups: null,
+      prepared: false,
+      preparedAt: null,
+      scrollStats: null
+    },
     settings: {
       menuLocations: {
         cardActions: false,
@@ -86,8 +96,8 @@
         ContextMenuHandler.init();
         console.log('[ExLibris Extension] ContextMenuHandler initialized');
 
-        // Request context menu creation
-        chrome.runtime.sendMessage({ action: 'createContextMenus' });
+        // Context menus are created once by background.js on install/update
+        // No need to request creation here
       } else {
         console.warn('[ExLibris Extension] ContextMenuHandler not loaded or disabled');
       }
@@ -100,6 +110,14 @@
         console.warn('[ExLibris Extension] KeyboardShortcuts not loaded');
       }
 
+      // Initialize PersistentBanner
+      if (typeof PersistentBanner !== 'undefined') {
+        PersistentBanner.init();
+        console.log('[ExLibris Extension] PersistentBanner initialized');
+      } else {
+        console.warn('[ExLibris Extension] PersistentBanner not loaded');
+      }
+
       // Load settings (legacy support)
       await this.loadSettings();
 
@@ -110,8 +128,17 @@
 
       // Listen for messages from popup/background
       chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-        this.handleMessage(request, sender, sendResponse);
-        return true; // Keep channel open for async response
+        try {
+          this.handleMessage(request, sender, sendResponse);
+          return true; // Keep channel open for async response
+        } catch (error) {
+          if (error.message && error.message.includes('Extension context invalidated')) {
+            console.warn('[ExLibris Extension] Extension context invalidated - reload page to restore functionality');
+          } else {
+            console.error('[ExLibris Extension] Error handling message:', error);
+          }
+          return false;
+        }
       });
 
       console.log('[ExLibris Extension] Initialized');
@@ -122,12 +149,22 @@
      */
     async loadSettings() {
       return new Promise((resolve) => {
-        chrome.storage.sync.get('exlibrisSettings', (result) => {
-          if (result.exlibrisSettings) {
-            this.settings = { ...this.settings, ...result.exlibrisSettings };
-          }
+        try {
+          chrome.storage.sync.get('exlibrisSettings', (result) => {
+            if (chrome.runtime.lastError) {
+              console.warn('[ExLibris Extension] Could not load settings:', chrome.runtime.lastError.message);
+              resolve();
+              return;
+            }
+            if (result.exlibrisSettings) {
+              this.settings = { ...this.settings, ...result.exlibrisSettings };
+            }
+            resolve();
+          });
+        } catch (error) {
+          console.warn('[ExLibris Extension] Error loading settings:', error.message);
           resolve();
-        });
+        }
       });
     },
 
@@ -152,11 +189,33 @@
     async handlePageChange(pageInfo) {
       console.log('[ExLibris Extension] Page changed:', pageInfo);
 
+      // Track URL to detect actual navigation
+      const newUrl = window.location.href;
+      const urlChanged = this.lastUrl && this.lastUrl !== newUrl;
+      this.lastUrl = newUrl;
+
       this.currentPage = pageInfo;
       this.currentCaseId = pageInfo.caseId;
 
+      // Update persistent banner with initial info
+      if (typeof PersistentBanner !== 'undefined') {
+        PersistentBanner.updateCurrentPage({
+          type: pageInfo.type || 'Unknown',
+          caseNumber: null, // Will be updated when case data is extracted
+          subject: null,
+          status: null,
+          subStatus: null
+        });
+      }
+
       // Clear any existing features
       this.cleanup();
+
+      // If URL changed, add a delay to allow DOM to settle
+      if (urlChanged) {
+        console.log('[ExLibris Extension] URL changed, waiting for page to settle...');
+        await new Promise(resolve => setTimeout(resolve, 800));
+      }
 
       // Initialize features based on page type
       console.log('[ExLibris Extension] Checking page type:', pageInfo.type);
@@ -170,7 +229,8 @@
       } else if (pageInfo.type === PageIdentifier.pageTypes.CASES_LIST) {
         await this.initializeCaseListFeatures();
       } else {
-        console.warn('[ExLibris Extension] Unknown page type, no features initialized');
+        // Silently skip unsupported page types (reports, dashboards, etc.)
+        console.log('[ExLibris Extension] Page type not supported for features:', pageInfo.type);
       }
     },
 
@@ -180,50 +240,103 @@
     async initializeCasePageFeatures() {
       console.log('[ExLibris Extension] Initializing case page features...');
 
-      // Wait for page to fully load
       await this.waitForElements();
 
-      // Get or fetch case data
-      const caseData = await this.getCaseData(this.currentCaseId);
+      // Reset staged toolkit context
+      const buttonStyle = this.settings?.exlibris?.ui?.buttonLabelStyle || this.settings.buttonLabelStyle || 'casual';
+      const timezoneSetting = this.settings?.exlibris?.ui?.timezone || this.settings.timezone || null;
+      const menuLocations = this.settings?.exlibris?.ui?.menuLocations || this.settings.menuLocations;
 
-      if (!caseData) {
-        console.warn('[ExLibris Extension] Could not extract case data');
-        return;
+      this.caseToolkit = {
+        metadata: null,
+        caseData: null,
+        menuConfig: {
+          buttonStyle,
+          timezone: timezoneSetting,
+          menuLocations
+        },
+        buttonGroups: null,
+        prepared: false,
+        preparedAt: null,
+        scrollStats: null
+      };
+
+      const initialMetadata = (typeof CaseDataExtractor !== 'undefined' && typeof CaseDataExtractor.getInitialMetadata === 'function')
+        ? CaseDataExtractor.getInitialMetadata()
+        : null;
+
+      const resolvedTimezone = this.resolveActiveTimezone(timezoneSetting);
+
+      if (typeof FlexipagePanelInjector !== 'undefined') {
+        const injected = FlexipagePanelInjector.ensureInjected();
+        if (injected) {
+          FlexipagePanelInjector.registerActionHandler((action) => this.handlePanelAction(action));
+          if (initialMetadata) {
+            FlexipagePanelInjector.setInitialMetadata(initialMetadata);
+          }
+          FlexipagePanelInjector.updateContext({
+            timezone: resolvedTimezone || '—'
+          });
+          FlexipagePanelInjector.setPreparationState('initial', {
+            message: 'This case page is currently half-loaded. Please click "Prepare Tools" to fully load the page and enable full feature.'
+          });
+        }
       }
 
       // Initialize field highlighting
-      if (this.settings.highlightingEnabled && 
+      if (this.settings.highlightingEnabled &&
           typeof FieldHighlighter !== 'undefined' &&
           SettingsManager.isFeatureEnabled('fieldHighlighting')) {
         FieldHighlighter.init();
       }
 
-      // Email "From" field validation (Communication tab)
-      // Highlights red for non-Clarivate emails, orange for wrong department
       if (typeof handleAnchors === 'function') {
         handleAnchors();
-        console.log('[ExLibris Extension] Email validation applied');
-        
-        // Set up observer to re-validate when communication tab content changes
         this.observeCommunicationTab();
       }
 
-      // Initialize dynamic menu
-      if (typeof URLBuilder !== 'undefined' && 
-          typeof DynamicMenu !== 'undefined' &&
-          SettingsManager.isFeatureEnabled('dynamicMenu')) {
-        const buttonStyle = this.settings?.exlibris?.ui?.buttonLabelStyle || this.settings.buttonLabelStyle || 'casual';
-        const timezone = this.settings?.exlibris?.ui?.timezone || this.settings.timezone || null;
-        const menuLocations = this.settings?.exlibris?.ui?.menuLocations || this.settings.menuLocations;
+      // Fetch full case data
+      const caseData = await this.getCaseData(this.currentCaseId);
+      if (!caseData) {
+        console.warn('[ExLibris Extension] Could not extract case data');
+        if (typeof FlexipagePanelInjector !== 'undefined') {
+          FlexipagePanelInjector.setPreparationState('error', {
+            message: 'Unable to gather case data. Reload the page and try again.'
+          });
+        }
+        return;
+      }
 
-        const buttonGroups = URLBuilder.buildAllButtons(
-          caseData,
-          buttonStyle,
-          timezone
-        );
+      this.caseToolkit.metadata = initialMetadata;
+      this.caseToolkit.caseData = caseData;
 
-        DynamicMenu.setSettings(menuLocations);
-        DynamicMenu.injectMenu(buttonGroups, caseData);
+      // Update persistent banner with case data
+      if (typeof PersistentBanner !== 'undefined') {
+        PersistentBanner.updateCurrentPage({
+          type: 'Case',
+          caseNumber: caseData.caseNumber,
+          subject: caseData.subject,
+          status: caseData.status,
+          subStatus: caseData.subStatus
+        });
+      }
+
+      if (typeof FlexipagePanelInjector !== 'undefined') {
+        FlexipagePanelInjector.updateContext({
+          caseNumber: caseData.caseNumber,
+          subject: caseData.subject,
+          status: caseData.status,
+          subStatus: caseData.subStatus,
+          category: caseData.category,
+          subCategory: caseData.subCategory,
+          analysisNote: caseData.analysisNote,
+          customerId: caseData.custID,
+          institutionId: caseData.instID,
+          server: caseData.server,
+          timezone: resolvedTimezone || '—'
+        });
+        FlexipagePanelInjector.setCaseSummary(caseData);
+        FlexipagePanelInjector.setSlot2Message('Prepare tools to populate the reference workspace.');
       }
 
       // Initialize case comment memory
@@ -233,33 +346,21 @@
         CaseCommentMemory.addRestoreButton(this.currentCaseId);
       }
 
-      // Initialize character counter
       if (typeof CharacterCounter !== 'undefined' &&
           SettingsManager.isFeatureEnabled('characterCounter')) {
         CharacterCounter.init();
       }
 
-      // Initialize multi-tab sync
       if (typeof MultiTabSync !== 'undefined' &&
           SettingsManager.isFeatureEnabled('multiTabSync')) {
         MultiTabSync.init(this.currentCaseId);
         console.log('[ExLibris Extension] MultiTabSync initialized');
       }
 
-      // Initialize FlexipagePanelInjector (new MV3-compliant panel)
-      if (typeof FlexipagePanelInjector !== 'undefined') {
-        const injected = FlexipagePanelInjector.ensureInjected();
-        
-        if (injected) {
-          // Update context data
-          FlexipagePanelInjector.updateContext({
-            customerId: caseData.customer_id || '—',
-            institutionId: caseData.institution_id || '—',
-            server: caseData.server || '—',
-            timezone: this.settings.timezone || '—'
-          });
-          Logger?.info('FlexipagePanelInjector initialized and context updated');
-        }
+      // Initialize CaseTimezoneResolver for automatic timezone detection
+      if (typeof CaseTimezoneResolver !== 'undefined') {
+        CaseTimezoneResolver.init(caseData.accountName);
+        console.log('[ExLibris Extension] CaseTimezoneResolver initialized');
       }
 
       console.log('[ExLibris Extension] Case page features initialized');
@@ -405,12 +506,14 @@
      * @param {string} caseId
      * @returns {Promise<Object>}
      */
-    async getCaseData(caseId) {
-      // Check CacheManager first
-      if (typeof CacheManager !== 'undefined') {
+    async getCaseData(caseId, options = {}) {
+      const { forceRefresh = false } = options;
+
+      // Check CacheManager first unless forcing refresh
+      if (!forceRefresh && typeof CacheManager !== 'undefined') {
         // CacheManager internally validates last-modified; only pass caseId
         const cached = await CacheManager.get(caseId);
-        
+
         if (cached) {
           console.log('[ExLibris Extension] Using cached case data from CacheManager');
           return cached;
@@ -465,6 +568,176 @@
 
         checkElements();
       });
+    },
+
+    /**
+     * Resolve the active timezone based on settings or browser detection
+     * @param {string|null} preferred
+     * @returns {string|null}
+     */
+    resolveActiveTimezone(preferred) {
+      if (preferred && preferred !== 'auto') {
+        return preferred;
+      }
+
+      try {
+        const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        return detected || null;
+      } catch (error) {
+        console.warn('[ExLibris Extension] Unable to detect timezone automatically.', error);
+        return null;
+      }
+    },
+
+    /**
+     * Handle panel actions registered through FlexipagePanelInjector
+     * @param {string} action
+     * @returns {Promise<boolean>} true if handled
+     */
+    async handlePanelAction(action) {
+      switch (action) {
+        case 'prepare-tools':
+          return this.handlePrepareToolsAction();
+        case 'enable-full':
+          return this.handleEnableFullAction();
+        default:
+          return false;
+      }
+    },
+
+    /**
+     * Execute the Prepare Tools workflow for staged enablement
+     * @returns {Promise<boolean>}
+     */
+    async handlePrepareToolsAction() {
+      if (typeof FlexipagePanelInjector === 'undefined') {
+        return true;
+      }
+
+      if (this.caseToolkit.prepared) {
+        FlexipagePanelInjector.setPreparationState('ready', {
+          message: 'Toolkit already prepared. Use Enable Full Feature to view the workspace.'
+        });
+        return true;
+      }
+
+      const menuConfig = this.caseToolkit.menuConfig || {};
+      const timezonePreference = this.resolveActiveTimezone(menuConfig.timezone);
+      const originalScrollTop = window.pageYOffset || document.documentElement.scrollTop || 0;
+
+      FlexipagePanelInjector.setPreparationState('working', {
+        message: 'Preparing toolkit...',
+        buttonLabel: 'Preparing...'
+      });
+      FlexipagePanelInjector.setSlot2Message('Preparing toolkit. Scanning the case to load metadata and workspace resources.');
+
+      let caseData = null;
+      let buttonGroups = null;
+      let scrollStats = null;
+
+      try {
+        const hasScrollController = typeof ScrollController !== 'undefined' && typeof ScrollController.ensureFullPageLoad === 'function';
+        if (hasScrollController) {
+          FlexipagePanelInjector.setStatusMessage('Preparing toolkit. Scrolling through the case to load all sections.', 'warning');
+          scrollStats = await ScrollController.ensureFullPageLoad();
+        } else {
+          console.warn('[ExLibris Extension] ScrollController module not available; skipping automated scroll.');
+        }
+
+        FlexipagePanelInjector.setStatusMessage('Preparing toolkit. Extracting updated case data.', 'warning');
+        caseData = await this.getCaseData(this.currentCaseId, { forceRefresh: true });
+
+        if (!caseData) {
+          throw new Error('Missing case data.');
+        }
+
+        if (typeof CaseDataExtractor !== 'undefined' && typeof CaseDataExtractor.getInitialMetadata === 'function') {
+          const freshMetadata = CaseDataExtractor.getInitialMetadata();
+          if (freshMetadata) {
+            this.caseToolkit.metadata = freshMetadata;
+            if (typeof FlexipagePanelInjector.setInitialMetadata === 'function') {
+              FlexipagePanelInjector.setInitialMetadata(freshMetadata);
+            }
+          }
+        }
+
+        const canInjectMenu =
+          typeof URLBuilder !== 'undefined' &&
+          typeof DynamicMenu !== 'undefined' &&
+          typeof SettingsManager !== 'undefined' &&
+          SettingsManager.isFeatureEnabled &&
+          SettingsManager.isFeatureEnabled('dynamicMenu');
+
+        if (canInjectMenu) {
+          buttonGroups = URLBuilder.buildAllButtons(
+            caseData,
+            menuConfig.buttonStyle || 'casual',
+            timezonePreference
+          );
+
+          DynamicMenu.setSettings(menuConfig.menuLocations || this.settings.menuLocations);
+          if (buttonGroups) {
+            DynamicMenu.refresh(buttonGroups, caseData);
+          }
+        } else {
+          console.warn('[ExLibris Extension] Dynamic menu injection skipped (module unavailable or disabled).');
+        }
+
+        const preparedAtDate = new Date();
+
+        this.caseToolkit.caseData = caseData;
+        this.caseToolkit.buttonGroups = buttonGroups;
+        this.caseToolkit.prepared = true;
+        this.caseToolkit.preparedAt = preparedAtDate.toISOString();
+        this.caseToolkit.scrollStats = scrollStats;
+
+        FlexipagePanelInjector.updateContext({
+          category: caseData.category,
+          subCategory: caseData.subCategory,
+          analysisNote: caseData.analysisNote,
+          customerId: caseData.custID,
+          institutionId: caseData.instID,
+          server: caseData.server,
+          timezone: timezonePreference || '—'
+        });
+        FlexipagePanelInjector.setCaseSummary(caseData);
+
+        const preparedDisplay = preparedAtDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        FlexipagePanelInjector.setSlot2Message(`Toolkit ready. Last prepared at ${preparedDisplay}. Toggle Enable Full Feature to reveal workspace resources.`);
+        FlexipagePanelInjector.setPreparationState('ready', {
+          message: 'Toolkit prepared. Toggle Enable Full Feature to reveal the workspace.'
+        });
+      } catch (error) {
+        console.error('[ExLibris Extension] Prepare Tools action failed.', error);
+        this.caseToolkit.prepared = false;
+        this.caseToolkit.preparedAt = null;
+        this.caseToolkit.scrollStats = null;
+        FlexipagePanelInjector.setPreparationState('error', {
+          message: 'Toolkit preparation failed. Check console for details and try again.'
+        });
+      } finally {
+        window.scrollTo({ top: originalScrollTop, behavior: 'auto' });
+      }
+
+      return true;
+    },
+
+    /**
+     * Gate Enable Full Feature action until preparation completes
+     * @returns {Promise<boolean>} true when handled
+     */
+    async handleEnableFullAction() {
+      if (typeof FlexipagePanelInjector === 'undefined') {
+        return true;
+      }
+
+      if (!this.caseToolkit.prepared) {
+        FlexipagePanelInjector.setStatusMessage('Prepare tools before enabling the full workspace.', 'warning');
+        return true;
+      }
+
+      // Allow default panel handler to toggle Slot 2
+      return false;
     },
 
     /**
@@ -527,6 +800,16 @@
      * Cleans up existing features
      */
     cleanup() {
+      this.caseToolkit = {
+        metadata: null,
+        caseData: null,
+        menuConfig: null,
+        buttonGroups: null,
+        prepared: false,
+        preparedAt: null,
+        scrollStats: null
+      };
+
       // Disconnect case list observer
       if (this.caseListObserver) {
         this.caseListObserver.disconnect();
@@ -572,6 +855,11 @@
       // Cleanup FlexipagePanelInjector
       if (typeof FlexipagePanelInjector !== 'undefined' && FlexipagePanelInjector.teardown) {
         FlexipagePanelInjector.teardown();
+      }
+
+      // Cleanup CaseTimezoneResolver
+      if (typeof CaseTimezoneResolver !== 'undefined' && CaseTimezoneResolver.cleanup) {
+        CaseTimezoneResolver.cleanup();
       }
     },
 

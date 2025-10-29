@@ -9,7 +9,7 @@ const CacheManager = (function() {
   // ========== PRIVATE STATE ==========
   
   const STORAGE_KEY = 'caseCacheData';
-  const CACHE_VERSION = 1;
+  const CACHE_VERSION = 2;
   const MAX_CACHE_AGE_DAYS = 30;
   const MAX_CACHE_SIZE_MB = 8; // Leave 2MB buffer for other data
   
@@ -144,40 +144,46 @@ const CacheManager = (function() {
   }
 
   /**
-   * Extracts "Last Modified Date" from DOM
-   * @returns {string|null}
+   * Extracts signature fields used to validate cache freshness
+   * @returns {Object} { status, subStatus, category, subCategory, analysisNote }
    */
-  function extractLastModifiedDate() {
-    const field = document.querySelector('records-record-layout-item[field-label*="Last Modified"] .test-id__field-value, records-record-layout-item[field-label*="Last Modified"] lightning-formatted-date-time');
-    
-    if (field) {
-      return field.textContent.trim();
-    }
+  function extractSignatureFields() {
+    const getFieldValue = (matchers) => {
+      const selectors = matchers
+        .map((matcher) => `records-record-layout-item[field-label*="${matcher}"] .test-id__field-value, records-record-layout-item[field-label*="${matcher}"] lightning-formatted-text`)
+        .join(',');
 
-    // Fallback: try to find any date-time field
-    const dateFields = document.querySelectorAll('lightning-formatted-date-time');
-    if (dateFields.length > 0) {
-      // Get the first one (likely "Last Modified")
-      return dateFields[0].textContent.trim();
-    }
+      const node = document.querySelector(selectors);
+      if (!node) {
+        return '';
+      }
 
-    return null;
+      return (node.textContent || '').trim();
+    };
+
+    return {
+      status: getFieldValue(['Status']),
+      subStatus: getFieldValue(['Sub Status', 'Sub-Status']),
+      category: getFieldValue(['Category']),
+      subCategory: getFieldValue(['Sub-Category', 'Sub Category']),
+      analysisNote: getFieldValue(['Analysis Note'])
+    };
   }
 
   /**
-   * Normalizes date string for comparison
-   * @param {string} dateStr
-   * @returns {number} Timestamp
+   * Builds a deterministic signature from the extracted fields
+   * @returns {string}
    */
-  function normalizeDateString(dateStr) {
-    if (!dateStr) return 0;
-    
-    try {
-      return new Date(dateStr).getTime();
-    } catch (err) {
-      console.warn('[CacheManager] Invalid date string:', dateStr);
-      return 0;
-    }
+  function buildSignature() {
+    const fields = extractSignatureFields();
+
+    return [
+      fields.status,
+      fields.subStatus,
+      fields.category,
+      fields.subCategory,
+      fields.analysisNote
+    ].map((value) => (value || '').toLowerCase()).join('|');
   }
 
   // ========== PUBLIC API ==========
@@ -239,23 +245,19 @@ const CacheManager = (function() {
       }
 
       // Get current last modified date from DOM
-      const currentLastModified = extractLastModifiedDate();
-      
-      if (!currentLastModified) {
-        console.warn('[CacheManager] Could not extract last modified date, using cached data anyway');
+      const currentSignature = buildSignature();
+
+      if (!currentSignature) {
+        console.warn('[CacheManager] Could not resolve status signature, using cached data as fallback');
         return cached.data;
       }
 
-      // Compare timestamps
-      const currentTimestamp = normalizeDateString(currentLastModified);
-      const cachedTimestamp = normalizeDateString(cached.lastModified);
-
-      if (cachedTimestamp >= currentTimestamp) {
-        console.log(`[CacheManager] Cache hit for case ${caseId} (last modified: ${cached.lastModified})`);
+      if (cached.signature && cached.signature === currentSignature) {
+        console.log(`[CacheManager] Cache hit for case ${caseId} (signature: ${currentSignature})`);
         return cached.data;
       }
 
-      console.log(`[CacheManager] Cache invalid for case ${caseId} (stale data)`);
+      console.log(`[CacheManager] Cache invalid for case ${caseId} (signature mismatch)`);
       return null;
     },
 
@@ -272,10 +274,10 @@ const CacheManager = (function() {
 
       if (!caseId || !data) return;
 
-      const lastModified = extractLastModifiedDate();
+      const signature = buildSignature();
       
       const cacheEntry = {
-        lastModified: lastModified,
+        signature,
         data: data,
         timestamp: Date.now()
       };
@@ -283,7 +285,7 @@ const CacheManager = (function() {
       // Update memory cache
       memoryCache.set(caseId, cacheEntry);
 
-      console.log(`[CacheManager] Cached data for case ${caseId} (last modified: ${lastModified})`);
+      console.log(`[CacheManager] Cached data for case ${caseId} (signature: ${signature || 'n/a'})`);
 
       // Update storage (throttled)
       await this.persistToStorage();

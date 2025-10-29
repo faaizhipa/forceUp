@@ -241,17 +241,8 @@ const ContextMenuHandler = (function() {
         return true;
       });
 
-      // Request background script to create context menus
-      chrome.runtime.sendMessage({
-        action: 'createContextMenus',
-        menuIds: MENU_IDS
-      }, (response) => {
-        if (response && response.success) {
-          console.log('[ContextMenuHandler] Context menus created');
-        } else {
-          console.warn('[ContextMenuHandler] Failed to create context menus');
-        }
-      });
+      // Context menus are created once by background.js on install/update
+      // No need to request creation here
 
       isInitialized = true;
       console.log('[ContextMenuHandler] Initialized');
