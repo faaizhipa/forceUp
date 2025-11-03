@@ -1,316 +1,596 @@
-# Timezone Storage Implementation
-
-## Date: October 30, 2025
-
----
+# Timezone Storage System - Implementation Guide
 
 ## Overview
-Implemented persistent timezone storage that maps detected timezones to customer account names and institution codes, with automatic storage updates by the Case Timezone Resolver.
 
----
+The timezone storage system automatically detects, stores, and manages customer timezone data to improve extension performance and user experience. The system links timezone information to customers in the customer list and handles unknown customers gracefully.
 
-## New Module: timezoneStorage.js
+## Architecture
 
-### Purpose
-Centralized storage for detected customer timezones with persistent caching and intelligent lookup capabilities.
+### Core Modules
 
-### Key Features
+1. **TimezoneStorage** (`modules/timezoneStorage.js`)
+   - Central storage manager for timezone data
+   - Links timezones to customer list entries
+   - Manages unknown customers requiring review
 
-#### 1. **Dual-Key Storage**
-- Stores timezones by both account name and institution code
-- Allows lookups using either identifier
-- Example: "University of Sydney" and "61USY_INST" both retrieve "Australia/Sydney"
+2. **CaseTimezoneResolver** (`modules/caseTimezoneResolver.js`) - Updated
+   - Detects timezones from case addresses
+   - Stores detected timezones automatically
+   - Loads stored timezones for faster performance
 
-#### 2. **Storage Structure**
+3. **UnknownCustomerManager** (`modules/unknownCustomerManager.js`) - New
+   - Detects customers not in the customer list
+   - Prompts user to add unknown customers
+   - Automates data collection workflow
+
+## Data Flow
+
+```
+Case Page Load
+    ↓
+CaseTimezoneResolver.init() → Load timezone from storage
+    ↓
+    ├─→ Timezone found? → Use stored timezone ✓
+    ↓
+    └─→ No timezone? → User hovers over Account Name
+            ↓
+        Address extracted → Timezone resolved
+            ↓
+        TimezoneStorage.storeTimezone()
+            ↓
+            ├─→ Customer in list? → Store with customer data ✓
+            ↓
+            └─→ Customer not in list? → Add to unknown customers
+                    ↓
+                UnknownCustomerManager notified
+                    ↓
+                Prompt user to add customer
+                    ↓
+                User confirms? → Collect case data → Save customer
+```
+
+## Storage Structure
+
+### Timezone Data
 ```javascript
 {
-  "university of sydney": {
-    accountName: "University of Sydney",
-    timezone: "Australia/Sydney",
-    institutionCode: "61USY_INST",
-    lastUpdated: 1730000000000,
-    timestamp: "2025-10-30T12:00:00.000Z"
+  "INSTITUTION_CODE": {
+    timezone: "America/New_York",
+    source: "case_address",
+    timestamp: 1698765432000,
+    lastUpdated: 1698765432000,
+    accountName: "Example University",
+    accountCode: "EXMPL",
+    institutionCode: "EXMPL_INST",
+    customerName: "Example University",
+    server: "na05",
+    custID: "12345",
+    instID: "67890",
+    inCustomerList: true
   },
-  "61usy_inst": {
-    accountName: "University of Sydney",
-    timezone: "Australia/Sydney",
-    institutionCode: "61USY_INST",
-    lastUpdated: 1730000000000,
-    timestamp: "2025-10-30T12:00:00.000Z"
+  "UNKNOWN_CUSTOMER": {
+    timezone: "Europe/London",
+    source: "case_address",
+    // ... same structure ...
+    inCustomerList: false
   }
 }
 ```
 
-#### 3. **Core Methods**
-
-**saveTimezone(accountName, timezone, institutionCode)**
-- Saves timezone with normalized keys
-- Creates dual entries for both account name and institution code
-- Records timestamp and last update time
-
-**getTimezone(identifier)**
-- Retrieves timezone data by account name or institution code
-- Falls back to partial name matching
-- Returns full timezone object with metadata
-
-**getTimezoneString(identifier)**
-- Convenience method returning just the timezone string
-- Returns null if not found
-
-**hasTimezone(identifier)**
-- Checks if timezone exists for given identifier
-- Returns boolean
-
-**getTimezoneWithCustomerFallback(identifier)**
-- Advanced lookup that checks storage first
-- Falls back to CustomerDataManager to find matching customer
-- Searches by institution code and name
-- Returns timezone if found in customer list mapping
-
-#### 4. **Management Features**
-
-**getAllTimezones()**
-- Returns all stored timezone data
-
-**deleteTimezone(identifier)**
-- Removes timezone entry by identifier
-
-**clearAll()**
-- Removes all stored timezones
-
-**getStats()**
-- Returns statistics about stored timezones
-- Groups by timezone
-- Shows unique timezones and total entries
-
-**exportData() / importData()**
-- Backup and restore functionality
-- Exports with version and timestamp
-
----
-
-## Integration with CaseTimezoneResolver
-
-### Updated Functionality
-
-#### 1. **Initialization Enhancement**
+### Unknown Customers
 ```javascript
-async init(accountName = null) {
-    // Initializes TimezoneStorage
-    await TimezoneStorage.init();
-    
-    // Checks for cached timezone on init
-    if (accountName) {
-        const cachedTimezone = await TimezoneStorage.getTimezoneString(accountName);
-        if (cachedTimezone) {
-            // Immediately uses cached timezone
-            this.resolvedTimezone = cachedTimezone;
-            this.updateFlexipagePanel(cachedTimezone);
-        }
-    }
+[
+  {
+    id: "unknown_1698765432000",
+    accountName: "New Customer",
+    accountCode: "NEWCUST",
+    institutionCode: null,
+    timezone: "Asia/Tokyo",
+    source: "case_address",
+    detectedAt: 1698765432000,
+    needsReview: true
+  }
+]
+```
+
+## Customer Matching Logic
+
+### Lookup Priority
+
+1. **Institution Code** (most reliable)
+   - Exact match (case-insensitive)
+   
+2. **Account Code**
+   - Matches against `institutionCode` in customer list
+   
+3. **Account Name**
+   - Partial match (case-insensitive)
+   - Handles variations in naming
+
+### Example Matching
+
+```javascript
+// Customer List Entry
+{
+  name: "Southern Cross University",
+  institutionCode: "61SCU_INST"
+}
+
+// Successful Matches
+accountName: "Southern Cross University" ✓
+accountName: "southern cross" ✓
+accountCode: "61SCU_INST" ✓
+institutionCode: "61SCU_INST" ✓
+```
+
+## Usage Examples
+
+### Initialize CaseTimezoneResolver with Identifiers
+
+```javascript
+// In content_script_exlibris.js or case initialization
+CaseTimezoneResolver.init({
+  accountName: "Example University",
+  accountCode: "EXMPL",
+  institutionCode: "EXMPL_INST"
+});
+
+// Or update identifiers later
+CaseTimezoneResolver.setCurrentIdentifiers({
+  accountName: caseData.accountName,
+  accountCode: caseData.accountCode,
+  institutionCode: caseData.institutionCode
+});
+```
+
+### Manual Timezone Storage
+
+```javascript
+// Store timezone for a known customer
+await TimezoneStorage.storeTimezone({
+  timezone: "America/New_York",
+  accountName: "Example University",
+  institutionCode: "EXMPL_INST",
+  source: "manual"
+});
+
+// Result
+{
+  success: true,
+  inCustomerList: true,
+  customer: { /* customer data */ },
+  timezone: "America/New_York"
 }
 ```
 
-#### 2. **Automatic Storage on Resolution**
-New `saveTimezoneToStorage()` method:
-- Called automatically when timezone is resolved from address
-- Finds matching customer in CustomerDataManager
-- Extracts institution code if available
-- Saves both account name and institution code mappings
+### Retrieve Stored Timezone
 
-#### 3. **Multi-Level Caching**
-`resolveForAccount()` now checks three levels:
-1. **TimezoneStorage** - Persistent cached timezones
-2. **AccountAddressExtractor cache** - Session-based address cache
-3. **User hover** - Prompts user to hover over account name
-
-#### 4. **New Method: getCachedTimezone()**
-- Public method to retrieve cached timezone
-- Returns string or null
-- Used by other modules for timezone lookups
-
----
-
-## Workflow Integration
-
-### When User Hovers Over Account Name:
-1. AccountAddressExtractor extracts address from hover panel
-2. Fires `exlibris:addressExtracted` event
-3. CaseTimezoneResolver receives event
-4. AddressTimezoneResolver resolves timezone from address
-5. **NEW**: `saveTimezoneToStorage()` called automatically
-   - Matches account name to customer in CustomerDataManager
-   - Extracts institution code
-   - Saves to TimezoneStorage with dual keys
-6. Updates UI with resolved timezone
-
-### When Initializing Case Page:
-1. CaseTimezoneResolver.init(accountName) called
-2. **NEW**: Checks TimezoneStorage for cached timezone
-3. If found:
-   - Immediately applies cached timezone
-   - Updates FlexipagePanel
-   - Notifies other modules
-   - No hover required!
-4. If not found:
-   - Waits for user to hover over account name
-   - Follows normal resolution workflow
-
-### When Manually Resolving:
-1. User triggers resolveForAccount(accountName)
-2. **NEW**: Checks TimezoneStorage first (fastest)
-3. Falls back to AddressTimezoneResolver cache
-4. Falls back to prompting user to hover
-
----
-
-## Benefits
-
-### 1. **Performance**
-- Eliminates repeated timezone lookups for same customer
-- Instant timezone application on subsequent visits
-- Reduces API calls to timezone services
-
-### 2. **User Experience**
-- No need to hover every time for known customers
-- Faster case processing for repeat customers
-- Persistent across browser sessions
-
-### 3. **Data Intelligence**
-- Builds knowledge base of customer timezones
-- Links account names to institution codes
-- Supports partial name matching
-
-### 4. **Reliability**
-- Multiple lookup strategies (name, code, partial match)
-- Fallback to customer list integration
-- Timestamp tracking for data freshness
-
----
-
-## Storage Key
-- **Key**: `detectedTimezones`
-- **Location**: Chrome Local Storage
-- **Persistence**: Permanent (until manually cleared)
-- **Scope**: Per browser profile
-
----
-
-## Customer List Integration
-
-### Matching Strategy
-When saving timezone:
-1. Searches all customers in CustomerDataManager
-2. Finds customer where:
-   - Exact name match (case-insensitive)
-   - Name contains account name
-   - Account name contains customer name
-3. Extracts institution code from matched customer
-4. Saves with both account name and institution code
-
-### Lookup Strategy
-When retrieving timezone:
-1. Direct lookup by normalized identifier
-2. Partial match in account names
-3. **Fallback**: Search CustomerDataManager
-   - Find customer by institution code
-   - Find customer by name match
-   - Return timezone if found for customer name
-
----
-
-## Example Usage
-
-### Save Timezone
 ```javascript
-// Automatically called by CaseTimezoneResolver
-await TimezoneStorage.saveTimezone(
-    "University of Sydney",
-    "Australia/Sydney",
-    "61USY_INST"
-);
+// Get timezone by any identifier
+const stored = await TimezoneStorage.getTimezone({
+  accountName: "Example University"
+  // or accountCode, or institutionCode
+});
+
+console.log(stored.timezone); // "America/New_York"
+console.log(stored.inCustomerList); // true
 ```
 
-### Retrieve Timezone
+### Check Unknown Customers
+
 ```javascript
-// By account name
-const tz1 = await TimezoneStorage.getTimezoneString("University of Sydney");
+// Check if there are customers pending review
+const check = await TimezoneStorage.checkUnknownCustomers();
 
-// By institution code
-const tz2 = await TimezoneStorage.getTimezoneString("61USY_INST");
-
-// Both return: "Australia/Sydney"
+console.log(check.count); // 3
+console.log(check.hasUnknown); // true
+console.log(check.customers); // Array of unknown customers
 ```
 
-### Check if Exists
+## Unknown Customer Workflow
+
+### 1. Detection
+
+When a timezone is detected for a customer NOT in the customer list:
+
 ```javascript
-const exists = await TimezoneStorage.hasTimezone("University of Surrey");
-// Returns: true/false
+// Automatically triggered by CaseTimezoneResolver
+const result = await TimezoneStorage.storeTimezone({
+  timezone: "Asia/Tokyo",
+  accountName: "New Customer Corp",
+  accountCode: "NEWCUST",
+  source: "case_address"
+});
+
+// result.needsReview === true
+// Event dispatched: 'exlibris:unknownCustomerDetected'
 ```
 
-### Get Statistics
+### 2. User Prompt
+
+UnknownCustomerManager displays a message:
+
+```
+Unknown customer detected: New Customer Corp
+Would you like to add this customer to the list?
+
+[Review Unknown Customer] button appears
+```
+
+### 3. Data Collection
+
+User clicks button → Confirmation dialog:
+
+```
+Add "New Customer Corp" to customer list?
+
+This will:
+1. Scroll down to extract full case data
+2. Collect account information
+3. Generate institution code and URLs
+4. Add customer to your list
+
+Continue? [Yes] [No]
+```
+
+### 4. Automated Extraction
+
+```javascript
+// Similar to "Prepare Tools" workflow
+Step 1/4: Scrolling to load case data...
+Step 2/4: Extracting case data...
+Step 3/4: Scrolling back to view...
+Step 4/4: Processing customer data...
+```
+
+### 5. Review and Confirm
+
+```
+Add this customer to your list?
+
+Name: New Customer Corp
+Institution Code: NC_INST (generated)
+Timezone: Asia/Tokyo
+Server: unknown
+Customer ID: unknown
+Institution ID: unknown
+
+Note: Customer/Institution IDs may need to be updated manually if unknown.
+
+Proceed? [Yes] [No]
+```
+
+### 6. Save
+
+```
+Customer "New Customer Corp" added successfully!
+Institution Code: NC_INST
+```
+
+## Institution Code Generation
+
+For unknown customers, institution codes are auto-generated:
+
+```javascript
+// Multi-word names → First letters
+"Southern Cross University" → "SCU_INST"
+"New York Institute" → "NYI_INST"
+
+// Single word → First 3-5 letters
+"Harvard" → "HARVA_INST"
+"MIT" → "MIT_INST"
+```
+
+## Integration Points
+
+### Content Script (content_script_exlibris.js)
+
+```javascript
+// Initialize modules
+TimezoneStorage; // Auto-loads
+UnknownCustomerManager.init();
+
+// Initialize CaseTimezoneResolver with case data
+const caseData = CaseDataExtractor.extractFromPage();
+CaseTimezoneResolver.init({
+  accountName: caseData.accountName,
+  accountCode: caseData.accountCode,
+  institutionCode: caseData.institutionCode
+});
+```
+
+### FlexipagePanelInjector Updates
+
+Listen for unknown customer events:
+
+```javascript
+document.addEventListener('exlibris:pendingCustomerReviews', (event) => {
+  const count = event.detail.count;
+  // Show badge/indicator with count
+  this.showPendingReviewsIndicator(count);
+});
+```
+
+### CaseDetailExtractor
+
+Ensure it extracts:
+- `accountName`
+- `accountCode` (if available)
+- `institutionCode` (if available)
+- Server, custID, instID (if extractable)
+
+## API Reference
+
+### TimezoneStorage
+
+#### `storeTimezone(params)`
+Store timezone for a customer.
+
+**Parameters:**
+```javascript
+{
+  timezone: string,          // Required
+  accountName: string,       // Optional
+  accountCode: string,       // Optional
+  institutionCode: string,   // Optional
+  source: string            // Optional (default: 'unknown')
+}
+```
+
+**Returns:**
+```javascript
+{
+  success: boolean,
+  inCustomerList: boolean,
+  needsReview: boolean,     // true if unknown customer
+  customer: Object,          // if in customer list
+  timezone: string,
+  lookupKey: string         // if unknown customer
+}
+```
+
+#### `getTimezone(identifiers)`
+Retrieve stored timezone.
+
+**Parameters:**
+```javascript
+{
+  accountName: string,      // Optional
+  accountCode: string,      // Optional
+  institutionCode: string   // Optional
+}
+```
+
+**Returns:**
+```javascript
+{
+  timezone: string,
+  source: string,
+  timestamp: number,
+  inCustomerList: boolean,
+  // ... additional fields ...
+}
+// or null if not found
+```
+
+#### `checkUnknownCustomers()`
+Check for unknown customers pending review.
+
+**Returns:**
+```javascript
+{
+  count: number,
+  customers: Array,
+  hasUnknown: boolean
+}
+```
+
+#### `getStats()`
+Get storage statistics.
+
+**Returns:**
+```javascript
+{
+  totalTimezoneRecords: number,
+  knownCustomers: number,
+  unknownCustomers: number,
+  needsReview: boolean
+}
+```
+
+### CaseTimezoneResolver
+
+#### `init(params)`
+Initialize with customer identifiers.
+
+**Parameters:**
+```javascript
+{
+  accountName: string,      // Optional
+  accountCode: string,      // Optional
+  institutionCode: string   // Optional
+}
+```
+
+#### `setCurrentIdentifiers(identifiers)`
+Update current case identifiers.
+
+**Parameters:** Same as `init()`
+
+### UnknownCustomerManager
+
+#### `init()`
+Initialize the unknown customer manager.
+
+#### `checkPendingReviews()`
+Check for pending customer reviews.
+
+#### `getPendingReviews()`
+Get array of pending customer reviews.
+
+**Returns:** `Array<Object>`
+
+## Events
+
+### Dispatched Events
+
+#### `exlibris:unknownCustomerDetected`
+Fired when an unknown customer is detected.
+
+```javascript
+document.addEventListener('exlibris:unknownCustomerDetected', (event) => {
+  console.log(event.detail);
+  // {
+  //   timezone: string,
+  //   lookupKey: string,
+  //   accountName: string,
+  //   accountCode: string,
+  //   institutionCode: string,
+  //   timestamp: string (ISO)
+  // }
+});
+```
+
+#### `exlibris:pendingCustomerReviews`
+Fired when pending reviews count changes.
+
+```javascript
+document.addEventListener('exlibris:pendingCustomerReviews', (event) => {
+  console.log(event.detail.count); // number
+  console.log(event.detail.customers); // Array
+});
+```
+
+## Testing Scenarios
+
+### Scenario 1: Known Customer
+
+1. Navigate to case with known customer
+2. Timezone loads from storage immediately
+3. Status message: "Timezone loaded from known customer: America/New_York"
+
+### Scenario 2: Unknown Customer
+
+1. Navigate to case with unknown customer
+2. No stored timezone → user hovers over Account Name
+3. Timezone detected from address
+4. Prompt appears: "Unknown customer detected..."
+5. User clicks "Review Unknown Customer"
+6. Data collection workflow executes
+7. User confirms → Customer added
+8. Future cases with this customer load timezone from storage
+
+### Scenario 3: Update Existing Timezone
+
+1. Timezone already stored
+2. User hovers over Account Name again
+3. New timezone detected (e.g., customer moved)
+4. Timezone updated in storage
+5. Existing keys updated automatically
+
+## Performance Benefits
+
+- **First Load:** Hover required (1-2 seconds)
+- **Subsequent Loads:** Instant (<100ms)
+- **Reduced Network:** No repeated address lookups
+- **Better UX:** Immediate timezone availability
+
+## Maintenance
+
+### View Storage Data
+
+```javascript
+// In browser console
+const data = await TimezoneStorage.getAllTimezoneData();
+console.table(Object.values(data));
+```
+
+### View Statistics
+
 ```javascript
 const stats = await TimezoneStorage.getStats();
-// Returns: {
-//   totalEntries: 42,
-//   uniqueTimezones: 15,
-//   timezoneGroups: {
-//     "Australia/Sydney": ["University of Sydney", "..."],
-//     "Europe/London": ["University of Surrey", "..."]
-//   },
-//   lastUpdated: 1730000000000
+console.log(stats);
+// {
+//   totalTimezoneRecords: 145,
+//   knownCustomers: 142,
+//   unknownCustomers: 3,
+//   needsReview: true
 // }
 ```
 
----
+### Clear All Data (Debug Only)
 
-## Manifest Changes
-
-### Added Module
-```json
-"modules/timezoneStorage.js"
+```javascript
+await TimezoneStorage.clearAllData();
+console.log('All timezone data cleared');
 ```
-
-**Load Order**: After `cacheManager.js`, before `caseDataExtractor.js`
-- Ensures storage is available before timezone resolution
-- Loaded early in the module chain
-
----
-
-## Testing Checklist
-
-- [ ] Hover over account name → Timezone saved to storage
-- [ ] Reload page → Cached timezone immediately applied
-- [ ] Navigate to different case for same customer → Uses cached timezone
-- [ ] Clear storage → Falls back to hover detection
-- [ ] Institution code lookup works
-- [ ] Account name lookup works
-- [ ] Partial name matching works
-- [ ] Customer list fallback works
-- [ ] Export/import functionality works
-- [ ] Statistics display correctly
-
----
 
 ## Future Enhancements
 
-### Potential Improvements
-1. **Timezone Confidence Score**: Track how many times timezone was confirmed
-2. **Auto-Expiry**: Remove timezones not used for X months
-3. **Bulk Import**: Import timezone mappings from CSV
-4. **Timezone Override**: Allow manual correction of detected timezones
-5. **Multi-Location Support**: Handle customers with multiple office locations
-6. **Conflict Resolution**: Handle cases where customer has multiple addresses/timezones
+1. **Bulk Import**: Import timezone data from CSV
+2. **Auto-Sync**: Sync with customer list updates
+3. **Confidence Score**: Track timezone detection accuracy
+4. **Manual Override**: Allow users to manually set/correct timezones
+5. **Export**: Export timezone data for backup
+6. **Analytics**: Track timezone detection success rates
 
-### Integration Opportunities
-1. Export to Salesforce custom object for team sharing
-2. Sync across team members via cloud storage
-3. Pre-populate from institutional data sources
-4. Integration with customer onboarding data
+## Troubleshooting
 
----
+### Issue: Timezone not loading
 
-## Related Files
-- `modules/timezoneStorage.js` - New timezone storage module
-- `modules/caseTimezoneResolver.js` - Updated with storage integration
-- `manifest.json` - Added timezoneStorage.js to load order
+**Check:**
+1. Is `TimezoneStorage` module loaded?
+2. Are identifiers set correctly?
+3. Check console for errors
+
+**Solution:**
+```javascript
+// Manually check storage
+const stored = await TimezoneStorage.getTimezone({
+  accountName: "Your Customer Name"
+});
+console.log(stored);
+```
+
+### Issue: Unknown customer not prompting
+
+**Check:**
+1. Is `UnknownCustomerManager.init()` called?
+2. Is `FlexipagePanelInjector` available?
+
+**Solution:**
+```javascript
+// Manually check unknown customers
+const check = await TimezoneStorage.checkUnknownCustomers();
+console.log(check);
+```
+
+### Issue: Generated institution code conflicts
+
+**Solution:**
+Manually edit the institution code before confirming customer addition. In the future, implement collision detection.
+
+## Module Load Order
+
+Ensure modules are loaded in this order in `manifest.json`:
+
+```json
+"modules/customerDataManager.js",
+"modules/timezoneStorage.js",
+"modules/caseTimezoneResolver.js",
+"modules/unknownCustomerManager.js",
+"modules/caseDetailExtractor.js",
+"modules/flexipagePanelInjector.js"
+```
+
+## Conclusion
+
+The timezone storage system provides:
+- ✓ Automatic timezone detection and storage
+- ✓ Seamless integration with customer list
+- ✓ Graceful handling of unknown customers
+- ✓ User-guided data collection workflow
+- ✓ Performance optimization through caching
+- ✓ Minimal user intervention required
+
+The system significantly improves extension usability by reducing repetitive timezone detection and enabling faster case processing.

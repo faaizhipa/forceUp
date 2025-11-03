@@ -1,310 +1,479 @@
 /**
  * Timezone Storage Module
- * Stores and retrieves detected timezones for customer accounts
- * Maps timezones to customer names and institution codes
+ * Manages timezone data for customers, linked to customer list
+ * Stores timezone information by account name, account code, and institution code
  */
 
-const TimezoneStorage = {
-    storageKey: 'detectedTimezones',
-    isInitialized: false,
+const TimezoneStorage = (function() {
+  'use strict';
 
-    /**
-     * Initialize the timezone storage
-     * @returns {Promise<void>}
-     */
-    async init() {
-        if (this.isInitialized) {
-            return;
-        }
+  // ========== PRIVATE STATE ==========
+  
+  const STORAGE_KEY = 'customerTimezoneData';
+  const UNKNOWN_CUSTOMERS_KEY = 'unknownCustomers';
+  
+  // ========== STORAGE OPERATIONS ==========
 
-        console.log('[TimezoneStorage] Initializing...');
-        this.isInitialized = true;
-        console.log('[TimezoneStorage] Initialized');
-    },
+  /**
+   * Get all timezone data from storage
+   * @returns {Promise<Object>} Timezone data indexed by various keys
+   */
+  async function getAllTimezoneData() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([STORAGE_KEY], (result) => {
+        resolve(result[STORAGE_KEY] || {});
+      });
+    });
+  }
 
-    /**
-     * Save timezone for an account
-     * @param {string} accountName - Account/customer name
-     * @param {string} timezone - Detected timezone (e.g., 'Australia/Sydney')
-     * @param {string|null} institutionCode - Optional institution code
-     * @returns {Promise<void>}
-     */
-    async saveTimezone(accountName, timezone, institutionCode = null) {
-        if (!accountName || !timezone) {
-            console.warn('[TimezoneStorage] Missing accountName or timezone');
-            return;
-        }
+  /**
+   * Save timezone data to storage
+   * @param {Object} data - Timezone data to save
+   * @returns {Promise<void>}
+   */
+  async function saveTimezoneData(data) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ [STORAGE_KEY]: data }, resolve);
+    });
+  }
 
-        try {
-            const data = await this.getAllTimezones();
-            
-            // Create normalized key from account name
-            const accountKey = this.normalizeKey(accountName);
-            
-            // Store timezone data
-            data[accountKey] = {
-                accountName: accountName,
-                timezone: timezone,
-                institutionCode: institutionCode,
-                lastUpdated: Date.now(),
-                timestamp: new Date().toISOString()
-            };
+  /**
+   * Get unknown customers (not in customer list)
+   * @returns {Promise<Array>} Array of unknown customer records
+   */
+  async function getUnknownCustomers() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([UNKNOWN_CUSTOMERS_KEY], (result) => {
+        resolve(result[UNKNOWN_CUSTOMERS_KEY] || []);
+      });
+    });
+  }
 
-            // If institution code is provided, also create a mapping
-            if (institutionCode) {
-                const codeKey = this.normalizeKey(institutionCode);
-                data[codeKey] = {
-                    accountName: accountName,
-                    timezone: timezone,
-                    institutionCode: institutionCode,
-                    lastUpdated: Date.now(),
-                    timestamp: new Date().toISOString()
-                };
-            }
+  /**
+   * Save unknown customers
+   * @param {Array} customers - Array of unknown customer records
+   * @returns {Promise<void>}
+   */
+  async function saveUnknownCustomers(customers) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ [UNKNOWN_CUSTOMERS_KEY]: customers }, resolve);
+    });
+  }
 
-            await this.saveAllTimezones(data);
-            console.log(`[TimezoneStorage] Saved timezone for ${accountName}: ${timezone}${institutionCode ? ` (${institutionCode})` : ''}`);
-        } catch (error) {
-            console.error('[TimezoneStorage] Error saving timezone:', error);
-        }
-    },
+  // ========== CUSTOMER MATCHING ==========
 
-    /**
-     * Get timezone for an account or institution code
-     * @param {string} identifier - Account name or institution code
-     * @returns {Promise<Object|null>} Timezone data object or null
-     */
-    async getTimezone(identifier) {
-        if (!identifier) {
-            return null;
-        }
-
-        try {
-            const data = await this.getAllTimezones();
-            const key = this.normalizeKey(identifier);
-            
-            const timezoneData = data[key];
-            
-            if (timezoneData) {
-                console.log(`[TimezoneStorage] Found cached timezone for ${identifier}: ${timezoneData.timezone}`);
-                return timezoneData;
-            }
-
-            // Try to find by partial match in account name
-            for (const [storedKey, value] of Object.entries(data)) {
-                if (value.accountName && value.accountName.toLowerCase().includes(identifier.toLowerCase())) {
-                    console.log(`[TimezoneStorage] Found timezone by partial match for ${identifier}: ${value.timezone}`);
-                    return value;
-                }
-            }
-
-            console.log(`[TimezoneStorage] No cached timezone found for ${identifier}`);
-            return null;
-        } catch (error) {
-            console.error('[TimezoneStorage] Error getting timezone:', error);
-            return null;
-        }
-    },
-
-    /**
-     * Get timezone string only (convenience method)
-     * @param {string} identifier - Account name or institution code
-     * @returns {Promise<string|null>}
-     */
-    async getTimezoneString(identifier) {
-        const data = await this.getTimezone(identifier);
-        return data ? data.timezone : null;
-    },
-
-    /**
-     * Check if timezone exists for identifier
-     * @param {string} identifier - Account name or institution code
-     * @returns {Promise<boolean>}
-     */
-    async hasTimezone(identifier) {
-        const timezone = await this.getTimezone(identifier);
-        return timezone !== null;
-    },
-
-    /**
-     * Get all stored timezones
-     * @returns {Promise<Object>}
-     */
-    async getAllTimezones() {
-        return new Promise((resolve) => {
-            chrome.storage.local.get([this.storageKey], (result) => {
-                resolve(result[this.storageKey] || {});
-            });
-        });
-    },
-
-    /**
-     * Save all timezone data
-     * @param {Object} data
-     * @returns {Promise<void>}
-     */
-    async saveAllTimezones(data) {
-        return new Promise((resolve) => {
-            chrome.storage.local.set({ [this.storageKey]: data }, () => {
-                resolve();
-            });
-        });
-    },
-
-    /**
-     * Delete timezone for an identifier
-     * @param {string} identifier - Account name or institution code
-     * @returns {Promise<void>}
-     */
-    async deleteTimezone(identifier) {
-        if (!identifier) {
-            return;
-        }
-
-        try {
-            const data = await this.getAllTimezones();
-            const key = this.normalizeKey(identifier);
-            
-            if (data[key]) {
-                delete data[key];
-                await this.saveAllTimezones(data);
-                console.log(`[TimezoneStorage] Deleted timezone for ${identifier}`);
-            }
-        } catch (error) {
-            console.error('[TimezoneStorage] Error deleting timezone:', error);
-        }
-    },
-
-    /**
-     * Clear all stored timezones
-     * @returns {Promise<void>}
-     */
-    async clearAll() {
-        try {
-            await this.saveAllTimezones({});
-            console.log('[TimezoneStorage] Cleared all timezones');
-        } catch (error) {
-            console.error('[TimezoneStorage] Error clearing timezones:', error);
-        }
-    },
-
-    /**
-     * Get statistics about stored timezones
-     * @returns {Promise<Object>}
-     */
-    async getStats() {
-        const data = await this.getAllTimezones();
-        const entries = Object.values(data);
-        
-        // Group by timezone
-        const timezoneGroups = {};
-        entries.forEach(entry => {
-            if (!timezoneGroups[entry.timezone]) {
-                timezoneGroups[entry.timezone] = [];
-            }
-            timezoneGroups[entry.timezone].push(entry.accountName);
-        });
-
-        return {
-            totalEntries: entries.length,
-            uniqueTimezones: Object.keys(timezoneGroups).length,
-            timezoneGroups: timezoneGroups,
-            lastUpdated: entries.length > 0 
-                ? Math.max(...entries.map(e => e.lastUpdated))
-                : null
-        };
-    },
-
-    /**
-     * Export all timezone data for backup
-     * @returns {Promise<Object>}
-     */
-    async exportData() {
-        const data = await this.getAllTimezones();
-        return {
-            version: '1.0',
-            exportDate: new Date().toISOString(),
-            data: data
-        };
-    },
-
-    /**
-     * Import timezone data from backup
-     * @param {Object} exportedData
-     * @returns {Promise<void>}
-     */
-    async importData(exportedData) {
-        if (!exportedData || !exportedData.data) {
-            console.error('[TimezoneStorage] Invalid import data');
-            return;
-        }
-
-        try {
-            await this.saveAllTimezones(exportedData.data);
-            console.log('[TimezoneStorage] Imported timezone data');
-        } catch (error) {
-            console.error('[TimezoneStorage] Error importing data:', error);
-        }
-    },
-
-    /**
-     * Normalize key for consistent lookups
-     * @param {string} key
-     * @returns {string}
-     */
-    normalizeKey(key) {
-        if (!key) return '';
-        // Convert to lowercase and remove extra whitespace
-        return key.trim().toLowerCase().replace(/\s+/g, ' ');
-    },
-
-    /**
-     * Try to match timezone using customer data from CustomerDataManager
-     * @param {string} identifier - Account name or institution code
-     * @returns {Promise<Object|null>}
-     */
-    async getTimezoneWithCustomerFallback(identifier) {
-        // First check stored timezones
-        let timezoneData = await this.getTimezone(identifier);
-        if (timezoneData) {
-            return timezoneData;
-        }
-
-        // Try to find in customer list if CustomerDataManager is available
-        if (typeof CustomerDataManager !== 'undefined') {
-            try {
-                // Try to find customer by institution code
-                const customer = CustomerDataManager.findByInstitutionCode(identifier);
-                if (customer) {
-                    // Check if we have timezone for the customer name
-                    timezoneData = await this.getTimezone(customer.name);
-                    if (timezoneData) {
-                        console.log(`[TimezoneStorage] Found timezone via customer name lookup: ${customer.name}`);
-                        return timezoneData;
-                    }
-                }
-
-                // Try searching all customers for name match
-                const allCustomers = CustomerDataManager.getAllCustomers();
-                for (const customer of allCustomers) {
-                    if (customer.name && customer.name.toLowerCase().includes(identifier.toLowerCase())) {
-                        timezoneData = await this.getTimezone(customer.name);
-                        if (timezoneData) {
-                            console.log(`[TimezoneStorage] Found timezone via customer search: ${customer.name}`);
-                            return timezoneData;
-                        }
-                    }
-                }
-            } catch (error) {
-                console.warn('[TimezoneStorage] Error in customer fallback:', error);
-            }
-        }
-
-        return null;
+  /**
+   * Find customer in customer list by various identifiers
+   * @param {Object} identifiers - Object containing accountName, accountCode, institutionCode
+   * @returns {Promise<Object|null>} Matching customer or null
+   */
+  async function findCustomerInList(identifiers) {
+    const { accountName, accountCode, institutionCode } = identifiers;
+    
+    if (!accountName && !accountCode && !institutionCode) {
+      console.warn('[TimezoneStorage] No identifiers provided for customer lookup');
+      return null;
     }
-};
 
-// Export for use in other modules
+    try {
+      // Get customer list from CustomerDataManager
+      const customerList = await CustomerDataManager.getCustomers();
+      
+      if (!customerList || customerList.length === 0) {
+        console.warn('[TimezoneStorage] Customer list is empty');
+        return null;
+      }
+
+      // Try matching by institution code first (most reliable)
+      if (institutionCode) {
+        const match = customerList.find(c => 
+          c.institutionCode && c.institutionCode.toLowerCase() === institutionCode.toLowerCase()
+        );
+        if (match) {
+          console.log(`[TimezoneStorage] Found customer by institutionCode: ${institutionCode}`);
+          return match;
+        }
+      }
+
+      // Try matching by account code
+      if (accountCode) {
+        const match = customerList.find(c => 
+          c.institutionCode && c.institutionCode.toLowerCase() === accountCode.toLowerCase()
+        );
+        if (match) {
+          console.log(`[TimezoneStorage] Found customer by accountCode: ${accountCode}`);
+          return match;
+        }
+      }
+
+      // Try matching by account name (case insensitive, partial match)
+      if (accountName) {
+        const normalizedName = accountName.toLowerCase().trim();
+        const match = customerList.find(c => {
+          if (!c.name) return false;
+          const customerName = c.name.toLowerCase().trim();
+          return customerName === normalizedName || 
+                 customerName.includes(normalizedName) ||
+                 normalizedName.includes(customerName);
+        });
+        if (match) {
+          console.log(`[TimezoneStorage] Found customer by accountName: ${accountName}`);
+          return match;
+        }
+      }
+
+      console.log('[TimezoneStorage] No matching customer found in list');
+      return null;
+    } catch (error) {
+      console.error('[TimezoneStorage] Error finding customer:', error);
+      return null;
+    }
+  }
+
+  // ========== TIMEZONE OPERATIONS ==========
+
+  /**
+   * Store timezone for a customer
+   * @param {Object} params - Parameters object
+   * @param {string} params.timezone - Timezone string (e.g., "America/New_York")
+   * @param {string} [params.accountName] - Account name
+   * @param {string} [params.accountCode] - Account code
+   * @param {string} [params.institutionCode] - Institution code
+   * @param {string} [params.source] - Source of timezone detection (e.g., "address", "case")
+   * @returns {Promise<Object>} Result object with success status and details
+   */
+  async function storeTimezone(params) {
+    const { timezone, accountName, accountCode, institutionCode, source = 'unknown' } = params;
+
+    if (!timezone) {
+      return { success: false, error: 'No timezone provided' };
+    }
+
+    try {
+      // Find customer in list
+      const customer = await findCustomerInList({ accountName, accountCode, institutionCode });
+      
+      const timezoneData = await getAllTimezoneData();
+      const timestamp = Date.now();
+
+      const record = {
+        timezone,
+        source,
+        timestamp,
+        lastUpdated: timestamp,
+        accountName: accountName || null,
+        accountCode: accountCode || null,
+        institutionCode: institutionCode || null
+      };
+
+      if (customer) {
+        // Customer found in list - store with multiple keys for lookup
+        const primaryKey = customer.institutionCode || customer.name;
+        
+        // Store by primary key
+        timezoneData[primaryKey] = {
+          ...record,
+          customerName: customer.name,
+          server: customer.server,
+          custID: customer.custID,
+          instID: customer.instID,
+          inCustomerList: true
+        };
+
+        // Also store by account name and code if different
+        if (accountName && accountName !== primaryKey) {
+          timezoneData[accountName] = timezoneData[primaryKey];
+        }
+        if (accountCode && accountCode !== primaryKey) {
+          timezoneData[accountCode] = timezoneData[primaryKey];
+        }
+
+        await saveTimezoneData(timezoneData);
+
+        console.log(`[TimezoneStorage] Stored timezone for known customer: ${customer.name} (${timezone})`);
+        return { 
+          success: true, 
+          inCustomerList: true, 
+          customer,
+          timezone 
+        };
+
+      } else {
+        // Customer NOT in list - store and add to unknown customers
+        const lookupKey = institutionCode || accountCode || accountName;
+        
+        if (!lookupKey) {
+          return { success: false, error: 'No valid identifier for storage' };
+        }
+
+        timezoneData[lookupKey] = {
+          ...record,
+          inCustomerList: false
+        };
+
+        await saveTimezoneData(timezoneData);
+
+        // Add to unknown customers list
+        await addUnknownCustomer({
+          accountName,
+          accountCode,
+          institutionCode,
+          timezone,
+          source,
+          detectedAt: timestamp
+        });
+
+        console.log(`[TimezoneStorage] Stored timezone for unknown customer: ${lookupKey} (${timezone})`);
+        return { 
+          success: true, 
+          inCustomerList: false,
+          needsReview: true,
+          timezone,
+          lookupKey
+        };
+      }
+
+    } catch (error) {
+      console.error('[TimezoneStorage] Error storing timezone:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get timezone for a customer
+   * @param {Object} identifiers - Object containing accountName, accountCode, institutionCode
+   * @returns {Promise<Object|null>} Timezone record or null
+   */
+  async function getTimezone(identifiers) {
+    const { accountName, accountCode, institutionCode } = identifiers;
+    
+    try {
+      const timezoneData = await getAllTimezoneData();
+
+      // Try lookup by institution code first
+      if (institutionCode && timezoneData[institutionCode]) {
+        console.log(`[TimezoneStorage] Found timezone by institutionCode: ${institutionCode}`);
+        return timezoneData[institutionCode];
+      }
+
+      // Try account code
+      if (accountCode && timezoneData[accountCode]) {
+        console.log(`[TimezoneStorage] Found timezone by accountCode: ${accountCode}`);
+        return timezoneData[accountCode];
+      }
+
+      // Try account name
+      if (accountName && timezoneData[accountName]) {
+        console.log(`[TimezoneStorage] Found timezone by accountName: ${accountName}`);
+        return timezoneData[accountName];
+      }
+
+      // Try finding customer in list and check if we have timezone under different key
+      const customer = await findCustomerInList(identifiers);
+      if (customer) {
+        const primaryKey = customer.institutionCode || customer.name;
+        if (timezoneData[primaryKey]) {
+          console.log(`[TimezoneStorage] Found timezone by customer list match: ${primaryKey}`);
+          return timezoneData[primaryKey];
+        }
+      }
+
+      console.log('[TimezoneStorage] No timezone found for customer');
+      return null;
+
+    } catch (error) {
+      console.error('[TimezoneStorage] Error getting timezone:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Update timezone for existing customer
+   * @param {Object} params - Same as storeTimezone
+   * @returns {Promise<Object>} Result object
+   */
+  async function updateTimezone(params) {
+    // Same as storeTimezone - it will overwrite existing data
+    const result = await storeTimezone(params);
+    if (result.success) {
+      console.log(`[TimezoneStorage] Updated timezone: ${params.timezone}`);
+    }
+    return result;
+  }
+
+  // ========== UNKNOWN CUSTOMER MANAGEMENT ==========
+
+  /**
+   * Add customer to unknown customers list
+   * @param {Object} customerData - Customer data
+   * @returns {Promise<void>}
+   */
+  async function addUnknownCustomer(customerData) {
+    try {
+      const unknownCustomers = await getUnknownCustomers();
+      
+      // Check if already exists
+      const lookupKey = customerData.institutionCode || customerData.accountCode || customerData.accountName;
+      const exists = unknownCustomers.some(c => {
+        const existingKey = c.institutionCode || c.accountCode || c.accountName;
+        return existingKey === lookupKey;
+      });
+
+      if (!exists) {
+        unknownCustomers.push({
+          ...customerData,
+          id: `unknown_${Date.now()}`,
+          needsReview: true
+        });
+        await saveUnknownCustomers(unknownCustomers);
+        console.log(`[TimezoneStorage] Added unknown customer: ${lookupKey}`);
+      } else {
+        console.log(`[TimezoneStorage] Unknown customer already exists: ${lookupKey}`);
+      }
+    } catch (error) {
+      console.error('[TimezoneStorage] Error adding unknown customer:', error);
+    }
+  }
+
+  /**
+   * Check if there are unknown customers pending review
+   * @returns {Promise<Object>} Object with count and customers
+   */
+  async function checkUnknownCustomers() {
+    try {
+      const unknownCustomers = await getUnknownCustomers();
+      return {
+        count: unknownCustomers.length,
+        customers: unknownCustomers,
+        hasUnknown: unknownCustomers.length > 0
+      };
+    } catch (error) {
+      console.error('[TimezoneStorage] Error checking unknown customers:', error);
+      return { count: 0, customers: [], hasUnknown: false };
+    }
+  }
+
+  /**
+   * Remove customer from unknown list (after adding to customer list)
+   * @param {string} customerId - ID of customer to remove
+   * @returns {Promise<void>}
+   */
+  async function removeUnknownCustomer(customerId) {
+    try {
+      const unknownCustomers = await getUnknownCustomers();
+      const filtered = unknownCustomers.filter(c => c.id !== customerId);
+      await saveUnknownCustomers(filtered);
+      console.log(`[TimezoneStorage] Removed unknown customer: ${customerId}`);
+    } catch (error) {
+      console.error('[TimezoneStorage] Error removing unknown customer:', error);
+    }
+  }
+
+  /**
+   * Promote unknown customer to customer list
+   * This will be called after user confirms adding customer
+   * @param {Object} customerData - Full customer data including server, custID, etc.
+   * @returns {Promise<Object>} Result object
+   */
+  async function promoteUnknownCustomer(customerData) {
+    try {
+      // This will integrate with CustomerDataManager to add the customer
+      // For now, just remove from unknown list
+      if (customerData.id) {
+        await removeUnknownCustomer(customerData.id);
+      }
+
+      // Update timezone record to mark as in customer list
+      const timezoneData = await getAllTimezoneData();
+      const lookupKey = customerData.institutionCode || customerData.accountCode || customerData.accountName;
+      
+      if (timezoneData[lookupKey]) {
+        timezoneData[lookupKey].inCustomerList = true;
+        timezoneData[lookupKey].customerName = customerData.name || customerData.accountName;
+        await saveTimezoneData(timezoneData);
+      }
+
+      console.log(`[TimezoneStorage] Promoted unknown customer: ${lookupKey}`);
+      return { success: true, customer: customerData };
+
+    } catch (error) {
+      console.error('[TimezoneStorage] Error promoting unknown customer:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ========== STATISTICS & UTILITIES ==========
+
+  /**
+   * Get storage statistics
+   * @returns {Promise<Object>} Statistics object
+   */
+  async function getStats() {
+    try {
+      const timezoneData = await getAllTimezoneData();
+      const unknownCustomers = await getUnknownCustomers();
+      
+      const totalRecords = Object.keys(timezoneData).length;
+      const knownCustomers = Object.values(timezoneData).filter(r => r.inCustomerList).length;
+      const unknownCount = unknownCustomers.length;
+
+      return {
+        totalTimezoneRecords: totalRecords,
+        knownCustomers,
+        unknownCustomers: unknownCount,
+        needsReview: unknownCount > 0
+      };
+    } catch (error) {
+      console.error('[TimezoneStorage] Error getting stats:', error);
+      return {
+        totalTimezoneRecords: 0,
+        knownCustomers: 0,
+        unknownCustomers: 0,
+        needsReview: false
+      };
+    }
+  }
+
+  /**
+   * Clear all timezone data (for debugging/reset)
+   * @returns {Promise<void>}
+   */
+  async function clearAllData() {
+    try {
+      await saveTimezoneData({});
+      await saveUnknownCustomers([]);
+      console.log('[TimezoneStorage] Cleared all timezone data');
+    } catch (error) {
+      console.error('[TimezoneStorage] Error clearing data:', error);
+    }
+  }
+
+  // ========== PUBLIC API ==========
+
+  return {
+    // Core operations
+    storeTimezone,
+    getTimezone,
+    updateTimezone,
+    
+    // Customer matching
+    findCustomerInList,
+    
+    // Unknown customer management
+    checkUnknownCustomers,
+    addUnknownCustomer,
+    removeUnknownCustomer,
+    promoteUnknownCustomer,
+    
+    // Utilities
+    getStats,
+    getAllTimezoneData,
+    clearAllData
+  };
+
+})();
+
+// Export for module usage
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = TimezoneStorage;
+  module.exports = TimezoneStorage;
 }

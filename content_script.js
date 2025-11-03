@@ -323,38 +323,78 @@ const emailKeywordsLifeSciencePS = [
   'bisqa',
 ];
 
-let desiredTextSelection, emailKeywordsSelection;
+// --- TEAM CONFIGURATION ---
+const teamConfigs = {
+  'EndNote': {
+    email: emailEndNote,
+    keywords: emailKeywordsEndNote,
+    responseTimeTarget: 90, // minutes
+    workingHours: { start: 14, end: 23 } // 2PM to 11PM in 24-hour format
+  },
+  'Esploro': {
+    email: 'esploro.support@clarivate.com', // Add actual email
+    keywords: ['esploro'], // Add actual keywords
+    responseTimeTarget: 60, // minutes
+    workingHours: { start: 14, end: 23 } // 2PM to 11PM in 24-hour format
+  },
+  'WebOfScience': {
+    email: emailWoS,
+    keywords: emailKeywordsWoS,
+    responseTimeTarget: 90, // minutes - adjust as needed
+    workingHours: { start: 14, end: 23 }
+  },
+  'ScholarOne': {
+    email: emailScholarOne,
+    keywords: emailKeywordsScholarOne,
+    responseTimeTarget: 90, // minutes - adjust as needed
+    workingHours: { start: 14, end: 23 }
+  },
+  'AccountSupport': {
+    email: emailAccountSupport,
+    keywords: emailKeywordsAccountSupport,
+    responseTimeTarget: 90, // minutes - adjust as needed
+    workingHours: { start: 14, end: 23 }
+  },
+  'LifeScience': {
+    email: emailLifeScience,
+    keywords: emailKeywordsLifeScience,
+    responseTimeTarget: 90, // minutes - adjust as needed
+    workingHours: { start: 14, end: 23 }
+  },
+  'LifeScienceHDS': {
+    email: emailLifeScienceHDS,
+    keywords: emailKeywordsLifeScienceHDS,
+    responseTimeTarget: 90, // minutes - adjust as needed
+    workingHours: { start: 14, end: 23 }
+  },
+  'LifeSciencePS': {
+    email: emailLifeSciencePS,
+    keywords: emailKeywordsLifeSciencePS,
+    responseTimeTarget: 90, // minutes - adjust as needed
+    workingHours: { start: 14, end: 23 }
+  }
+};
+
+let desiredTextSelection, emailKeywordsSelection, currentTeamConfig;
 
 chrome.runtime.sendMessage({ message: 'getSavedSelection' }, function (response) {
   if (response.status) {
     const savedSelection = response.data;
-
-    // Based on the saved selection, set the desiredText and emailKeywords
-    if (savedSelection === 'EndNote') {
+    currentTeamConfig = teamConfigs[savedSelection];
+    
+    if (currentTeamConfig) {
+      desiredTextSelection = currentTeamConfig.email;
+      emailKeywordsSelection = currentTeamConfig.keywords;
+    } else {
+      // Fallback to EndNote if selection not found
+      currentTeamConfig = teamConfigs['EndNote'];
       desiredTextSelection = emailEndNote;
       emailKeywordsSelection = emailKeywordsEndNote;
-    } else if (savedSelection === 'ScholarOne') {
-      desiredTextSelection = emailScholarOne;
-      emailKeywordsSelection = emailKeywordsScholarOne;
-    } else if (savedSelection === 'WebOfScience') {
-      desiredTextSelection = emailWoS;
-      emailKeywordsSelection = emailKeywordsWoS;
-    } else if (savedSelection === 'AccountSupport') {
-      desiredTextSelection = emailAccountSupport;
-      emailKeywordsSelection = emailKeywordsAccountSupport;
-    } else if (savedSelection === 'LifeScience') {
-      desiredTextSelection = emailLifeScience;
-      emailKeywordsSelection = emailKeywordsLifeScience;
-    } else if (savedSelection === 'LifeScienceHDS') {
-      desiredTextSelection = emailLifeScienceHDS;
-      emailKeywordsSelection = emailKeywordsLifeScienceHDS;
-    } else if (savedSelection === 'LifeSciencePS') {
-      desiredTextSelection = emailLifeSciencePS;
-      emailKeywordsSelection = emailKeywordsLifeSciencePS;
     }
-
   } else {
     console.error('Error retrieving selection:', response.error);
+    // Fallback to EndNote
+    currentTeamConfig = teamConfigs['EndNote'];
   }
 });
 
@@ -698,9 +738,10 @@ function hasOpenButNotReopened(rowElement) {
 
     if (textContent === "Open") {
       isOpenFound = true;
-    } else if (textContent === "Re-opened") {
+    } else if (textContent === "Re-opened" || textContent === "Reopened") {
       isReopenedFound = true;
     } else if (textContent === "New") {
+      isOpenFound = true;
       return true;
     }
   });
@@ -709,6 +750,130 @@ function hasOpenButNotReopened(rowElement) {
     return true
   } else {
     return false;
+  }
+}
+
+// --- WORKING HOURS CALCULATION ---
+
+// Helper function to convert date to Malaysia Time (MYT - UTC+8)
+function convertToMYT(date) {
+  const utcTime = date.getTime() + (date.getTimezoneOffset() * 60000);
+  const mytOffset = 8; // MYT is UTC+8
+  const mytTime = new Date(utcTime + (mytOffset * 3600000));
+  return mytTime;
+}
+
+// Helper function to create a date in MYT timezone
+function createMYTDate(year, month, day, hours = 0, minutes = 0, seconds = 0) {
+  // Create date in local time first
+  const localDate = new Date(year, month, day, hours, minutes, seconds);
+  
+  // Get the local timezone offset
+  const localOffset = localDate.getTimezoneOffset();
+  const mytOffset = -480; // MYT is UTC+8, so offset is -480 minutes
+  
+  // Calculate the difference and adjust
+  const offsetDiff = mytOffset - localOffset;
+  const mytDate = new Date(localDate.getTime() + (offsetDiff * 60000));
+  
+  return mytDate;
+}
+
+// Calculate working minutes between two dates considering working hours (2PM-11PM MYT)
+function calculateWorkingMinutes(startDate, endDate, workingHours = { start: 14, end: 23 }) {
+  // Convert input dates to MYT
+  const start = convertToMYT(new Date(startDate));
+  const end = convertToMYT(new Date(endDate));
+  let totalWorkingMinutes = 0;
+  
+  // If start date is after end date, return 0
+  if (start >= end) {
+    return 0;
+  }
+  
+  let currentDate = new Date(start);
+  
+  while (currentDate < end) {
+    // Create working hours boundaries in MYT
+    const dayStart = new Date(currentDate);
+    dayStart.setHours(workingHours.start, 0, 0, 0);
+    
+    const dayEnd = new Date(currentDate);
+    dayEnd.setHours(workingHours.end, 0, 0, 0);
+    
+    // Find the effective start and end times for this day
+    const effectiveStart = currentDate < dayStart ? dayStart : currentDate;
+    const effectiveEnd = end > dayEnd ? dayEnd : end;
+    
+    // If there's overlap with working hours on this day
+    if (effectiveStart < effectiveEnd && effectiveStart < dayEnd && effectiveEnd > dayStart) {
+      const dailyWorkingMinutes = (effectiveEnd - effectiveStart) / (1000 * 60);
+      totalWorkingMinutes += dailyWorkingMinutes;
+    }
+    
+    // Move to next day in MYT
+    currentDate.setDate(currentDate.getDate() + 1);
+    currentDate.setHours(0, 0, 0, 0);
+  }
+  
+  return totalWorkingMinutes;
+}
+
+// --- Calculate the working time difference between the given date and now in minutes (using MYT) ---
+function calculateWorkingTimeDifferenceInMinutes(date, teamConfig = currentTeamConfig) {
+  const openDate = new Date(date);
+  const currentDate = new Date();
+  
+  if (!teamConfig || !teamConfig.workingHours) {
+    // Fallback to original calculation if no team config
+    return calculateTimeDifferenceInMinutes(date);
+  }
+  
+  return calculateWorkingMinutes(openDate, currentDate, teamConfig.workingHours);
+}
+
+// --- Determine team from case data (if possible) ---
+function determineTeamFromCase(rowElement) {
+  // Try to determine team from case content
+  // This is a placeholder - you might need to adjust based on how team info is stored in cases
+  const caseText = rowElement.textContent.toLowerCase();
+  
+  for (const [teamName, config] of Object.entries(teamConfigs)) {
+    if (Array.isArray(config.email)) {
+      // Handle array of emails
+      if (config.email.some(email => caseText.includes(email.toLowerCase()))) {
+        return config;
+      }
+    } else {
+      // Handle single email
+      if (caseText.includes(config.email.toLowerCase())) {
+        return config;
+      }
+    }
+    
+    // Check keywords
+    if (config.keywords.some(keyword => caseText.includes(keyword.toLowerCase()))) {
+      return config;
+    }
+  }
+  
+  return currentTeamConfig || teamConfigs['EndNote']; // Fallback
+}
+
+// --- Get highlight color based on elapsed time vs target ---
+function getHighlightColor(elapsedMinutes, targetMinutes) {
+  const ratio = elapsedMinutes / targetMinutes;
+  
+  if (ratio > 1.5) { // 150% of target
+    return "rgb(255, 220, 230)"; // Light red - very overdue
+  } else if (ratio > 1.0) { // Over target but less than 150%
+    return "rgb(255, 232, 184)"; // Light orange - overdue
+  } else if (ratio > 0.75) { // 75-100% of target
+    return "rgb(255, 255, 153)"; // Light yellow - approaching deadline
+  } else if (ratio > 0.5) { // 50-75% of target
+    return "rgb(209, 247, 196)"; // Light green - still good
+  } else { // Less than 50% of target
+    return "rgb(194, 244, 233)"; // Light blue - plenty of time
   }
 }
 
@@ -729,31 +894,27 @@ function handleCases() {
           const textContent = element.textContent;
 
           if (isValidDateFormat(textContent)) {
-            // if the date format is MM/DD/YYYY, push it to dateArray
             const convertedDate = convertDateFormat(textContent);
             dateArray.push(convertedDate);
-            //console.log('isValidDateFormat ONE has run')
           } else if (isValidDateFormat2(textContent)) {
-            // if the date format is DD/MM/YYYY, convert it to MM/DD/YYYY and push it to dateArray
             const convertedDate = convertDateFormat2(textContent);
             dateArray.push(convertedDate);
-            //console.log('isValidDateFormat2 TWO has run')
           } else if (isValidDateFormatDDMMnoAMPM(textContent)) {
             const addAMPM = convertDateFormatDDMMwithAMPM(textContent);
-            // console.log(addAMPM);
             const convertedDate = convertDateFormat(addAMPM);
             dateArray.push(convertedDate);
           } else if (isValidDateFormatMMDDnoAMPM(textContent)) {
             const addAMPM = convertDateFormatMMDDwithAMPM(textContent);
-            // console.log(addAMPM);
             const convertedDate = convertDateFormat(addAMPM);
             dateArray.push(convertedDate);
           }
         });
 
+        // Get the team configuration for this case
+        const caseTeamConfig = determineTeamFromCase(row);
+        
         //check if the number of items in dateArray is 2 or 1, and assign earlierDate accordingly
         let earlierDate;
-        //console.log(dateArray);
 
         if (dateArray.length === 2) {
           earlierDate = getEarlierDate(dateArray[0], dateArray[1]);
@@ -761,18 +922,14 @@ function handleCases() {
           earlierDate = new Date(dateArray[0]);
         }
 
-        // calculate the time difference in minutes
-        const caseMinutes = calculateTimeDifferenceInMinutes(earlierDate);
+        if (earlierDate) {
+          // calculate the working time difference in minutes
+          const caseMinutes = calculateWorkingTimeDifferenceInMinutes(earlierDate, caseTeamConfig);
+          const targetMinutes = caseTeamConfig.responseTimeTarget;
 
-        // highlight the row with different colors based on the time difference
-        if (caseMinutes > 90) {
-          highlightAnchorWithSpecificContent(row, "rgb(255, 220, 230)")
-        } else if (caseMinutes <= 90 && caseMinutes > 60) {
-          highlightAnchorWithSpecificContent(row, "rgb(255, 232, 184)")
-        } else if (caseMinutes <= 60 && caseMinutes > 30) {
-          highlightAnchorWithSpecificContent(row, "rgb(209, 247, 196)")
-        } else if (caseMinutes <= 30) {
-          highlightAnchorWithSpecificContent(row, "rgb(194, 244, 233)")
+          // highlight the row based on elapsed time vs target
+          const highlightColor = getHighlightColor(caseMinutes, targetMinutes);
+          highlightAnchorWithSpecificContent(row, highlightColor);
         }
       } else {
         unhighlightAnchor(row);

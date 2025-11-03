@@ -77,6 +77,37 @@ function getDefaultSettings() {
       shortcuts: {
         enabled: true
       }
+    },
+    userPreferences: {
+      shift: {
+        timezone: 'Asia/Kuala_Lumpur',
+        startHour: 21,
+        startMinute: 0,
+        endHour: 6,
+        endMinute: 0,
+        isOvernightShift: true
+      },
+      userTimezone: {
+        auto: true,
+        manual: null
+      },
+      salesforceTimezone: {
+        auto: true,
+        manual: null
+      },
+      irt: {
+        useTeamDefaults: true,
+        customMinutes: null
+      },
+      formatting: {
+        dateFormat: 'auto',
+        timeFormat: '24h'
+      },
+      meta: {
+        isFirstRun: true,
+        setupCompleted: false,
+        warningDismissed: false
+      }
     }
   };
 }
@@ -109,6 +140,19 @@ function mergeWithDefaults(settings) {
         ...settings.exlibris.ui.menuLocations
       };
     }
+  }
+
+  if (settings.userPreferences) {
+    merged.userPreferences = {
+      ...defaults.userPreferences,
+      ...settings.userPreferences,
+      shift: { ...defaults.userPreferences.shift, ...(settings.userPreferences.shift || {}) },
+      userTimezone: { ...defaults.userPreferences.userTimezone, ...(settings.userPreferences.userTimezone || {}) },
+      salesforceTimezone: { ...defaults.userPreferences.salesforceTimezone, ...(settings.userPreferences.salesforceTimezone || {}) },
+      irt: { ...defaults.userPreferences.irt, ...(settings.userPreferences.irt || {}) },
+      formatting: { ...defaults.userPreferences.formatting, ...(settings.userPreferences.formatting || {}) },
+      meta: { ...defaults.userPreferences.meta, ...(settings.userPreferences.meta || {}) }
+    };
   }
   
   return merged;
@@ -146,12 +190,63 @@ function populateUI(settings) {
   if (settings.exlibris?.shortcuts) {
     document.getElementById('shortcutsEnabled').checked = settings.exlibris.shortcuts.enabled !== false;
   }
+
+  // User Preferences tab
+  if (settings.userPreferences) {
+    const prefs = settings.userPreferences;
+    
+    // Shift configuration
+    if (prefs.shift) {
+      document.getElementById('shiftTimezone').value = prefs.shift.timezone || 'Asia/Kuala_Lumpur';
+      const startTime = `${String(prefs.shift.startHour || 21).padStart(2, '0')}:${String(prefs.shift.startMinute || 0).padStart(2, '0')}`;
+      const endTime = `${String(prefs.shift.endHour || 6).padStart(2, '0')}:${String(prefs.shift.endMinute || 0).padStart(2, '0')}`;
+      document.getElementById('shiftStartTime').value = startTime;
+      document.getElementById('shiftEndTime').value = endTime;
+      document.getElementById('isOvernightShift').checked = prefs.shift.isOvernightShift !== false;
+    }
+
+    // Timezone settings
+    if (prefs.userTimezone) {
+      document.getElementById('userTimezone').value = prefs.userTimezone.auto ? 'auto' : (prefs.userTimezone.manual || 'auto');
+    }
+    if (prefs.salesforceTimezone) {
+      document.getElementById('salesforceTimezone').value = prefs.salesforceTimezone.auto ? 'auto' : (prefs.salesforceTimezone.manual || 'auto');
+    }
+
+    // IRT settings
+    if (prefs.irt) {
+      document.getElementById('useTeamDefaults').checked = prefs.irt.useTeamDefaults !== false;
+      if (prefs.irt.customMinutes) {
+        document.getElementById('customIRT').value = prefs.irt.customMinutes;
+      }
+      document.getElementById('customIRT').disabled = prefs.irt.useTeamDefaults !== false;
+    }
+
+    // Formatting
+    if (prefs.formatting) {
+      document.getElementById('dateFormat').value = prefs.formatting.dateFormat || 'auto';
+      document.getElementById('timeFormat').value = prefs.formatting.timeFormat || '24h';
+    }
+  }
+
+  // Add listener for useTeamDefaults checkbox to enable/disable custom IRT
+  document.getElementById('useTeamDefaults').addEventListener('change', (e) => {
+    document.getElementById('customIRT').disabled = e.target.checked;
+  });
 }
 
 /**
  * Gets settings from UI
  */
 function getSettingsFromUI() {
+  // Parse shift times
+  const shiftStart = document.getElementById('shiftStartTime').value.split(':');
+  const shiftEnd = document.getElementById('shiftEndTime').value.split(':');
+  
+  // Determine timezone values
+  const userTzValue = document.getElementById('userTimezone').value;
+  const sfTzValue = document.getElementById('salesforceTimezone').value;
+
   const settings = {
     savedSelection: document.getElementById('selectionDropdown').value,
     exlibris: {
@@ -173,6 +268,38 @@ function getSettingsFromUI() {
       },
       shortcuts: {
         enabled: document.getElementById('shortcutsEnabled').checked
+      }
+    },
+    userPreferences: {
+      shift: {
+        timezone: document.getElementById('shiftTimezone').value,
+        startHour: parseInt(shiftStart[0], 10),
+        startMinute: parseInt(shiftStart[1], 10),
+        endHour: parseInt(shiftEnd[0], 10),
+        endMinute: parseInt(shiftEnd[1], 10),
+        isOvernightShift: document.getElementById('isOvernightShift').checked
+      },
+      userTimezone: {
+        auto: userTzValue === 'auto',
+        manual: userTzValue !== 'auto' ? userTzValue : null
+      },
+      salesforceTimezone: {
+        auto: sfTzValue === 'auto',
+        manual: sfTzValue !== 'auto' ? sfTzValue : null
+      },
+      irt: {
+        useTeamDefaults: document.getElementById('useTeamDefaults').checked,
+        customMinutes: document.getElementById('customIRT').value ? parseInt(document.getElementById('customIRT').value, 10) : null
+      },
+      formatting: {
+        dateFormat: document.getElementById('dateFormat').value,
+        timeFormat: document.getElementById('timeFormat').value
+      },
+      meta: {
+        isFirstRun: false,
+        setupCompleted: true,
+        warningDismissed: true,
+        lastUpdated: new Date().toISOString()
       }
     }
   };
@@ -270,6 +397,24 @@ document.addEventListener("DOMContentLoaded", async () => {
     const settings = getSettingsFromUI();
     await saveSettings(settings);
     showSuccess('Team setting saved! Please refresh Salesforce.');
+  });
+
+  // Save preferences button
+  document.getElementById('savePreferencesButton').addEventListener('click', async () => {
+    const settings = getSettingsFromUI();
+    await saveSettings(settings);
+    showSuccess('Preferences saved! Please refresh Salesforce.');
+  });
+
+  // Reset preferences button
+  document.getElementById('resetPreferencesButton').addEventListener('click', async () => {
+    if (confirm('Reset preferences to defaults? This will reset shift times, timezones, and IRT settings.')) {
+      const defaults = getDefaultSettings();
+      currentSettings.userPreferences = defaults.userPreferences;
+      await saveSettings(currentSettings);
+      populateUI(currentSettings);
+      showSuccess('Preferences reset to defaults');
+    }
   });
   
   // Save Ex Libris button

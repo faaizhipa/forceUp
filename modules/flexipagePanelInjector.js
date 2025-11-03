@@ -54,6 +54,19 @@ const FlexipagePanelInjector = {
         this.setSlot2Message('Prepare tools to unlock the full workspace.');
 
         console.log('[EXL] FlexipagePanelInjector: Panel injected successfully');
+        
+        // Force UI refresh to prevent panel from hiding behind other elements
+        this.forceUIRefresh(panel);
+        
+        // Initialize CaseTimezoneResolver
+        if (typeof CaseTimezoneResolver !== 'undefined') {
+            setTimeout(() => {
+                CaseTimezoneResolver.init();
+            }, 500); // Small delay to ensure DOM is fully ready
+        } else {
+            console.warn('[EXL] FlexipagePanelInjector: CaseTimezoneResolver not loaded');
+        }
+        
         return true;
     },
 
@@ -233,6 +246,58 @@ const FlexipagePanelInjector = {
     },
 
     /**
+     * Force UI refresh to prevent panel from hiding behind other elements
+     * Uses multiple techniques to trigger browser repaint/reflow
+     * @param {Element} panel
+     */
+    forceUIRefresh(panel) {
+        console.log('[EXL] FlexipagePanelInjector: Forcing UI refresh...');
+        
+        try {
+            // Method 1: Force reflow by reading offsetHeight
+            void panel.offsetHeight;
+            
+            // Method 2: Temporarily modify and restore a style property
+            const originalDisplay = panel.style.display;
+            panel.style.display = 'none';
+            void panel.offsetHeight; // Force reflow
+            panel.style.display = originalDisplay || '';
+            
+            // Method 3: Add and remove a temporary class
+            panel.classList.add('exl-force-repaint');
+            void panel.offsetHeight; // Force reflow
+            panel.classList.remove('exl-force-repaint');
+            
+            // Method 4: Ensure z-index is properly set
+            const panelElement = document.getElementById(this.panelId);
+            if (panelElement) {
+                // Force recalculation of stacking context
+                const computedStyle = window.getComputedStyle(panelElement);
+                void computedStyle.zIndex;
+                
+                // Ensure panel has appropriate z-index
+                if (!panelElement.style.zIndex) {
+                    panelElement.style.zIndex = '1000';
+                }
+            }
+            
+            // Method 5: Force repaint on parent container
+            const slotWrapper = panel.parentElement;
+            if (slotWrapper) {
+                void slotWrapper.offsetHeight;
+                const header = slotWrapper.parentElement;
+                if (header) {
+                    void header.offsetHeight;
+                }
+            }
+            
+            console.log('[EXL] FlexipagePanelInjector: UI refresh complete');
+        } catch (error) {
+            console.error('[EXL] FlexipagePanelInjector: Error during UI refresh:', error);
+        }
+    },
+
+    /**
      * Wire event handlers for panel
      * @param {Element} panel
      */
@@ -273,6 +338,9 @@ const FlexipagePanelInjector = {
             }
 
             switch (action) {
+                case 'prepare-tools':
+                    await this.handlePrepareTools();
+                    break;
                 case 'enable-full':
                     await this.handleEnableFull();
                     break;
@@ -291,6 +359,87 @@ const FlexipagePanelInjector = {
         } catch (error) {
             console.error(`[EXL] FlexipagePanelInjector: Error handling action ${action}:`, error);
             this.setStatusMessage('An unexpected error occurred. Check console for details.', 'error');
+        }
+    },
+
+    /**
+     * Handle "Prepare Tools" action
+     * Scrolls down the full page, extracts case data, and scrolls back to original position
+     */
+    async handlePrepareTools() {
+        console.log('[EXL] FlexipagePanelInjector: Preparing tools...');
+        
+        // Set working state
+        this.setPreparationState('working', {
+            message: 'Scrolling to load full page content...',
+            buttonLabel: 'Loading...'
+        });
+
+        try {
+            // Save current scroll position
+            const originalScrollPosition = window.pageYOffset || document.documentElement.scrollTop;
+            console.log('[EXL] FlexipagePanelInjector: Saved scroll position:', originalScrollPosition);
+
+            // Step 1: Scroll to bottom to trigger lazy loading
+            if (typeof ScrollController !== 'undefined') {
+                this.setPreparationState('working', {
+                    message: 'Scrolling down to load all content...',
+                    buttonLabel: 'Scrolling...'
+                });
+
+                const scrollStats = await ScrollController.toBottom({
+                    stepPx: 800,
+                    delayMs: 150,
+                    maxScrolls: 50
+                });
+
+                console.log('[EXL] FlexipagePanelInjector: Scroll complete:', scrollStats);
+            } else {
+                console.warn('[EXL] FlexipagePanelInjector: ScrollController not available, skipping scroll');
+            }
+
+            // Step 2: Extract case data
+            if (typeof CaseDataExtractor !== 'undefined') {
+                this.setPreparationState('working', {
+                    message: 'Extracting case data...',
+                    buttonLabel: 'Extracting...'
+                });
+
+                const caseData = await CaseDataExtractor.getData();
+                console.log('[EXL] FlexipagePanelInjector: Case data extracted:', caseData);
+
+                // Store case data for other modules to use
+                this.caseData = caseData;
+            } else {
+                console.warn('[EXL] FlexipagePanelInjector: CaseDataExtractor not available');
+            }
+
+            // Step 3: Scroll back to original position
+            this.setPreparationState('working', {
+                message: 'Restoring view...',
+                buttonLabel: 'Restoring...'
+            });
+
+            window.scrollTo({
+                top: originalScrollPosition,
+                behavior: 'smooth'
+            });
+
+            // Wait for smooth scroll to complete
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            console.log('[EXL] FlexipagePanelInjector: Scrolled back to original position');
+
+            // Set ready state
+            this.setPreparationState('ready', {
+                message: 'Toolkit ready! Click "Enable Full Feature" to reveal additional details.'
+            });
+
+        } catch (error) {
+            console.error('[EXL] FlexipagePanelInjector: Error during preparation:', error);
+            this.setPreparationState('error', {
+                message: 'Preparation failed. Please try again.'
+            });
         }
     },
 

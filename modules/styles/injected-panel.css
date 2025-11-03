@@ -13,6 +13,8 @@ slot[name="exl-flexipage-slot"] {
 #exl-flexipage-panel {
     margin: 8px -12px;
     width: calc(100% + 24px);
+    position: relative;
+    z-index: 1000;
 }
 
 /* Panel container */
@@ -24,6 +26,8 @@ slot[name="exl-flexipage-slot"] {
     margin: 12px 0;
     font-family: 'Salesforce Sans', Arial, sans-serif;
     height: fit-content;
+    position: relative;
+    z-index: 1000;
 }
 
 /* Slot 1: Button group and data display */

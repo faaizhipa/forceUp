@@ -392,7 +392,7 @@ const PersistentBanner = {
     /**
      * Handle flexipage panel injection action
      */
-    handleFlexipagePanel() {
+    async handleFlexipagePanel() {
         // Check if we're on a case page
         if (this.currentPage.type !== 'Case' || !this.currentPage.caseNumber) {
             this.showNotification('Please navigate to a Case page first', 'warning');
@@ -406,23 +406,113 @@ const PersistentBanner = {
         }
 
         try {
-            // Try to inject or update the panel
+            console.log('[PersistentBanner] Injecting panel and loading case data...');
+            
+            // Step 1: Extract or retrieve case data
+            let caseData = null;
+            let caseId = null;
+            
+            // Try to get case ID from URL
+            const urlMatch = window.location.pathname.match(/\/lightning\/r\/Case\/([a-zA-Z0-9]{15,18})/);
+            if (urlMatch) {
+                caseId = urlMatch[1];
+                console.log('[PersistentBanner] Detected case ID from URL:', caseId);
+            }
+            
+            // Try to get from cached toolkit first
+            if (window.ExLibrisExtension && 
+                window.ExLibrisExtension.caseToolkit && 
+                window.ExLibrisExtension.caseToolkit.caseData &&
+                window.ExLibrisExtension.currentCaseId === caseId) {
+                caseData = window.ExLibrisExtension.caseToolkit.caseData;
+                console.log('[PersistentBanner] Using cached case data for case:', caseData.caseNumber);
+            }
+            
+            // If no cached data or case ID mismatch, extract fresh data
+            if (!caseData && typeof CaseDataExtractor !== 'undefined') {
+                console.log('[PersistentBanner] No cached data, extracting fresh case data...');
+                this.showNotification('Loading case data...', 'info');
+                
+                try {
+                    caseData = await CaseDataExtractor.getData();
+                    
+                    // Update toolkit cache
+                    if (window.ExLibrisExtension && window.ExLibrisExtension.caseToolkit && caseData) {
+                        window.ExLibrisExtension.caseToolkit.caseData = caseData;
+                        window.ExLibrisExtension.currentCaseId = caseId;
+                        console.log('[PersistentBanner] Cached fresh case data:', caseData.caseNumber);
+                    }
+                } catch (error) {
+                    console.error('[PersistentBanner] Error extracting case data:', error);
+                    this.showNotification('Error extracting case data: ' + error.message, 'error');
+                    return;
+                }
+            }
+            
+            if (!caseData) {
+                this.showNotification('Could not extract case data. Please try again.', 'error');
+                return;
+            }
+            
+            // Step 2: Inject the panel
             const success = FlexipagePanelInjector.ensureInjected();
             
             if (success) {
-                this.showNotification('Flexipage panel injected/updated successfully', 'success');
+                this.showNotification('Panel injected successfully. Updating with case data...', 'success');
                 
-                // Update the panel context with current case data if available
-                if (this.currentPage.caseNumber) {
-                    setTimeout(() => {
-                        FlexipagePanelInjector.updateContext({
-                            caseNumber: this.currentPage.caseNumber,
-                            subject: this.currentPage.subject || 'N/A',
-                            status: this.currentPage.status || 'N/A',
-                            subStatus: this.currentPage.subStatus || 'N/A'
-                        });
-                    }, 100);
+                // Step 3: Register action handler if available
+                if (window.ExLibrisExtension && typeof window.ExLibrisExtension.handlePanelAction === 'function') {
+                    FlexipagePanelInjector.registerActionHandler((action) => {
+                        return window.ExLibrisExtension.handlePanelAction(action);
+                    });
                 }
+                
+                // Step 4: Update panel with case data
+                const initialMetadata = (typeof CaseDataExtractor !== 'undefined' && 
+                                       typeof CaseDataExtractor.getInitialMetadata === 'function')
+                    ? CaseDataExtractor.getInitialMetadata()
+                    : null;
+                
+                if (initialMetadata) {
+                    FlexipagePanelInjector.setInitialMetadata(initialMetadata);
+                }
+                
+                // Get timezone setting
+                const resolvedTimezone = window.ExLibrisExtension 
+                    ? window.ExLibrisExtension.resolveActiveTimezone(
+                        window.ExLibrisExtension.settings?.exlibris?.ui?.timezone || 
+                        window.ExLibrisExtension.settings?.timezone
+                    )
+                    : null;
+                
+                // Update full context
+                FlexipagePanelInjector.updateContext({
+                    caseNumber: caseData.caseNumber,
+                    subject: caseData.subject,
+                    status: caseData.status,
+                    subStatus: caseData.subStatus,
+                    category: caseData.category,
+                    subCategory: caseData.subCategory,
+                    analysisNote: caseData.analysisNote,
+                    customerId: caseData.custID,
+                    institutionId: caseData.instID,
+                    server: caseData.server,
+                    timezone: resolvedTimezone || '—'
+                });
+                
+                FlexipagePanelInjector.setCaseSummary(caseData);
+                
+                // Set initial preparation state
+                FlexipagePanelInjector.setPreparationState('initial', {
+                    message: 'Case data loaded. Click "Prepare Tools" to enable full features.'
+                });
+                
+                FlexipagePanelInjector.setSlot2Message('Case data ready. Prepare tools to populate the reference workspace.');
+                
+                this.showNotification(
+                    `Panel ready for case ${caseData.caseNumber}. Click "Prepare Tools" to continue.`,
+                    'success'
+                );
             } else {
                 this.showNotification('Could not inject panel. Make sure you are on a Case record page.', 'warning');
             }

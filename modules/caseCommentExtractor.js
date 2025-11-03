@@ -15,11 +15,23 @@ const CaseCommentExtractor = (() => {
 
     /**
      * Gets the current case ID from URL
+     * Supports both case detail page and case comments full view page
      * @returns {string|null} Case ID or null
      */
     function getCurrentCaseId() {
-        const urlMatch = window.location.pathname.match(/\/(?:Case|lightning\/r\/Case)\/([a-zA-Z0-9]{15,18})/i);
-        return urlMatch?.[1] || null;
+        // Match case detail page: /Case/[ID] or /lightning/r/Case/[ID]
+        const caseDetailMatch = window.location.pathname.match(/\/(?:Case|lightning\/r\/Case)\/([a-zA-Z0-9]{15,18})/i);
+        if (caseDetailMatch) {
+            return caseDetailMatch[1];
+        }
+        
+        // Match case comments full view page: /lightning/r/Case/[ID]/related/CaseComments/view
+        const caseCommentsMatch = window.location.pathname.match(/\/lightning\/r\/Case\/([a-zA-Z0-9]{15,18})\/related\/CaseComments\/view/i);
+        if (caseCommentsMatch) {
+            return caseCommentsMatch[1];
+        }
+        
+        return null;
     }
 
     /**
@@ -216,8 +228,8 @@ const CaseCommentExtractor = (() => {
     function extractCaseMetadata() {
         const metadata = {};
         
-        // Extract Case ID from URL
-        const urlMatch = window.location.pathname.match(/\/(?:Case|lightning\/r\/Case)\/([a-zA-Z0-9]{15,18})/i);
+        // Extract Case ID from URL (supports both case detail and comments view pages)
+        let urlMatch = window.location.pathname.match(/\/(?:Case|lightning\/r\/Case)\/([a-zA-Z0-9]{15,18})/i);
         metadata.caseId = urlMatch?.[1] || 'N/A';
         
         // Extract Case Number
@@ -232,6 +244,19 @@ const CaseCommentExtractor = (() => {
                 caseNumber = titleText.substring(0, 8);
             }
         }
+        
+        // Additional fallback: Try to extract from breadcrumb or header on comments page
+        if (!caseNumber) {
+            const breadcrumbLinks = document.querySelectorAll('nav[role="navigation"] a, .breadcrumb a');
+            for (const link of breadcrumbLinks) {
+                const linkText = link.textContent.trim();
+                if (/^\d{8}$/.test(linkText)) {
+                    caseNumber = linkText;
+                    break;
+                }
+            }
+        }
+        
         metadata.caseNumber = caseNumber || 'N/A';
         
         // Extract subject
@@ -297,20 +322,22 @@ const CaseCommentExtractor = (() => {
 
     /**
      * Finds the case comments table on the page (only visible tables)
+     * Supports both case detail page and case comments full view page
      * @returns {Element|null} The comments table element or null
      */
     function findCommentsTable() {
         // Try multiple selectors for the Comments tab/section
         const containerSelectors = [
-            // Standard related list containers
+            // Case Comments full view page - list view manager
+            'div.forceListViewManager',
+            'div.test-listViewManager',
+            'lst-list-view-manager',
+            // Standard related list containers (case detail page)
             'article.slds-card[title*="Case Comments"]',
             'div.forceRelatedListContainer[title*="Case Comments"]',
             'div[aria-label*="Case Comments"]',
             '#CaseComments_body',
             '.related_list_container[id*="CaseComments"]',
-            // List view manager containers (for when viewing related list in full view)
-            'div.forceListViewManager',
-            'div.test-listViewManager',
             // Broader fallback - look for any container with Case Comments header
             'div.slds-card:has(h2:contains("Case Comments"))',
             'div.slds-card:has(span[title="Case Comments"])',
@@ -324,7 +351,7 @@ const CaseCommentExtractor = (() => {
                 // Use querySelectorAll and check title/text content for :has() compatibility
                 if (selector.includes(':has(') || selector.includes(':contains(')) {
                     // Manual check for "Case Comments" text
-                    const candidates = document.querySelectorAll('div.slds-card, div.forceListViewManager, lst-list-view-manager-header');
+                    const candidates = document.querySelectorAll('div.slds-card, div.forceListViewManager, lst-list-view-manager-header, lst-list-view-manager');
                     for (const candidate of candidates) {
                         // Skip non-visible candidates
                         if (!isElementVisible(candidate)) {
@@ -336,7 +363,7 @@ const CaseCommentExtractor = (() => {
                         const title = candidate.getAttribute('title') || '';
                         if (text.includes('Case Comments') || title.includes('Case Comments')) {
                             commentsContainer = candidate;
-                            console.log('Comments container found with text/title match (visible)');
+                            console.log('[CaseCommentExtractor] Comments container found with text/title match (visible)');
                             break;
                         }
                     }
@@ -346,7 +373,7 @@ const CaseCommentExtractor = (() => {
                     for (const candidate of candidates) {
                         if (isElementVisible(candidate)) {
                             commentsContainer = candidate;
-                            console.log('Comments container found with selector (visible):', selector);
+                            console.log('[CaseCommentExtractor] Comments container found with selector (visible):', selector);
                             break;
                         }
                     }
@@ -356,7 +383,7 @@ const CaseCommentExtractor = (() => {
                     break;
                 }
             } catch (e) {
-                console.warn(`Selector "${selector}" failed:`, e);
+                console.warn(`[CaseCommentExtractor] Selector "${selector}" failed:`, e);
             }
         }
         
@@ -753,6 +780,7 @@ const CaseCommentExtractor = (() => {
 
     /**
      * Attempts to find and inject buttons into the action bar
+     * Supports both case detail page and case comments full view page
      * @returns {boolean} Success status
      */
     function tryInjectButtons() {
@@ -760,6 +788,10 @@ const CaseCommentExtractor = (() => {
         const actionBarSelectors = [
             // Primary: Standard action bar (next to "New" button)
             '.branding-actions.slds-button-group[data-aura-class="oneActionsRibbon forceActionsContainer"]',
+            // Case Comments full view page: List view action bar
+            'lst-list-view-manager-header .slds-button-group',
+            // Case Comments full view page: Alternative list view header
+            'div.forceListViewManagerHeader .slds-button-group',
             // Fallback 1: Alternative action container
             '.branding-actions.slds-button-group',
             // Fallback 2: Any button group in the header area
@@ -767,7 +799,11 @@ const CaseCommentExtractor = (() => {
             // Fallback 3: Related list action bar
             'div[class*="forceRelatedListViewManager"] .slds-button-group',
             // Fallback 4: Case Comments related list action bar
-            'article[aria-label*="Case Comments"] .slds-button-group'
+            'article[aria-label*="Case Comments"] .slds-button-group',
+            // Fallback 5: List view manager button groups
+            'div.forceListViewManager .slds-button-group',
+            // Fallback 6: Any action buttons container in list view
+            'lst-list-view-manager .actionsContainer .slds-button-group'
         ];
 
         for (const selector of actionBarSelectors) {
@@ -802,27 +838,32 @@ const CaseCommentExtractor = (() => {
     /**
      * Initializes the case comment extractor
      * Sets up observers to inject buttons when the page is ready
+     * Supports both case detail page and case comments full view page
      */
     function initialize() {
         // Get the current case ID
         const caseId = getCurrentCaseId();
         
-        // Check if we're on a case page
+        // Check if we're on a case page (either detail or comments view)
         if (!caseId) {
-            console.log('Not on a case page, skipping Case Comment Extractor initialization.');
+            console.log('[CaseCommentExtractor] Not on a case page, skipping initialization.');
             return;
         }
         
+        // Determine page type for logging
+        const isCommentsPage = window.location.pathname.includes('/related/CaseComments/view');
+        const pageType = isCommentsPage ? 'case comments full view' : 'case detail';
+        
         // Check if we've navigated to a different case
         if (currentCaseId && currentCaseId !== caseId) {
-            console.log(`Navigated from case ${currentCaseId} to ${caseId}, cleaning up...`);
+            console.log(`[CaseCommentExtractor] Navigated from case ${currentCaseId} to ${caseId}, cleaning up...`);
             cleanup();
         }
         
         // Update current case ID
         currentCaseId = caseId;
         
-        console.log(`Initializing Case Comment Extractor for case ${caseId}...`);
+        console.log(`[CaseCommentExtractor] Initializing for case ${caseId} on ${pageType} page...`);
         
         // Try to inject buttons immediately
         if (tryInjectButtons()) {

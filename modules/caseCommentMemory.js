@@ -188,14 +188,68 @@ const CaseCommentMemory = {
     return !!activeTab;
   },
 
+  /**
+   * Check if element is visible
+   * @param {Element} element
+   * @returns {boolean}
+   */
+  isElementVisible(element) {
+    if (!element) return false;
+    
+    // Check element and all parents for display:none or visibility:hidden
+    let el = element;
+    while (el && el !== document.body) {
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') {
+        return false;
+      }
+      el = el.parentElement;
+    }
+    
+    // Check element has dimensions
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  },
+
   async findButtonsAndAttachObserver(caseNumber) {
     console.log('[CaseCommentMemory] Step 4: Finding buttons');
-    const createNewButton = document.querySelector('button[title=\"Create new...\"]');
-    const addButton = document.querySelector('button[title=\"Ad\"]');
     
-    if (createNewButton || addButton) {
-      console.log('[CaseCommentMemory] Found Create new/Add button');
-      this.attachRestoreButtonObserver(caseNumber, createNewButton || addButton);
+    // Check for "Create new..." button (with visibility check)
+    let createNewButton = null;
+    const createNewButtons = document.querySelectorAll('button[title=\"Create new...\"]');
+    for (const button of createNewButtons) {
+      if (this.isElementVisible(button)) {
+        createNewButton = button;
+        break;
+      }
+    }
+    
+    // Check for "Ad" button (with visibility check)
+    let addButton = null;
+    const addButtons = document.querySelectorAll('button[title=\"Ad\"]');
+    for (const button of addButtons) {
+      if (this.isElementVisible(button)) {
+        addButton = button;
+        break;
+      }
+    }
+    
+    // Also check for "New" button in actions wrapper (with visibility check)
+    let newButton = null;
+    const actionLinks = document.querySelectorAll('div.slds-align_absolute-center > div > ul > li > a');
+    for (const link of actionLinks) {
+      if (!this.isElementVisible(link)) continue;
+      
+      const divElement = link.querySelector('div');
+      if (divElement && divElement.textContent.trim() === 'New') {
+        newButton = link;
+        break;
+      }
+    }
+    
+    if (createNewButton || addButton || newButton) {
+      console.log('[CaseCommentMemory] Found visible Create new/Add/New button');
+      this.attachRestoreButtonObserver(caseNumber, createNewButton || addButton || newButton);
       return;
     }
 
@@ -204,7 +258,7 @@ const CaseCommentMemory = {
       console.log('[CaseCommentMemory] Found Add New Comment button');
       await this.handleAddNewCommentButton(caseNumber, addNewCommentButton);
     } else {
-      console.warn('[CaseCommentMemory] No buttons found, will retry');
+      console.warn('[CaseCommentMemory] No visible buttons found, will retry');
       setTimeout(() => this.findButtonsAndAttachObserver(caseNumber), 1000);
     }
   },
@@ -212,7 +266,7 @@ const CaseCommentMemory = {
   findAddNewCommentButton() {
     const buttons = document.querySelectorAll('button[type="submit"]');
     for (const button of buttons) {
-      if (button.textContent.includes('Add New Comment')) {
+      if (this.isElementVisible(button) && button.textContent.includes('Add New Comment')) {
         return button;
       }
     }

@@ -173,6 +173,13 @@ const PageIdentifier = {
             newPageInfo.caseId !== lastPageInfo.caseId ||
             newPageInfo.reportId !== lastPageInfo.reportId) {
           console.log('PageIdentifier: Page changed from', lastPageInfo, 'to', newPageInfo);
+          
+          // Cleanup CaseTimezoneResolver on page change
+          if (typeof CaseTimezoneResolver !== 'undefined') {
+            CaseTimezoneResolver.cleanup();
+            console.log('PageIdentifier: CaseTimezoneResolver cleaned up');
+          }
+          
           lastPageInfo = newPageInfo;
           callback(newPageInfo);
         } else {
@@ -204,6 +211,13 @@ const PageIdentifier = {
       if (newPageInfo.type !== lastPageInfo.type ||
           newPageInfo.caseId !== lastPageInfo.caseId) {
         console.log('PageIdentifier: Popstate page change from', lastPageInfo, 'to', newPageInfo);
+        
+        // Cleanup CaseTimezoneResolver on popstate
+        if (typeof CaseTimezoneResolver !== 'undefined') {
+          CaseTimezoneResolver.cleanup();
+          console.log('PageIdentifier: CaseTimezoneResolver cleaned up (popstate)');
+        }
+        
         lastPageInfo = newPageInfo;
         callback(newPageInfo);
       }

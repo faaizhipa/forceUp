@@ -120,6 +120,32 @@
         console.warn('[ExLibris Extension] PersistentBanner not loaded');
       }
 
+      // Initialize UserPreferences
+      if (typeof UserPreferences !== 'undefined') {
+        const userPrefs = await UserPreferences.load();
+        console.log('[ExLibris Extension] UserPreferences initialized');
+
+        // Initialize TimezoneUtils with user preferences
+        if (typeof TimezoneUtils !== 'undefined') {
+          await TimezoneUtils.init(userPrefs);
+          console.log('[ExLibris Extension] TimezoneUtils initialized');
+        }
+
+        // Check if configuration warning banner should be shown
+        if (typeof ConfigurationWarningBanner !== 'undefined') {
+          const shouldShowWarning = await UserPreferences.shouldShowWarning();
+          if (shouldShowWarning) {
+            // Delay banner slightly to ensure page is fully loaded
+            setTimeout(async () => {
+              await ConfigurationWarningBanner.checkAndShow();
+              console.log('[ExLibris Extension] Configuration warning banner shown');
+            }, 2000);
+          }
+        }
+      } else {
+        console.warn('[ExLibris Extension] UserPreferences not loaded');
+      }
+
       // Load settings (legacy support)
       await this.loadSettings();
 
@@ -235,6 +261,7 @@
         }
 
         // Clear any existing features
+        console.log('[ExLibris Extension] Cleaning up previous page features (URL changed: ' + urlChanged + ')');
         this.cleanup();
 
         // If URL changed, add a delay to allow DOM to settle
@@ -296,21 +323,9 @@
 
       const resolvedTimezone = this.resolveActiveTimezone(timezoneSetting);
 
-      if (typeof FlexipagePanelInjector !== 'undefined') {
-        const injected = FlexipagePanelInjector.ensureInjected();
-        if (injected) {
-          FlexipagePanelInjector.registerActionHandler((action) => this.handlePanelAction(action));
-          if (initialMetadata) {
-            FlexipagePanelInjector.setInitialMetadata(initialMetadata);
-          }
-          FlexipagePanelInjector.updateContext({
-            timezone: resolvedTimezone || '—'
-          });
-          FlexipagePanelInjector.setPreparationState('initial', {
-            message: 'This case page is currently half-loaded. Please click "Prepare Tools" to fully load the page and enable full feature.'
-          });
-        }
-      }
+      // DO NOT auto-inject panel on page load
+      // Panel will only be injected when user clicks "Show Panel" button in banner
+      console.log('[ExLibris Extension] Panel injection disabled on page load. Use banner "Show Panel" button to inject panel.');
 
       // Initialize field highlighting
       if (this.settings.highlightingEnabled &&
