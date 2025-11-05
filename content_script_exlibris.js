@@ -120,6 +120,14 @@
         console.warn('[ExLibris Extension] PersistentBanner not loaded');
       }
 
+      // Initialize CasePageDataExtractor to automatically extract case data on page load
+      if (typeof CasePageDataExtractor !== 'undefined') {
+        CasePageDataExtractor.init();
+        console.log('[ExLibris Extension] CasePageDataExtractor initialized');
+      } else {
+        console.warn('[ExLibris Extension] CasePageDataExtractor not loaded');
+      }
+
       // Initialize UserPreferences
       if (typeof UserPreferences !== 'undefined') {
         const userPrefs = await UserPreferences.load();
@@ -251,8 +259,11 @@
 
         // Update persistent banner with initial info
         if (typeof PersistentBanner !== 'undefined') {
+          // Convert internal page type to friendly display name
+          const displayType = PersistentBanner.getPageTypeDisplayName(pageInfo.type);
+          
           PersistentBanner.updateCurrentPage({
-            type: pageInfo.type || 'Unknown',
+            type: displayType,
             caseNumber: null, // Will be updated when case data is extracted
             subject: null,
             status: null,
@@ -400,11 +411,9 @@
         console.log('[ExLibris Extension] MultiTabSync initialized');
       }
 
-      // Initialize CaseTimezoneResolver for automatic timezone detection
-      if (typeof CaseTimezoneResolver !== 'undefined') {
-        CaseTimezoneResolver.init(caseData.accountName);
-        console.log('[ExLibris Extension] CaseTimezoneResolver initialized');
-      }
+      // NOTE: CaseTimezoneResolver is now initialized from the banner button
+      // after panel injection is complete, not on page load
+      console.log('[ExLibris Extension] CaseTimezoneResolver will be initialized when panel is injected via banner');
 
       console.log('[ExLibris Extension] Case page features initialized');
     },

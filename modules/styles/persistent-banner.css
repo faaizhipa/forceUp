@@ -115,6 +115,21 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     background-color: rgba(144, 80, 233, 0.2);
 }
 
+.exl-banner-page-type.exl-page-report_builder {
+    border-left-color: #9050e9;
+    background-color: rgba(144, 80, 233, 0.2);
+}
+
+.exl-banner-page-type.exl-page-report_home {
+    border-left-color: #9050e9;
+    background-color: rgba(144, 80, 233, 0.2);
+}
+
+.exl-banner-page-type.exl-page-report_page {
+    border-left-color: #9050e9;
+    background-color: rgba(144, 80, 233, 0.2);
+}
+
 .exl-banner-page-type.exl-page-unknown {
     border-left-color: #706e6b;
     background-color: rgba(112, 110, 107, 0.2);
@@ -143,7 +158,7 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 
 .exl-banner-meta-item strong {
     color: #ffffff;
-    margin-left: 4px;
+    margin-left: 0px;
 }
 
 /* Actions section */
@@ -325,4 +340,95 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
         transform: translateX(400px);
         opacity: 0;
     }
+}
+
+/* Environment toggle button styles */
+.exl-banner-env-toggle {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-width: auto;
+}
+
+.exl-banner-env-toggle-btn {
+    background-color: #0070d2;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    height: 26px;
+    line-height: 1;
+}
+
+.exl-banner-env-toggle-btn:hover {
+    background-color: #005fb2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-banner-env-toggle-btn:active {
+    background-color: #00396b;
+}
+
+/* Environment buttons styles */
+.exl-banner-environment {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-width: auto;
+}
+
+.exl-env-buttons-container {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.exl-env-btn {
+    background-color: #0070d2;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    height: 26px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.exl-env-btn:hover {
+    background-color: #005fb2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    transform: translateY(-1px);
+}
+
+.exl-env-btn:active {
+    background-color: #00396b;
+    transform: translateY(0);
+}
+
+.exl-env-label {
+    font-weight: 700;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    background-color: rgba(255, 255, 255, 0.2);
+    padding: 2px 6px;
+    border-radius: 2px;
 }

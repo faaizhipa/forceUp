@@ -297,9 +297,9 @@ const CaseDataExtractor = {
 
       processed.institutionCode = formattedCode;
       
-      // Try to find customer record by institution code
+      // Try to find customer record by institution code, with account name as fallback
       if (typeof CustomerDataManager !== 'undefined') {
-        customerRecord = await this.getCustomerData(formattedCode);
+        customerRecord = await this.getCustomerData(formattedCode, rawData.accountName);
         if (customerRecord) {
           console.log(`[CaseDataExtractor] Found customer by institution code: ${customerRecord.name || formattedCode}`);
         }
@@ -363,18 +363,19 @@ const CaseDataExtractor = {
   },
 
   /**
-   * Gets customer data from CustomerDataManager
-   * @param {string} institutionCode
+   * Gets customer data from CustomerDataManager with flexible matching
+   * @param {string} institutionCode - Ex-Libris account number or institution code
+   * @param {string} accountName - Optional account name for fallback matching
    * @returns {Promise<Object|null>}
    */
-  async getCustomerData(institutionCode) {
+  async getCustomerData(institutionCode, accountName = null) {
     if (typeof CustomerDataManager === 'undefined') {
       console.warn('[CaseDataExtractor] CustomerDataManager not available');
       return null;
     }
 
     try {
-      return CustomerDataManager.findByInstitutionCode(institutionCode);
+      return CustomerDataManager.findByInstitutionCode(institutionCode, accountName);
     } catch (error) {
       console.error('[CaseDataExtractor] Error getting customer data:', error);
       return null;

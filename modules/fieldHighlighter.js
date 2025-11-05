@@ -75,7 +75,10 @@ const FieldHighlighter = {
    */
   highlightField(fieldSelector) {
     const container = document.querySelector(fieldSelector.container);
-    if (!container) return;
+    if (!container) {
+      console.log('[FieldHighlighter] Container not found for selector:', fieldSelector.container);
+      return;
+    }
 
     const input = document.querySelector(fieldSelector.input);
     const isEmpty = this.isEmpty(input);
@@ -92,6 +95,7 @@ const FieldHighlighter = {
       container.style.padding = '8px';
       container.style.borderRadius = '6px';
       container.style.border = `2px solid ${this.colors.emptyInput}`;
+      console.log('[FieldHighlighter] Applied RED highlight for empty field:', fieldSelector.container);
     } else {
       // Yellow highlight for filled fields
       if (input) {
@@ -104,6 +108,7 @@ const FieldHighlighter = {
       container.style.padding = '8px';
       container.style.borderRadius = '6px';
       container.style.border = `2px solid ${this.colors.filledInput}`;
+      console.log('[FieldHighlighter] Applied YELLOW highlight for filled field:', fieldSelector.container);
     }
   },
 
@@ -134,6 +139,8 @@ const FieldHighlighter = {
    * Highlights all configured fields
    */
   highlightAllFields() {
+    console.log('[FieldHighlighter] highlightAllFields() called');
+    
     // Highlight main fields
     this.highlightField(this.fieldSelectors.category);
     this.highlightField(this.fieldSelectors.subCategory);

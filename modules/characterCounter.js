@@ -126,9 +126,14 @@ const CharacterCounter = {
     // Initial count
     this.updateCounter(counter, textarea.value.length);
 
+    // Throttle counter updates to avoid excessive DOM updates during fast typing
+    const throttledUpdate = DebounceUtils.throttle((length) => {
+      this.updateCounter(counter, length);
+    }, 100); // Update at most every 100ms
+
     // Listen for changes
     textarea.addEventListener('input', () => {
-      this.updateCounter(counter, textarea.value.length);
+      throttledUpdate(textarea.value.length);
     });
 
     console.log('[CharacterCounter] Counter added');

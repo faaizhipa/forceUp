@@ -38,6 +38,26 @@ const CaseDetailExtractor = (() => {
             window.ExLibrisExtension.caseToolkit?.caseData) {
             caseData = window.ExLibrisExtension.caseToolkit.caseData;
             console.log('[CaseDetailExtractor] Using cached case data from ExLibrisExtension');
+            
+            // Check if cached data is missing server information
+            if (!caseData.server) {
+                console.log('[CaseDetailExtractor] Cache incomplete (missing server). Triggering prepareTools...');
+                
+                // Trigger prepareTools to get complete data
+                if (typeof window.ExLibrisExtension.handlePrepareToolsAction === 'function') {
+                    try {
+                        await window.ExLibrisExtension.handlePrepareToolsAction();
+                        
+                        // Re-read the cache after prepareTools completes
+                        if (window.ExLibrisExtension.caseToolkit?.caseData) {
+                            caseData = window.ExLibrisExtension.caseToolkit.caseData;
+                            console.log('[CaseDetailExtractor] Cache updated after prepareTools. Server:', caseData.server);
+                        }
+                    } catch (error) {
+                        console.warn('[CaseDetailExtractor] prepareTools failed, continuing with available data:', error);
+                    }
+                }
+            }
         } else if (typeof CaseDataExtractor !== 'undefined') {
             // Fallback: extract fresh data
             try {

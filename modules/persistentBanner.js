@@ -16,6 +16,9 @@ const PersistentBanner = {
     navigationHistory: [],
     maxHistoryItems: 3,
     
+    // Current case tracking (to detect navigation to different case)
+    currentCaseId: null,
+    
     // Current page info
     currentPage: {
         type: 'Unknown',
@@ -25,9 +28,58 @@ const PersistentBanner = {
         subStatus: null
     },
 
+    // Customer metadata from CasePageDataExtractor
+    customerMetadata: {
+        customerId: null,
+        institutionId: null,
+        server: null,
+        productServiceName: null,
+        institutionCode: null
+    },
+
     // URL monitoring
     lastKnownUrl: null,
-    urlMonitorInterval: null,
+
+    // Environment menu state
+    envMenuVisible: false,
+
+    // Status color mapping (based on caseStatusHighlighter)
+    STATUS_COLORS: {
+        // Red statuses - 2 shades darker from rgb(178, 15, 66)
+        'New Email Received': { base: 'rgb(107, 9, 40)', category: 'red' },
+        'Re-opened': { base: 'rgb(107, 9, 40)', category: 'red' },
+        'Reopened': { base: 'rgb(107, 9, 40)', category: 'red' },
+        'Completed by Resolver Group': { base: 'rgb(107, 9, 40)', category: 'red' },
+        'New': { base: 'rgb(107, 9, 40)', category: 'red' },
+        'Update Received': { base: 'rgb(107, 9, 40)', category: 'red' },
+        
+        // Orange statuses - 2 shades darker from rgb(171, 46, 1)
+        'Pending Action': { base: 'rgb(103, 28, 1)', category: 'orange' },
+        'Initial Response Sent': { base: 'rgb(103, 28, 1)', category: 'orange' },
+        'In Progress': { base: 'rgb(103, 28, 1)', category: 'orange' },
+        
+        // Purple statuses - 2 shades darker from rgb(100, 49, 179)
+        'Assigned to Resolver Group': { base: 'rgb(60, 29, 107)', category: 'purple' },
+        'Pending Internal Response': { base: 'rgb(60, 29, 107)', category: 'purple' },
+        'Pending AM Response': { base: 'rgb(60, 29, 107)', category: 'purple' },
+        'Pending QA Review': { base: 'rgb(60, 29, 107)', category: 'purple' },
+        
+        // Green statuses - 2 shades darker from rgb(0, 100, 0)
+        'Solution Delivered to Customer': { base: 'rgb(0, 60, 0)', category: 'green' },
+        
+        // Blue statuses - 2 shades darker from rgb(13, 83, 173)
+        'Closed': { base: 'rgb(8, 50, 104)', category: 'blue' },
+        'Pending Customer Response': { base: 'rgb(8, 50, 104)', category: 'blue' },
+        
+        // Yellow statuses - 2 shades darker from rgb(175, 96, 5)
+        'Pending System Update - Defect': { base: 'rgb(105, 58, 3)', category: 'yellow' },
+        'Pending System Update - Enhancement': { base: 'rgb(105, 58, 3)', category: 'yellow' },
+        'Pending System Update - Other': { base: 'rgb(105, 58, 3)', category: 'yellow' }
+    },
+
+    // Default banner gradient (for non-case pages)
+    DEFAULT_GRADIENT: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+
 
     /**
      * Initialize the persistent banner
@@ -52,38 +104,110 @@ const PersistentBanner = {
         // Start URL monitoring to detect navigation changes
         this.startUrlMonitoring();
         
+        // Listen for CasePageDataExtractor events
+        this.setupCaseDataListener();
+        
         this.isInitialized = true;
         console.log('[PersistentBanner] Initialized');
     },
 
     /**
-     * Start monitoring URL changes
+     * Setup listener for CasePageDataExtractor events
+     */
+    setupCaseDataListener() {
+        document.addEventListener('casePageDataExtracted', (event) => {
+            const data = event.detail;
+            console.log('[PersistentBanner] Received case page data from CasePageDataExtractor:', data);
+            
+            // Extract case ID from the data
+            const newCaseId = data.caseNumber || null;
+            
+            // Check if we've navigated to a different case
+            if (this.currentCaseId && newCaseId && this.currentCaseId !== newCaseId) {
+                console.log(`[PersistentBanner] Navigated from case ${this.currentCaseId} to ${newCaseId}, clearing old data...`);
+                this.clearCaseData();
+            }
+            
+            // Update current case ID
+            this.currentCaseId = newCaseId;
+            
+            // Update customer metadata from extracted data
+            // CasePageDataExtractor now enriches data with custID, instID, server from CustomerDataManager
+            this.customerMetadata = {
+                customerId: data.custID || null,  // 4-digit customer ID
+                institutionId: data.instID || null,  // 4-digit institution ID
+                server: data.server || null,  // Server code (ap02, na05, etc.)
+                productServiceName: data.platformService || null,  // Platform/Service with fallback
+                institutionCode: data.exLibrisAccountNumber || null  // Institution code (61USC_INST, etc.)
+            };
+            
+            console.log('[PersistentBanner] Updated customer metadata:', this.customerMetadata);
+            
+            // Update current page status from direct page data (for gradient coloring)
+            if (data.pageStatus) {
+                this.currentPage.status = data.pageStatus;
+                console.log('[PersistentBanner] Updated status from page data:', data.pageStatus);
+            }
+            
+            // Update banner UI with new metadata and status
+            this.updateBannerUI();
+        });
+        
+        console.log('[PersistentBanner] CasePageDataExtractor listener registered');
+    },
+
+    /**
+     * Extract server code from affected environment
+     * @param {string} affectedEnvironment - e.g., "NA05", "EU01"
+     * @returns {string|null}
+     */
+    extractServerFromAffectedEnvironment(affectedEnvironment) {
+        if (!affectedEnvironment) return null;
+        
+        // Match patterns like NA05, EU01, AP02, CN01, CA01
+        const match = affectedEnvironment.match(/(NA|EU|AP|CN|CA)\d{2}/i);
+        return match ? match[0].toLowerCase() : null;
+    },
+
+    /**
+     * Extract institution code from affected environment or other sources
+     * @param {string} affectedEnvironment
+     * @returns {string|null}
+     */
+    extractInstitutionCode(affectedEnvironment) {
+        // This is a placeholder - institution code would come from other fields
+        // For now, return null and rely on other extraction methods
+        return null;
+    },
+
+    /**
+     * Start monitoring URL changes using NavigationObserver
      */
     startUrlMonitoring() {
         this.lastKnownUrl = window.location.href;
         
-        // Check URL every 500ms
-        this.urlMonitorInterval = setInterval(() => {
-            const currentUrl = window.location.href;
-            if (currentUrl !== this.lastKnownUrl) {
-                console.log('[PersistentBanner] URL changed:', currentUrl);
-                this.lastKnownUrl = currentUrl;
-                this.handleUrlChange(currentUrl);
-            }
-        }, 500);
-        
-        console.log('[PersistentBanner] URL monitoring started');
+        // Use NavigationObserver for immediate URL change detection
+        if (typeof NavigationObserver !== 'undefined') {
+            NavigationObserver.onRouteChange((newUrl) => {
+                if (newUrl !== this.lastKnownUrl) {
+                    console.log('[PersistentBanner] URL changed:', newUrl);
+                    this.lastKnownUrl = newUrl;
+                    this.handleUrlChange(newUrl);
+                }
+            });
+            console.log('[PersistentBanner] URL monitoring started (using NavigationObserver)');
+        } else {
+            console.warn('[PersistentBanner] NavigationObserver not available');
+        }
     },
 
     /**
-     * Stop monitoring URL changes
+     * Stop monitoring URL changes (kept for compatibility)
      */
     stopUrlMonitoring() {
-        if (this.urlMonitorInterval) {
-            clearInterval(this.urlMonitorInterval);
-            this.urlMonitorInterval = null;
-            console.log('[PersistentBanner] URL monitoring stopped');
-        }
+        // No-op: NavigationObserver doesn't need explicit stopping
+        // Kept for API compatibility
+        console.log('[PersistentBanner] URL monitoring stopped');
     },
 
     /**
@@ -92,6 +216,9 @@ const PersistentBanner = {
      */
     handleUrlChange(newUrl) {
         console.log('[PersistentBanner] Handling URL change, resetting current page data');
+        
+        // Clear case-specific data when navigating away
+        this.clearCaseData();
         
         // Reset current page to initial state
         this.currentPage = {
@@ -109,6 +236,30 @@ const PersistentBanner = {
         
         // The content script will call updateCurrentPage with proper data after page analysis
         console.log('[PersistentBanner] Waiting for content script to update page data...');
+    },
+
+    /**
+     * Clear case-specific data (called when navigating to a different case or non-case page)
+     */
+    clearCaseData() {
+        console.log('[PersistentBanner] Clearing case-specific data');
+        
+        // Clear current case ID
+        this.currentCaseId = null;
+        
+        // Clear customer metadata
+        this.customerMetadata = {
+            customerId: null,
+            institutionId: null,
+            server: null,
+            productServiceName: null,
+            institutionCode: null
+        };
+        
+        // Reset environment menu state
+        this.envMenuVisible = false;
+        
+        console.log('[PersistentBanner] Case data cleared');
     },
 
     /**
@@ -215,10 +366,27 @@ const PersistentBanner = {
                 <div class="exl-banner-section exl-banner-metadata">
                     <div class="exl-banner-label">Primary Metadata</div>
                     <div class="exl-banner-metadata-grid" id="exl-banner-metadata">
-                        <span class="exl-banner-meta-item">Case: <strong id="exl-banner-case">—</strong></span>
-                        <span class="exl-banner-meta-item">Subject: <strong id="exl-banner-subject">—</strong></span>
-                        <span class="exl-banner-meta-item">Status: <strong id="exl-banner-status">—</strong></span>
-                        <span class="exl-banner-meta-item">Substatus: <strong id="exl-banner-substatus">—</strong></span>
+                        <span class="exl-banner-meta-item" id="exl-banner-case-item">Case: <strong id="exl-banner-case">—</strong></span>
+                        <span class="exl-banner-meta-item" id="exl-banner-subject-item">Subject: <strong id="exl-banner-subject">—</strong></span>
+                        <span class="exl-banner-meta-item" id="exl-banner-status-item">Status: <strong id="exl-banner-status">—</strong></span>
+                        <span class="exl-banner-meta-item" id="exl-banner-substatus-item">Substatus: <strong id="exl-banner-substatus">—</strong></span>
+                        <span class="exl-banner-meta-item">Product: <strong id="exl-banner-product">—</strong></span>
+                        <span class="exl-banner-meta-item">InstCode: <strong id="exl-banner-instcode">—</strong></span>
+                        <span class="exl-banner-meta-item">CustID: <strong id="exl-banner-custid">—</strong></span>
+                        <span class="exl-banner-meta-item">InstID: <strong id="exl-banner-instid">—</strong></span>
+                        <span class="exl-banner-meta-item">Server: <strong id="exl-banner-server">—</strong></span>
+                    </div>
+                </div>
+                
+                <div class="exl-banner-section exl-banner-env-toggle" id="exl-banner-env-toggle" style="display: none;">
+                    <button class="exl-banner-btn exl-banner-env-toggle-btn" id="exl-env-toggle-btn">
+                        Go to Customer Env ▶
+                    </button>
+                </div>
+                
+                <div class="exl-banner-section exl-banner-environment" id="exl-banner-env-section" style="display: none;">
+                    <div class="exl-env-buttons-container" id="exl-env-buttons-container">
+                        <!-- Buttons populated dynamically -->
                     </div>
                 </div>
                 
@@ -256,6 +424,19 @@ const PersistentBanner = {
         this.elements.subject = banner.querySelector('#exl-banner-subject');
         this.elements.status = banner.querySelector('#exl-banner-status');
         this.elements.subStatus = banner.querySelector('#exl-banner-substatus');
+        this.elements.caseItem = banner.querySelector('#exl-banner-case-item');
+        this.elements.subjectItem = banner.querySelector('#exl-banner-subject-item');
+        this.elements.statusItem = banner.querySelector('#exl-banner-status-item');
+        this.elements.substatusItem = banner.querySelector('#exl-banner-substatus-item');
+        this.elements.product = banner.querySelector('#exl-banner-product');
+        this.elements.instCode = banner.querySelector('#exl-banner-instcode');
+        this.elements.custId = banner.querySelector('#exl-banner-custid');
+        this.elements.instId = banner.querySelector('#exl-banner-instid');
+        this.elements.server = banner.querySelector('#exl-banner-server');
+        this.elements.envToggleSection = banner.querySelector('#exl-banner-env-toggle');
+        this.elements.envToggleBtn = banner.querySelector('#exl-env-toggle-btn');
+        this.elements.envSection = banner.querySelector('#exl-banner-env-section');
+        this.elements.envButtonsContainer = banner.querySelector('#exl-env-buttons-container');
         this.elements.historyList = banner.querySelector('#exl-banner-history');
     },
 
@@ -272,6 +453,25 @@ const PersistentBanner = {
 
             const action = button.dataset.action;
             this.handleAction(action);
+        });
+
+        // Handle environment toggle button
+        if (this.elements.envToggleBtn) {
+            this.elements.envToggleBtn.addEventListener('click', (event) => {
+                event.stopPropagation();
+                this.toggleEnvMenu();
+            });
+        }
+
+        // Handle environment button clicks
+        banner.addEventListener('click', (event) => {
+            const envButton = event.target.closest('[data-env-url]');
+            if (!envButton) return;
+
+            const url = envButton.dataset.envUrl;
+            if (url) {
+                window.open(url, '_blank');
+            }
         });
 
         // Handle history item clicks
@@ -509,6 +709,17 @@ const PersistentBanner = {
                 
                 FlexipagePanelInjector.setSlot2Message('Case data ready. Prepare tools to populate the reference workspace.');
                 
+                // Step 5: Initialize CaseTimezoneResolver with account name
+                // Wait for panel to be fully rendered before initializing timezone resolver
+                if (typeof CaseTimezoneResolver !== 'undefined' && caseData.accountName) {
+                    setTimeout(async () => {
+                        console.log('[PersistentBanner] Initializing CaseTimezoneResolver for account:', caseData.accountName);
+                        await CaseTimezoneResolver.init(caseData.accountName);
+                    }, 1000); // 1 second delay to ensure panel DOM is fully ready
+                } else if (!caseData.accountName) {
+                    console.warn('[PersistentBanner] No account name available for timezone detection');
+                }
+                
                 this.showNotification(
                     `Panel ready for case ${caseData.caseNumber}. Click "Prepare Tools" to continue.`,
                     'success'
@@ -539,30 +750,57 @@ const PersistentBanner = {
             return;
         }
 
-        // Force refresh of cached case data to ensure we're using current page data
-        console.log('[PersistentBanner] Forcing refresh of case data before extraction');
-        if (typeof window.ExLibrisExtension !== 'undefined' && 
-            typeof CaseDataExtractor !== 'undefined') {
+        console.log('[PersistentBanner] Preparing case detail extraction...');
+        
+        // Step 1: Get or extract case data intelligently
+        let caseData = null;
+        let caseId = null;
+        
+        // Try to get case ID from URL
+        const urlMatch = window.location.pathname.match(/\/lightning\/r\/Case\/([a-zA-Z0-9]{15,18})/);
+        if (urlMatch) {
+            caseId = urlMatch[1];
+            console.log('[PersistentBanner] Detected case ID from URL:', caseId);
+        }
+        
+        // Try to get from cached toolkit first
+        if (window.ExLibrisExtension && 
+            window.ExLibrisExtension.caseToolkit && 
+            window.ExLibrisExtension.caseToolkit.caseData &&
+            window.ExLibrisExtension.currentCaseId === caseId) {
+            caseData = window.ExLibrisExtension.caseToolkit.caseData;
+            console.log('[PersistentBanner] Using cached case data for extraction:', caseData.caseNumber);
+        }
+        
+        // If no cached data or case ID mismatch, extract fresh data
+        if (!caseData && typeof CaseDataExtractor !== 'undefined') {
+            console.log('[PersistentBanner] No cached data available, extracting fresh case data...');
+            this.showNotification('Loading case data...', 'info');
+            
             try {
-                // Clear cached data
-                if (window.ExLibrisExtension.caseToolkit) {
-                    window.ExLibrisExtension.caseToolkit.caseData = null;
-                }
-                
-                // Extract fresh data from current page
-                const freshCaseData = await CaseDataExtractor.getData();
+                caseData = await CaseDataExtractor.getData();
                 
                 // Update toolkit cache
-                if (window.ExLibrisExtension.caseToolkit && freshCaseData) {
-                    window.ExLibrisExtension.caseToolkit.caseData = freshCaseData;
-                    console.log('[PersistentBanner] Refreshed case data:', freshCaseData.caseNumber);
+                if (window.ExLibrisExtension && window.ExLibrisExtension.caseToolkit && caseData) {
+                    window.ExLibrisExtension.caseToolkit.caseData = caseData;
+                    window.ExLibrisExtension.currentCaseId = caseId;
+                    console.log('[PersistentBanner] Cached fresh case data for extraction:', caseData.caseNumber);
                 }
             } catch (error) {
-                console.warn('[PersistentBanner] Error refreshing case data:', error);
+                console.error('[PersistentBanner] Error extracting case data:', error);
+                this.showNotification('Error extracting case data: ' + error.message, 'error');
+                return;
             }
         }
+        
+        if (!caseData) {
+            this.showNotification('Could not extract case data. Please try again.', 'error');
+            return;
+        }
+        
+        console.log('[PersistentBanner] Case data ready for extraction, showing format menu...');
 
-        // Create a simple menu to choose format
+        // Step 2: Show format selection menu
         const formatChoice = await this.showFormatMenu();
         
         if (!formatChoice) {
@@ -570,17 +808,20 @@ const PersistentBanner = {
             return;
         }
 
+        // Step 3: Extract and copy based on selected format
         try {
             let result;
             
             if (formatChoice === 'xml') {
+                console.log('[PersistentBanner] Extracting case details as XML...');
                 result = await CaseDetailExtractor.copyAsXML();
             } else if (formatChoice === 'tsv') {
+                console.log('[PersistentBanner] Extracting case details as TSV...');
                 result = await CaseDetailExtractor.copyAsTSV();
             }
             
             if (result && result.success) {
-                this.showNotification(result.message, 'success');
+                this.showNotification(result.message + ` (Case: ${caseData.caseNumber})`, 'success');
             } else {
                 this.showNotification(result ? result.message : 'Extraction failed', 'error');
             }
@@ -741,13 +982,34 @@ const PersistentBanner = {
     },
 
     /**
+     * Convert page type to display name
+     * @param {string} pageType
+     * @returns {string}
+     */
+    getPageTypeDisplayName(pageType) {
+        const displayNames = {
+            'case_page': 'Case',
+            'case_comments': 'Case Comments',
+            'cases_list': 'Case List',
+            'report_home': 'Report Home',
+            'report_page': 'Report',
+            'report_builder': 'Report Builder',
+            'search_page': 'Search',
+            'unknown': 'Unknown'
+        };
+        
+        return displayNames[pageType] || pageType;
+    },
+
+    /**
      * Update banner UI with current page data
      */
     updateBannerUI() {
         if (!this.elements.pageType) return;
 
-        // Update page type
-        this.elements.pageType.textContent = this.currentPage.type;
+        // Update page type with friendly display name
+        const displayName = this.getPageTypeDisplayName(this.currentPage.type);
+        this.elements.pageType.textContent = displayName;
         
         // Update page type styling based on type
         this.elements.pageType.className = 'exl-banner-page-type';
@@ -759,6 +1021,63 @@ const PersistentBanner = {
         this.elements.status.textContent = this.currentPage.status || '—';
         this.elements.subStatus.textContent = this.currentPage.subStatus || '—';
         
+        // Update customer metadata
+        if (this.elements.product) {
+            this.elements.product.textContent = this.customerMetadata.productServiceName || '—';
+        }
+        if (this.elements.instCode) {
+            this.elements.instCode.textContent = this.customerMetadata.institutionCode || '—';
+        }
+        if (this.elements.custId) {
+            this.elements.custId.textContent = this.customerMetadata.customerId || '—';
+        }
+        if (this.elements.instId) {
+            this.elements.instId.textContent = this.customerMetadata.institutionId || '—';
+        }
+        if (this.elements.server) {
+            this.elements.server.textContent = this.customerMetadata.server || '—';
+        }
+        
+        // Show/hide environment toggle button and populate buttons
+        const hasEnvData = this.customerMetadata.customerId && 
+                          this.customerMetadata.institutionId && 
+                          this.customerMetadata.server;
+        
+        // Show toggle button if we have environment data
+        if (this.elements.envToggleSection) {
+            this.elements.envToggleSection.style.display = hasEnvData ? 'flex' : 'none';
+        }
+        
+        // Populate environment buttons if data is available
+        if (hasEnvData) {
+            this.populateEnvButtons();
+        }
+        
+        // Keep environment section hidden by default (user must click toggle)
+        if (this.elements.envSection) {
+            this.elements.envSection.style.display = 'none';
+        }
+        // Reset menu visibility state when updating UI
+        this.envMenuVisible = false;
+        if (this.elements.envToggleBtn) {
+            this.elements.envToggleBtn.textContent = 'Go to Customer Env ▶';
+        }
+        
+        // Show/hide case/subject/status/substatus based on customer data availability
+        const hasCustomerData = hasEnvData;
+        if (this.elements.caseItem) {
+            this.elements.caseItem.style.display = hasCustomerData ? 'none' : 'inline';
+        }
+        if (this.elements.subjectItem) {
+            this.elements.subjectItem.style.display = hasCustomerData ? 'none' : 'inline';
+        }
+        if (this.elements.statusItem) {
+            this.elements.statusItem.style.display = hasCustomerData ? 'none' : 'inline';
+        }
+        if (this.elements.substatusItem) {
+            this.elements.substatusItem.style.display = hasCustomerData ? 'none' : 'inline';
+        }
+        
         // Show/hide metadata section based on page type
         const metadataSection = this.elements.banner.querySelector('.exl-banner-metadata');
         if (this.currentPage.type === 'Case' && this.currentPage.caseNumber) {
@@ -766,6 +1085,58 @@ const PersistentBanner = {
         } else {
             metadataSection.style.display = 'none';
         }
+        
+        // Update banner background based on case status
+        this.updateBannerBackground();
+    },
+
+    /**
+     * Update banner background gradient based on case status
+     */
+    updateBannerBackground() {
+        if (!this.elements.banner) return;
+
+        // Check if we're on a case page with a status
+        if (this.currentPage.type === 'Case' && this.currentPage.status) {
+            const statusConfig = this.STATUS_COLORS[this.currentPage.status];
+            
+            if (statusConfig) {
+                // Create gradient using the status color
+                const baseColor = statusConfig.base;
+                const gradient = this.createStatusGradient(baseColor);
+                this.elements.banner.style.background = gradient;
+                console.log(`[PersistentBanner] Applied ${statusConfig.category} gradient for status: ${this.currentPage.status}`);
+            } else {
+                // Unknown status - use default gradient
+                this.elements.banner.style.background = this.DEFAULT_GRADIENT;
+                console.log(`[PersistentBanner] Unknown status "${this.currentPage.status}", using default gradient`);
+            }
+        } else {
+            // Not a case page or no status - use default gradient
+            this.elements.banner.style.background = this.DEFAULT_GRADIENT;
+        }
+    },
+
+    /**
+     * Create gradient from base RGB color
+     * @param {string} baseRgb - Base color in rgb() format
+     * @returns {string} Linear gradient CSS
+     */
+    createStatusGradient(baseRgb) {
+        // Extract RGB values from string like "rgb(178, 15, 66)"
+        const rgbMatch = baseRgb.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+        if (!rgbMatch) {
+            console.warn('[PersistentBanner] Invalid RGB format:', baseRgb);
+            return this.DEFAULT_GRADIENT;
+        }
+
+        const r = parseInt(rgbMatch[1]);
+        const g = parseInt(rgbMatch[2]);
+        const b = parseInt(rgbMatch[3]);
+
+        // Create gradient from default dark color to status color
+        // Default dark color: rgb(26, 26, 46)
+        return `linear-gradient(135deg, rgb(26, 26, 46) 0%, rgb(${r}, ${g}, ${b}) 100%)`;
     },
 
     /**
@@ -916,5 +1287,119 @@ const PersistentBanner = {
         this.remove();
         this.isInitialized = false;
         console.log('[PersistentBanner] Cleaned up');
-    }
+    },
+
+    /**
+     * Populate environment buttons with Production and Sandbox links
+     */
+    populateEnvButtons() {
+        if (!this.elements.envButtonsContainer) return;
+        
+        const { server, institutionId, productServiceName } = this.customerMetadata;
+        
+        // Build institution code - for now using institutionId as placeholder
+        // In production, you'd need proper institution code extraction
+        const institutionCode = institutionId;
+        
+        const buttonsHtml = [];
+        
+        // Production Back Office button
+        buttonsHtml.push(`
+            <button class="exl-banner-btn exl-env-btn" 
+                    data-env-url="https://${server}.alma.exlibrisgroup.com/esploro/?institution=${institutionCode}"
+                    title="Open Production Back Office">
+                <span class="exl-env-label">Prod</span> Back Office
+            </button>
+        `);
+        
+        // Production Live View button
+        buttonsHtml.push(`
+            <button class="exl-banner-btn exl-env-btn" 
+                    data-env-url="https://${server}.alma.exlibrisgroup.com/mng/login?institute=${institutionCode}&productCode=esploro&debug=true"
+                    title="Open Production Live View">
+                <span class="exl-env-label">Prod</span> Live View
+            </button>
+        `);
+        
+        // SQA Environment buttons (always available)
+        buttonsHtml.push(`
+            <button class="exl-banner-btn exl-env-btn" 
+                    data-env-url="https://sqa-${server}.alma.exlibrisgroup.com/esploro/?institution=${institutionCode}"
+                    title="Open SQA Back Office">
+                <span class="exl-env-label">SQA</span> Back Office
+            </button>
+        `);
+        
+        buttonsHtml.push(`
+            <button class="exl-banner-btn exl-env-btn" 
+                    data-env-url="https://sqa-${server}.alma.exlibrisgroup.com/mng/login?institute=${institutionCode}&productCode=esploro&debug=true"
+                    title="Open SQA Live View">
+                <span class="exl-env-label">SQA</span> Live View
+            </button>
+        `);
+        
+        // Sandbox buttons - depends on product type
+        if (productServiceName) {
+            if (productServiceName.includes('esploro advanced')) {
+                // Premium Sandbox Back Office
+                buttonsHtml.push(`
+                    <button class="exl-banner-btn exl-env-btn" 
+                            data-env-url="https://psb-${server}.alma.exlibrisgroup.com/esploro/?institution=${institutionCode}"
+                            title="Open Premium Sandbox Back Office">
+                        <span class="exl-env-label">PSB</span> Back Office
+                    </button>
+                `);
+                
+                // Premium Sandbox Live View
+                buttonsHtml.push(`
+                    <button class="exl-banner-btn exl-env-btn" 
+                            data-env-url="https://psb-${server}.alma.exlibrisgroup.com/mng/login?institute=${institutionCode}&productCode=esploro&debug=true"
+                            title="Open Premium Sandbox Live View">
+                        <span class="exl-env-label">PSB</span> Live View
+                    </button>
+                `);
+            } else if (productServiceName.includes('esploro standard')) {
+                // Standard Sandbox Back Office
+                buttonsHtml.push(`
+                    <button class="exl-banner-btn exl-env-btn" 
+                            data-env-url="https://sb-${server}.alma.exlibrisgroup.com/esploro/?institution=${institutionCode}"
+                            title="Open Sandbox Back Office">
+                        <span class="exl-env-label">SB</span> Back Office
+                    </button>
+                `);
+                
+                // Standard Sandbox Live View
+                buttonsHtml.push(`
+                    <button class="exl-banner-btn exl-env-btn" 
+                            data-env-url="https://sb-${server}.alma.exlibrisgroup.com/mng/login?institute=${institutionCode}&productCode=esploro&debug=true"
+                            title="Open Sandbox Live View">
+                        <span class="exl-env-label">SB</span> Live View
+                    </button>
+                `);
+            }
+        }
+        
+        this.elements.envButtonsContainer.innerHTML = buttonsHtml.join('');
+    },
+
+    /**
+     * Toggle environment menu visibility
+     */
+    toggleEnvMenu() {
+        if (!this.elements.envSection || !this.elements.envToggleBtn) return;
+        
+        this.envMenuVisible = !this.envMenuVisible;
+        
+        if (this.envMenuVisible) {
+            // Show environment buttons
+            this.elements.envSection.style.display = 'flex';
+            this.elements.envToggleBtn.textContent = '◀ Return to Menu';
+            console.log('[PersistentBanner] Environment menu opened');
+        } else {
+            // Hide environment buttons
+            this.elements.envSection.style.display = 'none';
+            this.elements.envToggleBtn.textContent = 'Go to Customer Env ▶';
+            console.log('[PersistentBanner] Environment menu closed');
+        }
+    },
 };

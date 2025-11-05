@@ -315,7 +315,8 @@ const ConfigurationWarningBanner = (function() {
       tab: 'preferences'  // Direct to preferences tab
     }, (response) => {
       if (chrome.runtime.lastError) {
-        console.error('[ConfigWarningBanner] Error opening popup:', chrome.runtime.lastError);
+        console.error('[ConfigWarningBanner] Error opening popup:', 
+          chrome.runtime.lastError?.message || JSON.stringify(chrome.runtime.lastError));
         // Fallback: show alert
         alert('Please click the extension icon in your browser toolbar to configure preferences.');
       }

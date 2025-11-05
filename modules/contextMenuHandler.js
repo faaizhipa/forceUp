@@ -79,10 +79,11 @@ const ContextMenuHandler = (function() {
   }
 
   /**
-   * Tracks selection changes
+   * Tracks selection changes (debounced for performance)
    */
   function trackSelection() {
-    document.addEventListener('selectionchange', () => {
+    // Debounce selection tracking to avoid excessive updates
+    const handleSelectionChange = DebounceUtils.debounce(() => {
       const selection = window.getSelection();
       if (selection && selection.toString().trim()) {
         lastSelection = {
@@ -90,7 +91,9 @@ const ContextMenuHandler = (function() {
           range: selection.getRangeAt(0)
         };
       }
-    });
+    }, 150); // Wait 150ms after user stops selecting
+    
+    document.addEventListener('selectionchange', handleSelectionChange);
   }
 
   /**

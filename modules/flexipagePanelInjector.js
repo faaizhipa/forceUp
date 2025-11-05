@@ -58,14 +58,8 @@ const FlexipagePanelInjector = {
         // Force UI refresh to prevent panel from hiding behind other elements
         this.forceUIRefresh(panel);
         
-        // Initialize CaseTimezoneResolver
-        if (typeof CaseTimezoneResolver !== 'undefined') {
-            setTimeout(() => {
-                CaseTimezoneResolver.init();
-            }, 500); // Small delay to ensure DOM is fully ready
-        } else {
-            console.warn('[EXL] FlexipagePanelInjector: CaseTimezoneResolver not loaded');
-        }
+        // NOTE: CaseTimezoneResolver is now initialized from the banner button
+        // after panel injection is complete, not here
         
         return true;
     },

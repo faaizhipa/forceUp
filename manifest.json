@@ -24,6 +24,7 @@
       {
          "js": [
             "content_script.js",
+            "modules/debounceUtils.js",
             "modules/logger.js",
             "modules/pageIdentifier.js",
             "modules/settingsManager.js",
@@ -31,6 +32,7 @@
             "modules/cacheManager.js",
             "modules/caseDataExtractor.js",
             "modules/caseCommentExtractor.js",
+            "modules/casePageDataExtractor.js",
             "modules/fieldHighlighter.js",
             "modules/urlBuilder.js",
             "modules/textFormatter.js",

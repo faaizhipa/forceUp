@@ -77,29 +77,23 @@ const CaseTimezoneResolver = {
      * Wait for the panel to be injected and visible
      * @param {number} maxAttempts - Maximum number of retry attempts
      * @param {number} delayMs - Delay between attempts in milliseconds
-     * @returns {Promise<boolean>} True if panel found
+     * @returns {Promise<boolean>} - True if panel found, false otherwise
      */
-    async waitForPanel(maxAttempts = 10, delayMs = 200) {
-        console.log('[CaseTimezoneResolver] Waiting for panel to be ready...');
-        
+    async waitForPanel(maxAttempts = 20, delayMs = 300) {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            const found = this.findTargetElements();
-            if (found) {
-                console.log(`[CaseTimezoneResolver] Panel found on attempt ${attempt}`);
+            if (this.findTargetElements()) {
+                console.log(`[CaseTimezoneResolver] Panel found after ${attempt} attempt(s)`);
                 return true;
             }
-
+            
             if (attempt < maxAttempts) {
-                console.log(`[CaseTimezoneResolver] Panel not ready, attempt ${attempt}/${maxAttempts}, retrying in ${delayMs}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delayMs));
             }
         }
-
-        console.warn(`[CaseTimezoneResolver] Panel not found after ${maxAttempts} attempts`);
+        
+        console.log('[CaseTimezoneResolver] Panel not found after', maxAttempts, 'attempts - may not be injected yet');
         return false;
-    },
-
-    /**
+    },    /**
      * Find target elements in the DOM
      * @returns {boolean} True if all elements found
      */
@@ -117,7 +111,6 @@ const CaseTimezoneResolver = {
             }
 
             if (!visiblePanelSlot) {
-                console.warn('[CaseTimezoneResolver] Could not find visible exlibris-panel-slot');
                 return false;
             }
 

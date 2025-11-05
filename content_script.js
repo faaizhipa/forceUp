@@ -512,9 +512,9 @@ function handleAnchors() {
     const anchor = fromDiv.querySelector("a.select");
     if (!isEndNoteSupportAnchor(anchor)) {
       if (!isClarivateEmailList(anchor)) {
-        highlightAnchorWithSpecificContent(anchor, "red");
+        highlightAnchorWithSpecificContent(anchor, "#ffdac8");
       } else {
-        highlightAnchorWithSpecificContent(anchor, "orange");
+        highlightAnchorWithSpecificContent(anchor, "#ffe8b5");
       }
     } else {
       unhighlightAnchor(anchor);
@@ -1084,16 +1084,46 @@ function handleStatus() {
         let cellText = cell.textContent.trim();
         if (cellText === "New Email Received" || cellText === "Re-opened" || cellText === "Reopened" || cellText === "Completed by Resolver Group" || cellText === "New" || cellText === "Update Received") {
           cell.setAttribute("style", generateStyle("rgb(191, 39, 75)"));
+          // Style the 3rd ancestor div element
+          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
+          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
+            thirdAncestor.style.overflow = 'visible';
+          }
         } else if (cellText === "Pending Action" || cellText === "Initial Response Sent" || cellText === "In Progress") {
           cell.setAttribute("style", generateStyle("rgb(247, 114, 56)"));
+          // Style the 3rd ancestor div element
+          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
+          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
+            thirdAncestor.style.overflow = 'visible';
+          }
         } else if (cellText === "Assigned to Resolver Group" || cellText === "Pending Internal Response" || cellText === "Pending AM Response" || cellText === "Pending QA Review") {
           cell.setAttribute("style", generateStyle("rgb(140, 77, 253)"));
+          // Style the 3rd ancestor div element
+          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
+          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
+            thirdAncestor.style.overflow = 'visible';
+          }
         } else if (cellText === "Solution Delivered to Customer") {
           cell.setAttribute("style", generateStyle("rgb(45, 200, 64)"));
+          // Style the 3rd ancestor div element
+          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
+          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
+            thirdAncestor.style.overflow = 'visible';
+          }
         } else if (cellText === "Closed" || cellText === "Pending Customer Response") {
           cell.setAttribute("style", generateStyle("rgb(103, 103, 103)"));
+          // Style the 3rd ancestor div element
+          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
+          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
+            thirdAncestor.style.overflow = 'visible';
+          }
         } else if (cellText === "Pending System Update - Defect" || cellText === "Pending System Update - Enhancement" || cellText === "Pending System Update - Other") {
           cell.setAttribute("style", generateStyle("rgb(251, 178, 22)"));
+          // Style the 3rd ancestor div element
+          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
+          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
+            thirdAncestor.style.overflow = 'visible';
+          }
         } else {
           cell.removeAttribute("style");
         }

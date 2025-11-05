@@ -14,7 +14,6 @@ const CaseCommentMemory = {
   currentCaseId: null,
   currentUrl: null,
   observers: [],
-  urlCheckInterval: null,
   isInitialized: false,
 
   init() {
@@ -26,51 +25,49 @@ const CaseCommentMemory = {
     
     console.log('[CaseCommentMemory] Module initializing');
     this.isInitialized = true;
-    this.startUrlMonitoring();
-    this.handleUrlChange(window.location.href);
-  },
-
-  startUrlMonitoring() {
-    // Clear any existing interval
-    if (this.urlCheckInterval) {
-      clearInterval(this.urlCheckInterval);
+    
+    // Use PageIdentifier to monitor page changes instead of polling
+    if (typeof PageIdentifier !== 'undefined' && typeof PageIdentifier.monitorPageChanges === 'function') {
+      console.log('[CaseCommentMemory] Using PageIdentifier for page monitoring');
+      PageIdentifier.monitorPageChanges((pageInfo) => {
+        this.handlePageChange(pageInfo);
+      });
+    } else {
+      console.warn('[CaseCommentMemory] PageIdentifier not available, module will not function');
     }
-    
-    this.urlCheckInterval = setInterval(() => {
-      const currentUrl = window.location.href;
-      if (currentUrl !== this.currentUrl) {
-        this.handleUrlChange(currentUrl);
-      }
-    }, 500);
-    console.log('[CaseCommentMemory] URL monitoring started');
   },
 
-  async handleUrlChange(url) {
-    console.log(`[CaseCommentMemory] URL changed: ${url}`);
-    const pageInfo = this.identifyPage(url);
+  async handlePageChange(pageInfo) {
+    // Only handle case detail pages and case comment full view pages
+    const url = window.location.href;
+    const isCaseView = pageInfo.type === 'case_detail' && url.includes('/view');
+    const isCommentView = url.includes('/related/CaseComments/view');
     
-    if (!pageInfo.isRelevant) {
-      console.log('[CaseCommentMemory] Not a relevant page');
+    if (!isCaseView && !isCommentView) {
+      // Not a relevant page, cleanup and exit
+      this.cleanup();
+      this.currentUrl = null;
+      this.currentCaseId = null;
       return;
     }
 
-    console.log(`[CaseCommentMemory] Page: ${pageInfo.type}, Case: ${pageInfo.caseNumber}`);
+    console.log(`[CaseCommentMemory] Page changed: ${pageInfo.type}, URL: ${url}`);
+    
+    // Extract case number from page
+    const caseNumber = this.extractCaseNumber(url);
+    if (!caseNumber) {
+      console.warn('[CaseCommentMemory] Could not determine case number');
+      return;
+    }
+
+    // Cleanup previous state before handling new page
     this.cleanup();
     this.currentUrl = url;
-    this.currentCaseId = pageInfo.caseNumber;
-    await this.checkPageAndLoadMemory(pageInfo);
-  },
-
-  identifyPage(url) {
-    const caseViewMatch = url.match(/\/lightning\/r\/Case\/([^\/]+)\/view/);
-    if (caseViewMatch) {
-      return { isRelevant: true, type: 'case_view', caseNumber: this.extractCaseNumber(url) };
-    }
-    const commentViewMatch = url.match(/\/lightning\/r\/Case\/([^\/]+)\/related\/CaseComments\/view/);
-    if (commentViewMatch) {
-      return { isRelevant: true, type: 'comment_full_view', caseNumber: this.extractCaseNumber(url) };
-    }
-    return { isRelevant: false, type: null, caseNumber: null };
+    this.currentCaseId = caseNumber;
+    
+    // Determine page type and handle accordingly
+    const pageType = isCommentView ? 'comment_full_view' : 'case_view';
+    await this.checkPageAndLoadMemory({ type: pageType, caseNumber });
   },
 
   extractCaseNumber(url) {
@@ -337,9 +334,13 @@ const CaseCommentMemory = {
     counter.style.cssText = 'margin-left: 10px; font-size: 12px; color: #706e6b;';
     counter.textContent = `Characters: ${textarea.value.length}`;
     buttonContainer.insertBefore(counter, buttonContainer.firstChild);
-    textarea.addEventListener('input', () => {
+    
+    // Debounce counter updates to avoid excessive DOM manipulation
+    const updateCounter = DebounceUtils.throttle(() => {
       counter.textContent = `Characters: ${textarea.value.length}`;
-    });
+    }, 100); // Update at most every 100ms
+    
+    textarea.addEventListener('input', updateCounter);
     console.log('[CaseCommentMemory] Character counter inserted');
   },
 
@@ -363,8 +364,15 @@ const CaseCommentMemory = {
       textarea.value = activeEntry.text;
       console.log('[CaseCommentMemory] Restored previous text');
     }
+    
     textarea.addEventListener('focus', () => this.activateEntry(caseNumber, textarea));
-    textarea.addEventListener('input', () => this.handleTextChange(caseNumber, textarea));
+    
+    // Debounce text change handler to reduce storage writes
+    const debouncedHandleTextChange = DebounceUtils.debounce(() => {
+      this.handleTextChange(caseNumber, textarea);
+    }, 300); // Wait 300ms after user stops typing
+    
+    textarea.addEventListener('input', debouncedHandleTextChange);
     this.monitorSaveButton(caseNumber);
     console.log('[CaseCommentMemory] Textarea monitoring set up');
   },

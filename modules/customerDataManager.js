@@ -795,25 +795,60 @@ const CustomerDataManager = (function() {
     },
 
     /**
-     * Finds customer by institution code
-     * @param {string} institutionCode
+     * Finds customer by institution code with flexible matching
+     * @param {string} institutionCode - Ex-Libris account number or institution code
+     * @param {string} accountName - Optional account name for fallback matching
      * @returns {Object|null}
      */
-    findByInstitutionCode(institutionCode) {
+    findByInstitutionCode(institutionCode, accountName = null) {
       if (!isInitialized) {
         console.warn('[CustomerDataManager] Not initialized, using default list');
       }
 
       const list = getActiveList();
-      const customer = list.find(c => c.institutionCode === institutionCode);
+      
+      // Strategy 1: Exact match on institution code
+      let customer = list.find(c => c.institutionCode === institutionCode);
       
       if (customer) {
-        console.log(`[CustomerDataManager] Found customer: ${customer.name} (${institutionCode})`);
-      } else {
-        console.warn(`[CustomerDataManager] Customer not found: ${institutionCode}`);
+        console.log(`[CustomerDataManager] Found customer (exact match): ${customer.name} (${institutionCode})`);
+        return customer;
       }
-
-      return customer || null;
+      
+      // Strategy 2: Check if institution code contains the Ex-Libris account number
+      // Example: "61USC" should match "61USC_INST"
+      if (institutionCode) {
+        customer = list.find(c => c.institutionCode && c.institutionCode.includes(institutionCode));
+        
+        if (customer) {
+          console.log(`[CustomerDataManager] Found customer (partial match): ${customer.name} (${institutionCode} matched ${customer.institutionCode})`);
+          return customer;
+        }
+      }
+      
+      // Strategy 3: Fallback to account name matching if provided
+      if (accountName) {
+        // Try case-insensitive name match
+        const normalizedAccountName = accountName.toLowerCase().trim();
+        
+        customer = list.find(c => {
+          if (!c.name) return false;
+          const customerName = c.name.toLowerCase().trim();
+          // Check for exact match or if one contains the other
+          return customerName === normalizedAccountName || 
+                 customerName.includes(normalizedAccountName) ||
+                 normalizedAccountName.includes(customerName);
+        });
+        
+        if (customer) {
+          console.log(`[CustomerDataManager] Found customer (name match): ${customer.name} matched "${accountName}"`);
+          return customer;
+        }
+      }
+      
+      // No match found
+      console.warn(`[CustomerDataManager] Customer not found: ${institutionCode}${accountName ? ` / "${accountName}"` : ''}`);
+      return null;
     },
 
     /**
