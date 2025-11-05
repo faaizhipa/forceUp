@@ -339,10 +339,20 @@
       console.log('[ExLibris Extension] Panel injection disabled on page load. Use banner "Show Panel" button to inject panel.');
 
       // Initialize field highlighting
-      if (this.settings.highlightingEnabled &&
+      const highlightingEnabled = this.settings?.exlibris?.features?.fieldHighlighting !== false && this.settings?.highlightingEnabled !== false;
+      console.log('[ExLibris Extension] FieldHighlighter initialization check:', {
+        highlightingEnabled: highlightingEnabled,
+        moduleLoaded: typeof FieldHighlighter !== 'undefined',
+        featureEnabled: SettingsManager.isFeatureEnabled('fieldHighlighting')
+      });
+      
+      if (highlightingEnabled &&
           typeof FieldHighlighter !== 'undefined' &&
           SettingsManager.isFeatureEnabled('fieldHighlighting')) {
+        console.log('[ExLibris Extension] Initializing FieldHighlighter...');
         FieldHighlighter.init();
+      } else {
+        console.log('[ExLibris Extension] FieldHighlighter NOT initialized - condition failed');
       }
 
       if (typeof handleAnchors === 'function') {

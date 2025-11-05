@@ -6,10 +6,10 @@
 const FieldHighlighter = {
   // Color schemes
   colors: {
-    emptyInput: 'rgb(191, 39, 75)',
-    emptyContainer: 'rgb(255, 220, 230)',
-    filledInput: 'rgb(251, 178, 22)',
-    filledContainer: 'rgb(255, 232, 184)',
+    emptyInput: 'rgba(163, 22, 55, 1)',
+    emptyContainer: 'rgba(253, 234, 239, 1)',
+    filledInput: 'rgba(230, 165, 25, 1)',
+    filledContainer: 'rgba(252, 243, 225, 1)',
     // Additional colors for other highlighting needs
     lightBlue: 'rgb(194, 244, 233)',
     lightGreen: 'rgb(209, 247, 196)',
@@ -27,34 +27,41 @@ const FieldHighlighter = {
   fieldSelectors: {
     category: {
       container: 'records-record-layout-item[field-label="Category"]',
-      input: 'records-record-layout-item[field-label="Category"] .test-id__field-value'
+      input: 'records-record-layout-item[field-label="Category"] .test-id__field-value',
+      label: 'records-record-layout-item[field-label="Category"] div div span'
     },
     subCategory: {
       container: 'records-record-layout-item[field-label="Sub-Category"]',
-      input: 'records-record-layout-item[field-label="Sub-Category"] .test-id__field-value'
+      input: 'records-record-layout-item[field-label="Sub-Category"] .test-id__field-value',
+      label: 'records-record-layout-item[field-label="Sub-Category"] div div span'
     },
     description: {
       container: 'records-record-layout-item[field-label="Description"]',
-      input: 'records-record-layout-item[field-label="Description"] .test-id__field-value'
+      input: 'records-record-layout-item[field-label="Description"] .test-id__field-value',
+      label: 'records-record-layout-item[field-label="Description"] div div span'
     },
     status: {
       container: 'records-record-layout-item[field-label="Status"]',
-      input: 'records-record-layout-item[field-label="Status"] .test-id__field-value'
+      input: 'records-record-layout-item[field-label="Status"] .test-id__field-value',
+      label: 'records-record-layout-item[field-label="Status"] div div span'
     },
     jiraSection: {
       container: 'flexipage-component2[data-component-id="flexipage_fieldSection6"]'
     },
     rootCause: {
       container: 'div[data-target-selection-name$="Problem_Root_Cause__c"]',
-      input: 'div[data-target-selection-name$="Problem_Root_Cause__c"] .test-id__field-value'
+      input: 'div[data-target-selection-name$="Problem_Root_Cause__c"] .test-id__field-value',
+      label: 'div[data-target-selection-name$="Problem_Root_Cause__c"] div div span'
     },
     primaryJira: {
       container: 'div[data-target-selection-name$="Primary_Jira__c"]',
-      input: 'div[data-target-selection-name$="Primary_Jira__c"] .test-id__field-value'
+      input: 'div[data-target-selection-name$="Primary_Jira__c"] .test-id__field-value',
+      label: 'div[data-target-selection-name$="Primary_Jira__c"] div div span'
     },
     jiraStatus: {
       container: 'div[data-target-selection-name$="Jira_Status__c"]',
-      input: 'div[data-target-selection-name$="Jira_Status__c"] .test-id__field-value'
+      input: 'div[data-target-selection-name$="Jira_Status__c"] .test-id__field-value',
+      label: 'div[data-target-selection-name$="Jira_Status__c"] div div span'
     }
   },
 
@@ -70,6 +77,21 @@ const FieldHighlighter = {
   },
 
   /**
+   * Applies label styling
+   * @param {HTMLElement} label - Label element
+   * @param {string} backgroundColor - Background color to apply
+   */
+  styleLabelElement(label, backgroundColor) {
+    if (!label) return;
+    
+    // label.style.color = 'white';
+    // label.style.backgroundColor = backgroundColor;
+    // label.style.fontWeight = 'bold';
+    // label.style.padding = '4px 8px';
+    // label.style.borderRadius = '4px';
+  },
+
+  /**
    * Applies highlight to a single field
    * @param {Object} fieldSelector - Object with container and input selectors
    */
@@ -81,33 +103,18 @@ const FieldHighlighter = {
     }
 
     const input = document.querySelector(fieldSelector.input);
+    const label = fieldSelector.label ? document.querySelector(fieldSelector.label) : null;
     const isEmpty = this.isEmpty(input);
 
     if (isEmpty) {
       // Red highlight for empty fields
-      if (input) {
-        input.style.backgroundColor = this.colors.emptyInput;
-        input.style.color = 'white';
-        input.style.padding = '4px 8px';
-        input.style.borderRadius = '4px';
-      }
       container.style.backgroundColor = this.colors.emptyContainer;
-      container.style.padding = '8px';
-      container.style.borderRadius = '6px';
-      container.style.border = `2px solid ${this.colors.emptyInput}`;
+      this.styleLabelElement(label, this.colors.emptyInput);
       console.log('[FieldHighlighter] Applied RED highlight for empty field:', fieldSelector.container);
     } else {
       // Yellow highlight for filled fields
-      if (input) {
-        input.style.backgroundColor = this.colors.filledInput;
-        input.style.color = 'white';
-        input.style.padding = '4px 8px';
-        input.style.borderRadius = '4px';
-      }
       container.style.backgroundColor = this.colors.filledContainer;
-      container.style.padding = '8px';
-      container.style.borderRadius = '6px';
-      container.style.border = `2px solid ${this.colors.filledInput}`;
+      this.styleLabelElement(label, this.colors.filledInput);
       console.log('[FieldHighlighter] Applied YELLOW highlight for filled field:', fieldSelector.container);
     }
   },
@@ -119,6 +126,7 @@ const FieldHighlighter = {
   removeHighlight(fieldSelector) {
     const container = document.querySelector(fieldSelector.container);
     const input = document.querySelector(fieldSelector.input);
+    const label = fieldSelector.label ? document.querySelector(fieldSelector.label) : null;
 
     if (container) {
       container.style.backgroundColor = '';
@@ -132,6 +140,14 @@ const FieldHighlighter = {
       input.style.color = '';
       input.style.padding = '';
       input.style.borderRadius = '';
+    }
+
+    if (label) {
+      label.style.color = '';
+      label.style.backgroundColor = '';
+      label.style.fontWeight = '';
+      label.style.padding = '';
+      label.style.borderRadius = '';
     }
   },
 
