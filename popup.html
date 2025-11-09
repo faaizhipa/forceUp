@@ -1,127 +1,492 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Salesforce Power-Up Extension</title>
+  <title>Penang CoE CForce Extension Popup</title>
   <meta charset="UTF-8">
+
   <style>
-    body {
+    * {
       font-family: Arial, sans-serif;
-      background-color: #f0f2f5;
-      color: #1c1e21;
-      padding: 15px;
-      width: 350px;
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
     }
+
+    html {
+      width: 450px;
+      max-height: 600px;
+    }
+
+    body {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 20px;
+      color: white;
+      overflow-y: auto;
+      max-height: 600px;
+    }
+
     h1 {
       font-size: 18px;
-      color: #0176d3;
-      border-bottom: 2px solid #0176d3;
-      padding-bottom: 5px;
+      margin-bottom: 20px;
+      text-align: center;
     }
+
     h2 {
-      font-size: 16px;
-      margin-top: 20px;
-      border-bottom: 1px solid #dce0e5;
+      font-size: 14px;
+      margin: 15px 0 10px 0;
       padding-bottom: 5px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.3);
     }
+
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .tab {
+      padding: 8px 16px;
+      background: transparent;
+      border: none;
+      color: rgba(255, 255, 255, 0.7);
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.3s;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+    }
+
+    .tab:hover {
+      color: white;
+    }
+
+    .tab.active {
+      color: white;
+      border-bottom-color: white;
+      font-weight: bold;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
     .setting-group {
-      margin-bottom: 15px;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 12px;
     }
+
     label {
       display: block;
-      margin-bottom: 5px;
-      font-weight: bold;
+      margin-bottom: 6px;
+      font-size: 12px;
+      font-weight: 500;
     }
-    select, button {
+
+    select, input[type="text"] {
       width: 100%;
       padding: 8px;
+      border: none;
       border-radius: 4px;
-      border: 1px solid #dce0e5;
+      font-size: 13px;
+      background: white;
+      color: #333;
     }
+
+    select, input[type="text"], input[type="time"], input[type="number"] {
+      width: 100%;
+      padding: 8px;
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      background: white;
+      color: #333;
+    }
+
+    input[type="number"]:disabled,
+    input[type="time"]:disabled,
+    input[type="text"]:disabled {
+      background: rgba(255, 255, 255, 0.5);
+      cursor: not-allowed;
+    }
+
+    .checkbox-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .checkbox-item input[type="checkbox"] {
+      width: auto;
+      cursor: pointer;
+    }
+
+    .checkbox-item label {
+      margin: 0;
+      cursor: pointer;
+      flex: 1;
+    }
+
     button {
-      background-color: #0176d3;
-      color: white;
+      background: white;
+      color: #667eea;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      font-size: 13px;
       font-weight: bold;
       cursor: pointer;
+      transition: all 0.3s;
+      width: 100%;
       margin-top: 10px;
     }
-    .checkbox-group label {
-      font-weight: normal;
-      display: inline-block;
-      margin-right: 15px;
+
+    button:hover {
+      background: #f0f0f0;
+      transform: translateY(-1px);
     }
-    .notInSFDC {
-      background-color: #c23934;
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    .button-secondary {
+      background: rgba(255, 255, 255, 0.2);
       color: white;
+    }
+
+    .button-secondary:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    .info-text {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.8);
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+
+    .storage-info {
+      background: rgba(0, 0, 0, 0.2);
       padding: 10px;
       border-radius: 4px;
-      font-weight: bold;
+      font-size: 11px;
+      margin-top: 8px;
     }
+
+    .shortcuts-list {
+      font-size: 11px;
+      line-height: 1.6;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 10px;
+      border-radius: 4px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .shortcuts-list code {
+      background: rgba(255, 255, 255, 0.2);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .notInSFDC {
+      background-color: rgba(255, 255, 255, 0.1);
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+      font-size: 13px;
+    }
+
   </style>
 </head>
 <body>
-  <h1>Salesforce Power-Up Settings</h1>
+  <h1>🎯 CForce Extension Settings</h1>
 
-  <div class="container">
-    <div id="settings-view">
-      <h2>Team / BU Setting</h2>
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" data-tab="general">General</button>
+    <button class="tab" data-tab="preferences">Preferences</button>
+    <button class="tab" data-tab="exlibris">Ex Libris</button>
+    <button class="tab" data-tab="shortcuts">Shortcuts</button>
+    <button class="tab" data-tab="about">About</button>
+  </div>
+
+  <div id="notInSFDC" class="notInSFDC" style="display: none;">
+    ⚠️ Please open this extension on a Salesforce page to configure settings.
+  </div>
+
+  <div id="settingsContainer">
+    <!-- General Tab -->
+    <div class="tab-content active" data-tab="general">
       <div class="setting-group">
-        <label for="team-selection">For "from" email to be highlighted properly</label>
-        <select id="team-selection">
+        <h2>👔 Team Setting</h2>
+        <label for="selectionDropdown">Select Your Team</label>
+        <select id="selectionDropdown" title="Team Selection">
           <option value="EndNote">EndNote</option>
           <option value="WebOfScience">Web of Science</option>
+          <option value="ScholarOne">ScholarOne</option>
           <option value="LifeScience">Life Science</option>
           <option value="LifeScienceHDS">Life Science (HDS)</option>
           <option value="LifeSciencePS">Life Science (Product Specialist)</option>
           <option value="AccountSupport">Account Support</option>
         </select>
-      </div>
-
-      <h2>Dynamic Menu</h2>
-      <div class="setting-group">
-        <label>Injection Location</label>
-        <div class="checkbox-group">
-          <input type="checkbox" id="inject-card" name="injectionLocation" value="card">
-          <label for="inject-card">Card Actions</label>
-          <input type="checkbox" id="inject-header" name="injectionLocation" value="header">
-          <label for="inject-header">Header Details</label>
-        </div>
-      </div>
-      <div class="setting-group">
-        <label for="button-style">Button Naming Convention</label>
-        <select id="button-style">
-          <option value="Formal">Formal (e.g., Portal)</option>
-          <option value="Casual">Casual (e.g., Live View)</option>
-          <option value="Abbreviated">Abbreviated (e.g., LV)</option>
-        </select>
-      </div>
-
-      <h2>Timezone</h2>
-      <div class="setting-group">
-        <label for="timezone">Your Local Timezone</label>
-        <select id="timezone">
-          <!-- Timezones will be populated by popup.js -->
-          <option value="auto">Auto-detect</option>
-        </select>
-      </div>
-
-      <button id="saveButton">Save Settings</button>
-
-      <h2>Data Management</h2>
-      <div class="setting-group">
-        <button id="update-customer-list">Update Customer List from Wiki</button>
-        <div class="checkbox-group" style="margin-top: 10px;">
-          <input type="checkbox" id="use-scraped-list" name="useScrapedList">
-          <label for="use-scraped-list">Use updated list</label>
-        </div>
+        <p class="info-text">Used for email highlighting in case emails</p>
+        <button id="saveTeamButton">Save Team Setting</button>
       </div>
     </div>
-    <div id="notice-view" style="display: none;">
-      <div class="notInSFDC">
-        Settings can only be configured on a Salesforce page.
+
+    <!-- Preferences Tab -->
+    <div class="tab-content" data-tab="preferences">
+      <div class="setting-group">
+        <h2>⏰ Shift Configuration</h2>
+        <label for="shiftTimezone">Shift Timezone</label>
+        <select id="shiftTimezone" title="Shift Timezone">
+          <option value="Asia/Kuala_Lumpur">Malaysia (MYT - UTC+8)</option>
+          <option value="Asia/Singapore">Singapore (SGT - UTC+8)</option>
+          <option value="Asia/Manila">Philippines (PHT - UTC+8)</option>
+          <option value="Asia/Kolkata">India (IST - UTC+5:30)</option>
+          <option value="Europe/London">London (GMT/BST)</option>
+          <option value="America/New_York">Eastern Time (ET)</option>
+          <option value="America/Chicago">Central Time (CT)</option>
+          <option value="America/Los_Angeles">Pacific Time (PT)</option>
+        </select>
+
+        <label for="shiftStartTime">Shift Start Time</label>
+        <input type="time" id="shiftStartTime" value="21:00" title="Shift Start Time">
+
+        <label for="shiftEndTime">Shift End Time</label>
+        <input type="time" id="shiftEndTime" value="06:00" title="Shift End Time">
+
+        <div class="checkbox-item">
+          <input type="checkbox" id="isOvernightShift" checked>
+          <label for="isOvernightShift">Overnight Shift (crosses midnight)</label>
+        </div>
+
+        <p class="info-text">Default: 9 PM - 6 AM MYT (overnight shift)</p>
+      </div>
+
+      <div class="setting-group">
+        <h2>🌍 Timezone Settings</h2>
+        <label for="userTimezone">Your Local Timezone</label>
+        <select id="userTimezone" title="User Timezone">
+          <option value="auto">Auto-detect from browser</option>
+          <option value="Asia/Kuala_Lumpur">Malaysia (MYT - UTC+8)</option>
+          <option value="Asia/Singapore">Singapore (SGT - UTC+8)</option>
+          <option value="Asia/Manila">Philippines (PHT - UTC+8)</option>
+          <option value="Asia/Kolkata">India (IST - UTC+5:30)</option>
+          <option value="Europe/London">London (GMT/BST)</option>
+          <option value="America/New_York">Eastern Time (ET)</option>
+          <option value="America/Chicago">Central Time (CT)</option>
+          <option value="America/Los_Angeles">Pacific Time (PT)</option>
+          <option value="Australia/Sydney">Sydney (AEDT/AEST)</option>
+        </select>
+        <p class="info-text">Used when you specify times manually</p>
+
+        <label for="salesforceTimezone">Salesforce UI Timezone</label>
+        <select id="salesforceTimezone" title="Salesforce Timezone">
+          <option value="auto">Auto-detect from Salesforce</option>
+          <option value="Asia/Kuala_Lumpur">Malaysia (MYT - UTC+8)</option>
+          <option value="Asia/Singapore">Singapore (SGT - UTC+8)</option>
+          <option value="Asia/Manila">Philippines (PHT - UTC+8)</option>
+          <option value="Asia/Kolkata">India (IST - UTC+5:30)</option>
+          <option value="Europe/London">London (GMT/BST)</option>
+          <option value="America/New_York">Eastern Time (ET)</option>
+          <option value="America/Chicago">Central Time (CT)</option>
+          <option value="America/Los_Angeles">Pacific Time (PT)</option>
+        </select>
+        <p class="info-text">Timezone displayed in Salesforce UI</p>
+      </div>
+
+      <div class="setting-group">
+        <h2>📊 IRT Expectations</h2>
+        <div class="checkbox-item">
+          <input type="checkbox" id="useTeamDefaults" checked>
+          <label for="useTeamDefaults">Use team default IRT values</label>
+        </div>
+
+        <label for="customIRT">Custom IRT (minutes)</label>
+        <input type="number" id="customIRT" min="1" max="999" placeholder="90" title="Custom IRT" disabled>
+        <p class="info-text">Override team defaults with custom IRT expectation</p>
+      </div>
+
+      <div class="setting-group">
+        <h2>📅 Date & Time Format</h2>
+        <label for="dateFormat">Date Format</label>
+        <select id="dateFormat" title="Date Format">
+          <option value="auto">Auto (based on locale)</option>
+          <option value="MM/DD/YYYY">MM/DD/YYYY (US)</option>
+          <option value="DD/MM/YYYY">DD/MM/YYYY (UK/EU)</option>
+          <option value="YYYY-MM-DD">YYYY-MM-DD (ISO)</option>
+        </select>
+
+        <label for="timeFormat">Time Format</label>
+        <select id="timeFormat" title="Time Format">
+          <option value="24h">24-hour (23:00)</option>
+          <option value="12h">12-hour (11:00 PM)</option>
+        </select>
+      </div>
+
+      <button id="savePreferencesButton">Save Preferences</button>
+      <button id="resetPreferencesButton" class="button-secondary">Reset to Defaults</button>
+    </div>
+
+    <!-- Ex Libris Tab -->
+    <div class="tab-content" data-tab="exlibris">
+      <div class="setting-group">
+        <h2>✨ Features</h2>
+        <div class="checkbox-group">
+          <div class="checkbox-item">
+            <input type="checkbox" id="featureHighlighting" checked>
+            <label for="featureHighlighting">Field Highlighting</label>
+          </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="featureContextMenu" checked>
+            <label for="featureContextMenu">Context Menu Formatting</label>
+          </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="featureMultiTab" checked>
+            <label for="featureMultiTab">Multi-Tab Warning</label>
+          </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="featureCommentMemory" checked>
+            <label for="featureCommentMemory">Auto-Save Comments</label>
+          </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="featureCharCounter" checked>
+            <label for="featureCharCounter">Character Counter</label>
+          </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="featureDynamicMenu" checked>
+            <label for="featureDynamicMenu">Dynamic Buttons</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <h2>🎨 UI Preferences</h2>
+        <label for="labelStyleSelect">Button Label Style</label>
+        <select id="labelStyleSelect" title="Button Label Style">
+          <option value="casual">Casual (Live View, Back Office)</option>
+          <option value="formal">Formal (Portal, Repository)</option>
+          <option value="abbreviated">Abbreviated (LV, BO)</option>
+        </select>
+
+        <label for="timezoneSelect" style="margin-top: 12px;">Timezone</label>
+        <select id="timezoneSelect" title="Timezone Selection">
+          <option value="auto">Auto-detect</option>
+          <option value="America/New_York">Eastern Time (ET)</option>
+          <option value="America/Chicago">Central Time (CT)</option>
+          <option value="America/Los_Angeles">Pacific Time (PT)</option>
+          <option value="Europe/London">London (GMT/BST)</option>
+          <option value="Europe/Paris">Paris (CET/CEST)</option>
+          <option value="Asia/Singapore">Singapore (SGT)</option>
+          <option value="Asia/Tokyo">Tokyo (JST)</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <h2>📍 Menu Locations</h2>
+        <div class="checkbox-group">
+          <div class="checkbox-item">
+            <input type="checkbox" id="menuCardActions">
+            <label for="menuCardActions">Card Actions Section</label>
+          </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="menuHeaderDetails" checked>
+            <label for="menuHeaderDetails">Header Details Section</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <h2>🗄️ Cache Management</h2>
+        <p class="info-text">Clear cached case data to free up storage space</p>
+        <button id="clearCacheButton" class="button-secondary">Clear Cache</button>
+        <div id="storageInfo" class="storage-info">Loading...</div>
+      </div>
+
+      <button id="saveExLibrisButton">Save Ex Libris Settings</button>
+    </div>
+
+    <!-- Shortcuts Tab -->
+    <div class="tab-content" data-tab="shortcuts">
+      <div class="setting-group">
+        <h2>⌨️ Keyboard Shortcuts</h2>
+        <div class="checkbox-item">
+          <input type="checkbox" id="shortcutsEnabled" checked>
+          <label for="shortcutsEnabled">Enable Keyboard Shortcuts</label>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <h2>📋 Available Shortcuts</h2>
+        <div class="shortcuts-list">
+          <strong>Text Formatting:</strong><br>
+          <code>Ctrl+B</code> - Bold formatting<br>
+          <code>Ctrl+I</code> - Italic formatting<br>
+          <code>Ctrl+Shift+C</code> - Code formatting<br>
+          <code>Ctrl+Shift+B</code> - Bold Serif<br>
+          <code>Ctrl+Shift+N</code> - Remove formatting<br>
+          <br>
+          <strong>Case Conversion:</strong><br>
+          <code>Ctrl+Shift+U</code> - UPPERCASE<br>
+          <code>Ctrl+Shift+L</code> - lowercase<br>
+          <code>Ctrl+Shift+T</code> - Toggle Case<br>
+          <br>
+          <strong>UI Actions:</strong><br>
+          <code>Escape</code> - Close preview modal<br>
+          <code>Ctrl+Shift+R</code> - Open restore menu<br>
+        </div>
+        <p class="info-text" style="margin-top: 8px;">Select text in a textarea and press the shortcut</p>
+      </div>
+
+      <button id="saveShortcutsButton">Save Shortcuts Settings</button>
+    </div>
+
+    <!-- About Tab -->
+    <div class="tab-content" data-tab="about">
+      <div class="setting-group">
+        <h2>ℹ️ About This Extension</h2>
+        <p class="info-text">
+          <strong>Penang CoE CForce Extension</strong><br>
+          Version <span id="versionValue">Loading…</span><br><br>
+          
+          Enhances Salesforce with:<br>
+          • Field highlighting<br>
+          • Auto-save comments<br>
+          • Text formatting tools<br>
+          • Dynamic action buttons<br>
+          • Multi-tab warnings<br>
+          • And more!<br>
+        </p>
+      </div>
+
+      <div class="setting-group">
+        <h2>🔄 Actions</h2>
+        <button id="resetButton" class="button-secondary">Reset to Defaults</button>
+        <button id="exportButton" class="button-secondary">Export Settings</button>
+        <button id="importButton" class="button-secondary">Import Settings</button>
       </div>
     </div>
   </div>
 
-  <script src="popup.js"></script>
+<script src="popup.js"></script>
 </body>
 </html>
+

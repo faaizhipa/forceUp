@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Penang CoE CForce Extension Settings" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="theme-color" content="#ffffff" />
+  <title>Penang CoE CForce Extension</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+
+<body>
+  <div class="container" role="main">
+    <header class="header">
+      <div class="logo">
+        <img src="icons/ExtLogoV3.png" alt="Penang CoE CForce Extension Logo" width="24" height="24" />
+        <h1>Penang CoE CForce Extension</h1>
+      </div>
+      <div class="header-icons">
+        <button class="sf-ibtn" title="Help" aria-label="Open Help">
+          <span class="sf-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" focusable="false">
+              <path
+                d="M480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Zm0 160q17 0 28.5-11.5T520-360q0-17-11.5-28.5T480-400q-17 0-28.5 11.5T440-360q0 17 11.5 28.5T480-320Zm-40-160h80q0-33-15.5-56.5T460-576q-29-20-42-36.5T405-652q0-15 10.5-22.5T447-682q26 0 46 12.5t33 27.5l66-44q-15-31-52.5-57T453-774q-78 0-121.5 39T288-639q0 48 25 79t87 76q15 12 17.5 22t2.5 22Z">
+              </path>
+            </svg>
+          </span>
+        </button>
+        <div class="profile-pic" role="img" aria-label="User profile">
+          <img src="icons/ExtLogoV3.png" alt="" aria-hidden="true" />
+        </div>
+      </div>
+    </header>
+
+    <div class="main-content">
+      <nav class="navigation" aria-label="Main navigation">
+        <ul role="menubar">
+          <li role="none"><a href="#customise" role="menuitem" aria-current="page">Customise</a></li>
+          <li role="none"><a class="disabled" href="#worldtime" role="menuitem" aria-disabled="true">Timezones</a></li>
+          <li role="none"><a class="disabled" href="#viewer" role="menuitem" aria-disabled="true">Viewer</a></li>
+          <li role="none"><a class="disabled" href="#annotate" role="menuitem" aria-disabled="true">Annotate</a></li>
+          <li role="none"><a class="disabled" href="#jira" role="menuitem" aria-disabled="true">JIRA</a></li>
+        </ul>
+      </nav>
+
+      <div class="content-wrapper">
+        <main class="content-area">
+          <div class="horizontal-panels">
+            <section class="panel theme-panel" aria-labelledby="theme-title">
+              <h2 id="theme-title">Theme</h2>
+              <div class="theme-options" role="radiogroup" aria-label="Theme selection">
+                <div class="theme-option" data-theme="glassy" role="radio" tabindex="0" aria-checked="false">
+                  <div class="theme-preview glassy"></div>
+                  <span>Glassy</span>
+                </div>
+                <div class="theme-option" data-theme="original" role="radio" tabindex="0" aria-checked="false">
+                  <div class="theme-preview original"></div>
+                  <span>Original</span>
+                </div>
+                <div class="theme-option disabled" data-theme="light" role="radio" tabindex="-1" aria-checked="false" aria-disabled="true">
+                  <div class="theme-preview light"></div>
+                  <span>Light (Coming Soon)</span>
+                </div>
+                <div class="theme-option disabled" data-theme="dark" role="radio" tabindex="-1" aria-checked="false" aria-disabled="true">
+                  <div class="theme-preview dark"></div>
+                  <span>Dark (Coming Soon)</span>
+                </div>
+              </div>
+              <div class="theme-actions">
+                <button id="applyThemeSfdc" class="button" type="button">Apply to SFDC</button>
+                <button id="applyThemeExt" class="button disabled" type="button" aria-disabled="true">Apply to Extension</button>
+              </div>
+            </section>
+
+            <section class="panel team-panel" id="teamPanel" aria-labelledby="team-title">
+              <div class="placeholder-container" aria-hidden="true">
+                <div class="emoji-placeholder">👔</div>
+                <div class="team-image" id="teamLogo"></div>
+              </div>
+              <h2 id="team-title" class="descriptionTitle">
+                <span class="emoji-shirt" aria-hidden="true">👔</span> Team or BU Setting
+              </h2>
+              <p id="team-description">For "from" email to be highlighted properly</p>
+              <select id="selectionDropdown" aria-labelledby="team-title team-description">
+                <option value="EndNote">EndNote</option>
+                <option value="WebOfScience">Web of Science</option>
+                <option value="ScholarOne">ScholarOne</option>
+                <option value="LifeScience">Life Science</option>
+                <option value="LifeScienceHDS">Life Science (HDS)</option>
+                <option value="LifeSciencePS">Life Science (Product Specialist)</option>
+                <option value="AccountSupport">Account Support</option>
+              </select>
+              <button id="saveButton" class="button" type="button">Save</button>
+            </section>
+          </div>
+
+          <section class="panel features-panel" aria-labelledby="features-label-toggle">
+            <div class="features-header">
+              <h2 id="features-label-toggle">Features Toggle</h2>
+              <button id="saveButtonFeatures" class="button" type="button">Save</button>
+            </div>
+            <form class="feature-toggles">
+              <div class="feature-toggle">
+                <input type="checkbox" id="highlightCases" name="features" checked />
+                <label for="highlightCases">
+                  Highlight Open Cases by Age
+                  <small>(30min: blue, 60min: green, 90min: orange, >90min: red)</small>
+                </label>
+              </div>
+              <div class="feature-toggle">
+                <input type="checkbox" id="emailValidation" name="features" checked />
+                <label for="emailValidation">
+                  Email Address Validation
+                  <small>(Highlight non-standard "From" addresses in red/orange)</small>
+                </label>
+              </div>
+              <div class="feature-toggle">
+                <input type="checkbox" id="statusHighlighting" name="features" checked />
+                <label for="statusHighlighting">
+                  Case Status Highlighting
+                  <small>(Color-code statuses by urgency/state)</small>
+                </label>
+              </div>
+              <div class="feature-toggle">
+                <input type="checkbox" id="esploroDataDisplay" name="features" />
+                <label for="esploroDataDisplay">
+                  Esploro Data Display
+                  <small>(Show institution details and regional time blocks)</small>
+                </label>
+              </div>
+              <div class="feature-toggle">
+                <input type="checkbox" id="caseCommentExtractor" name="features" />
+                <label for="caseCommentExtractor">
+                  Case Comment Extractor
+                  <small>(Copy comments in Table or XML format)</small>
+                </label>
+              </div>
+              <div class="feature-toggle">
+                <input type="checkbox" id="vitalFieldsDisplay" name="features" checked/>
+                <label for="vitalFieldsDisplay">
+                  Vital field display and JIRA case
+                  <small>(Display vital fields and JIRA case information)</small>
+                </label>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel features-panel" aria-labelledby="features-label-feature-explanation">
+            <h2 id="features-label-feature-explanation">What does this extension do?</h2>
+            <div class="feature-toggles">
+              <p>
+                <span>1️⃣ Highlight new Open cases in SFDC, where each 30 minute lapsed will highlight the row from green to red 
+                  <a href="https://clarivate-my.sharepoint.com/:i:/p/muhammadamirfaaiz_shamsolnizam/Edhep5VIW5RKqowAFcgjjgIBAJDslr3jibDGLqLDv9VKwQ?e=3Hq03P" 
+                     target="_blank" 
+                     rel="noopener noreferrer" 
+                     aria-label="Preview of case highlighting feature (opens in new window)">Preview</a>
+                </span>
+              </p>
+              <p>
+                <span>2️⃣ When sending emails to customer in SFDC, the "From" field will be coloured if it's not using the right email 
+                  <a href="https://clarivate-my.sharepoint.com/:i:/p/muhammadamirfaaiz_shamsolnizam/Ed1MyExuvABFuJSVoa75t2wB8Grkiv3_fc2mTDifD1zjFA?e=GR6hZ3" 
+                     target="_blank" 
+                     rel="noopener noreferrer" 
+                     aria-label="Preview of email validation feature (opens in new window)">Preview</a>
+                </span>
+              </p>
+              <p>
+                <span>3️⃣ The case statuses are highlighted according to the attention it requires 
+                  <a href="https://clarivate-my.sharepoint.com/:i:/p/muhammadamirfaaiz_shamsolnizam/EUPb9zxAUARJjfOeztlVJ2UBA1g7sRBdEEcl-Hk-1QCL7w?e=6vdDIt" 
+                     target="_blank" 
+                     rel="noopener noreferrer" 
+                     aria-label="Preview of case status highlighting feature (opens in new window)">Preview</a>
+                </span>
+              </p>
+            </div>
+          </section>
+
+          <section class="panel salesforce-data" aria-labelledby="notice-label">
+            <h2 id="notice-label">Notice for ProQuest and ScholarOne Teams</h2>
+            <div id="salesforce-content">
+              <p>Due to different status and SFDC layout, more development and testing are pending before the features of this extension can be adapted. In the works 😊</p>
+            </div>
+          </section>
+
+          <section class="panel diagnostics-panel" aria-labelledby="diagnostics-label">
+            <h2 id="diagnostics-label">How to ensure that the plugin works?</h2>
+            <div class="diagnostics-content">
+              <ol>
+                <li>Show the "Status" & "Date/Time Opened" Column in your Case List View</li>
+                <li>Select your team above, and click "Save"</li>
+              </ol>
+            </div>
+          </section>
+
+          <footer class="footer">
+            <a href="https://teams.microsoft.com/l/chat/0/0?users=muhammadamirfaaiz.shamsolnizam@clarivate.com"
+               target="_blank"
+               rel="noopener noreferrer"
+               class="button"
+               aria-label="Provide feedback via Microsoft Teams">
+              <span class="material-icons" aria-hidden="true">📢</span>
+              Provide Feedback
+            </a>
+            <a href="https://clarivate-my.sharepoint.com/:wb:/p/muhammadamirfaaiz_shamsolnizam/EUUQcgicX8tEgeoCkKgr4pIBRm18G1kT5c8BaTRaj1PPgA?e=gjtaFo"
+               target="_blank"
+               rel="noopener noreferrer"
+               class="button"
+               aria-label="View Moodboard in SharePoint">
+              <span class="material-icons" aria-hidden="true">💡</span>
+              View Moodboard
+            </a>
+            <button id="clear-cache" class="button" type="button">
+              <span class="material-icons" aria-hidden="true">🔄</span>
+              Refresh
+            </button>
+          </footer>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <div class="sr-only" aria-live="polite" role="status" id="status-announcer"></div>
+  <script src="popup.js"></script>
+</body>
+
+</html>

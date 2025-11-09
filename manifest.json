@@ -6,17 +6,70 @@
          "48": "icons/ExtLogoV3.png"
       },
       "default_popup": "popup.html",
-      "default_title": "Salesforce Power-Up Extension"
+      "default_title": "Penang CoE CForce Extension"
    },
    "background": {
       "service_worker": "background.js"
    },
-   "content_scripts": [ {
-      "js": [ "content_script.js" ],
-      "matches": [ "https://*.lightning.force.com/*", "https://*.salesforce.com/*", "https://wiki.clarivate.io/*" ],
-      "run_at": "document_idle"
-   } ],
-   "description": "A multifaceted Chrome extension that deeply integrates into the Salesforce Lightning UI to act as an intelligent assistant for case management.",
+   "content_scripts": [
+      {
+         "js": [ "content_script.js" ],
+         "matches": [ 
+            "https://clarivateanalytics.lightning.force.com/*", 
+            "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*", 
+            "https://scholarone.my.salesforce.com/*"
+         ],
+         "run_at": "document_idle"
+      },
+      {
+         "js": [
+            "content_script.js",
+            "modules/debounceUtils.js",
+            "modules/logger.js",
+            "modules/pageIdentifier.js",
+            "modules/settingsManager.js",
+            "modules/customerDataManager.js",
+            "modules/cacheManager.js",
+            "modules/caseDataExtractor.js",
+            "modules/caseCommentExtractor.js",
+            "modules/casePageDataExtractor.js",
+            "modules/fieldHighlighter.js",
+            "modules/urlBuilder.js",
+            "modules/textFormatter.js",
+            "modules/keyboardShortcuts.js",
+            "modules/contextMenuHandler.js",
+            "modules/multiTabSync.js",
+            "modules/caseCommentMemory.js",
+            "modules/dynamicMenu.js",
+            "modules/characterCounter.js",
+            "modules/shadowTextExtractor.js",
+            "modules/eventSimulator.js",
+            "modules/scrollController.js",
+            "modules/navigationObserver.js",
+            "modules/timezoneDetector.js",
+            "modules/addressTimezoneResolver.js",
+            "modules/accountAddressExtractor.js",
+            "modules/timezoneStorage.js",
+            "modules/caseTimezoneResolver.js",
+            "modules/unknownCustomerManager.js",
+            "modules/caseDetailExtractor.js",
+            "modules/userPreferences.js",
+            "modules/timezoneUtils.js",
+            "modules/configurationWarningBanner.js",
+            "modules/persistentBanner.js",
+            "modules/implementationStatus.js",
+            "modules/flexipagePanelInjector.js",
+            "content_script_exlibris.js"
+         ],
+         "matches": [ "https://proquestllc.lightning.force.com/*" ],
+         "run_at": "document_idle",
+         "css": [ 
+            "modules/styles/injected-panel.css",
+            "modules/styles/persistent-banner.css"
+         ]
+      }
+   ],
+   "description": "Change the styles, especially the background color, of elements or ancestor/enclosing elements with specific content.",
    "icons": {
       "128": "icons/ExtLogoV3.png",
       "16": "icons/ExtLogoV3.png",
@@ -24,13 +77,22 @@
    },
    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwEtsrKbUbSe0JeeMtKca1Ka786YKcryHy5uKYPXm5Zm7QUnr/pn8YU/zGjs0ByOkO5309ro9sRsVKscYpYLfqiiQQGNvS5hnYSUh/z43QrS//ItbDHMmjlkJdryctqLO87pUVdbo97knNZ4fXAYkZNZFjjMG8UergCmOgkSt+9k6aQnSE+r1vmME+v3Tl44Wr8GOkM0TohvH1GdQODSh7tNcVpEtj3GnEmHR9NhABR95+cNLwIv9e3d/hWYpdPOm1gwf5bxWKlgbdtA93rFVALZiLcJ6HfBBElnWrXAl9vBMnqzFy+urtuF9ZJb3Qf64gdBa9IOnF0KVBDLI1DTm+wIDAQAB",
    "manifest_version": 3,
-   "name": "Salesforce Power-Up Extension",
-   "permissions": [ "storage", "tabs", "scripting", "webNavigation" ],
-   "host_permissions": [
-      "https://*.lightning.force.com/",
-      "https://*.salesforce.com/",
-      "https://wiki.clarivate.io/"
-    ],
+   "name": "Penang CoE CForce Extension",
+   "permissions": [ "storage", "tabs", "activeTab", "contextMenus" ],
    "update_url": "https://clients2.google.com/service/update2/crx",
-   "version": "5.0"
+   "version": "4.0",
+   "web_accessible_resources": [
+      {
+         "resources": [
+            "modules/styles/injected-panel.css",
+            "icons/*.png"
+         ],
+         "matches": [
+            "https://proquestllc.lightning.force.com/*",
+            "https://clarivateanalytics.lightning.force.com/*",
+            "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*",
+            "https://scholarone.my.salesforce.com/*"
+         ]
+      }
+   ]
 }

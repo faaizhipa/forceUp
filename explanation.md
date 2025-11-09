@@ -1,104 +1,210 @@
-# Salesforce Power-Up Extension: A Technical Deep Dive
+# Penang CoE CForce Extension — Deep-Dive Explanation
 
-This document provides a comprehensive technical explanation of the Salesforce Power-Up Extension. It is intended for developers, technical reviewers, and anyone looking to understand the extension's architecture, data flow, and core logic.
+Date: 2025-10-23
 
-## 1. Project Purpose & Typical Usage
+## Overview
 
-Based on the codebase, the "Salesforce Power-Up Extension" is a multifaceted Chrome extension designed to deeply integrate into the Salesforce Lightning UI. Its primary purpose is to act as an intelligent assistant for case management, aiming to:
+This document explains the architecture, components, data flow, dependencies, and critical logic of the Chrome extension. It also catalogs known gaps, patterns, and practical usage, and closes with a Development & Debugging Log. It’s written to onboard new contributors quickly and to serve as a single source of truth.
 
-*   **Reduce Manual Tasks**: Automate the creation of environment-specific links, reducing the need for agents to manually look up and construct URLs.
-*   **Improve Data Visibility**: Highlight key fields on case pages and provide at-a-glance status indicators on list views.
-*   **Boost Productivity**: Offer a suite of tools directly within the case comment field, such as text formatting, draft memory, and quick-access notepads.
-*   **Centralize Data**: Scrape and maintain an up-to-date list of customer data from an external wiki, making it available for dynamic features.
+## Structure and Components
 
-A typical workflow involves a support agent navigating through Salesforce case lists and individual case pages. The extension automatically enhances these pages with colored highlights, dynamic action menus, and productivity tools, streamlining the agent's daily tasks.
+Top-level entry points:
+- `manifest.json` — Manifest V3 configuration: background service worker, action popup, domain-scoped content scripts, and permissions.
+- `background.js` — Creates “Ex Libris Format” context menus, routes menu events to content scripts, saves/returns selected text, and supports tab switching for the same Case ID.
+- `popup.html` / `popup.js` — Settings UI tabs for General, Ex Libris, Shortcuts, About; reads/writes settings to Chrome storage; displays storage usage; dynamic manifest version.
+- `content_script.js` — Legacy behaviors reused on Clarivate and ProQuest domains (email From validation, case list row aging colors, status badge colorization); SPA-aware via observers.
+- `content_script_exlibris.js` — Main controller for ProQuest domain; orchestrates all modules by page type (Case Page, Case Comments, Cases List).
 
-## 2. Codebase Structure
+Modules (in `modules/`):
+- `settingsManager.js` — Default settings, deep-merge, get/set by path, export/import, cache clearing, change listeners.
+- `pageIdentifier.js` — Classifies current page (CASE_PAGE, CASE_COMMENTS, CASES_LIST) via URL/DOM; watches SPA mutations and popstate.
+- `customerDataManager.js` — Customer dataset (default list + stubs for scraping); exposes IDs/names.
+- `cacheManager.js` — Case data cache with versioning: in-memory Map plus `chrome.storage.local`; validates by last-modified date from DOM.
+- `caseDataExtractor.js` — Extracts core case fields and derives institution/server/region; integrates with `customerDataManager`.
+- `fieldHighlighter.js` — Highlights key fields (e.g., empty fields red); MutationObserver with debounce; cleanup supported.
+- `urlBuilder.js` — Builds Live View/Back Office/Sandbox/Tools/SQL/etc. URLs; DC→Kibana mapping; analytics refresh info; JIRA link.
+- `dynamicMenu.js` — Injects grouped action buttons based on `urlBuilder` outputs; configurable placement (card actions, header details).
+- `textFormatter.js` — Unicode text styles; case conversions; formatting detection/toggling; symbol list.
+- `contextMenuHandler.js` — Receives context menu events from background; formats/inserts into active textarea/selection.
+- `keyboardShortcuts.js` — Hotkeys for formatting and UI actions; requires active textarea; integrates with `textFormatter`.
+- `caseCommentMemory.js` — Auto-saves textarea content per-case (throttled); restore/history UI; inactivity close; cleanup.
+- `multiTabSync.js` — BroadcastChannel heartbeat across tabs for same case; banner+button to switch to other tab via background.
+- `characterCounter.js` — 0/4000 counter near Save; color thresholds; removal support.
+- `caseCommentExtractor.js` — Extracts comments/metadata and outputs XML/TSV; injects copy buttons with toasts. Not currently loaded for ProQuest by the manifest.
 
-The project is a Manifest V3 Chrome Extension written entirely in **JavaScript (ES6+)**, with HTML and CSS for the UI. The file structure is flat and organized by component role.
+## Domain Targeting and Loading
 
-*   `.`
-    *   `AGENTS.md`: **(Instructions for AI)** Contains specific instructions and architectural notes for AI developers.
-    *   `README.md`: **(Project Documentation)** The main project documentation for human developers.
-    *   `manifest.json`: **(Extension Manifest)** The core configuration file for the Chrome extension. It defines permissions (`storage`, `tabs`, `scripting`), host permissions (Salesforce, Clarivate Wiki), and registers the background script, content scripts, and popup.
-    *   `background.js`: **(The Router)** A service worker responsible for monitoring browser tabs and identifying the type of page being viewed.
-    *   `content_script.js`: **(The Worker)** The main script injected into Salesforce and wiki pages. It performs all DOM manipulation, data scraping, and feature injection.
-    *   `popup.html` & `popup.js`: **(The Configurator)** Defines the UI and logic for the extension's settings panel, which is accessible from the browser toolbar.
-    *   `saveSelection.js`: **(Legacy/Redundant Script)** This script appears to contain logic for saving a single dropdown value, which is largely superseded by the more comprehensive settings management in `popup.js`. Its presence is slightly confusing and could be a candidate for refactoring or removal.
-    *   `icons/`: Contains the extension's toolbar icons.
-    *   `img/`: Contains images used in documentation.
+- Clarivate domains load: `content_script.js`
+- ProQuest domain loads: `content_script.js` + the full module stack + `content_script_exlibris.js`
 
-## 3. Core Components & Architecture
+This ensures legacy features (e.g., case list/status highlighting) are available on ProQuest (a previously documented gap).
 
-The extension follows a standard, robust architecture with a clear separation of concerns, as outlined in `AGENTS.md`.
+## Data Flow and Lifecycles
 
-### `background.js` (The Router)
+- Settings lifecycle
+   - Read: `SettingsManager.init()` reads/merges defaults with `chrome.storage.sync` values.
+   - Update: Popup writes to `chrome.storage.sync` → content side can listen for changes or be manually refreshed.
+- Case data lifecycle
+   - `content_script_exlibris.js` calls `getCaseData(caseId)` → checks `CacheManager.get(caseId)` first (internal last-modified validation) → if missing/stale, calls `CaseDataExtractor.getData()` → `CacheManager.set(caseId, data)` stores in Map + local storage.
+- UI lifecycle per page type
+   - `PageIdentifier.monitorPageChanges(cb)` drives `handlePageChange`:
+      - CASE_PAGE: wait for DOM readiness → field highlighting → email From validation (legacy `handleAnchors`) → dynamic menu injection → comment memory → character counter → multi-tab sync.
+      - CASE_COMMENTS: comment memory + character counter.
+      - CASES_LIST: reuse legacy `handleCases` (row aging) and `handleStatus` (badges), with a table MutationObserver.
+- Context menu lifecycle
+   - `background.js` creates nested menus (Style, Case, Symbols) on install/update.
+   - Click → background forwards event → `contextMenuHandler` formats current selection via `textFormatter`.
+- Multi-tab lifecycle
+   - `multiTabSync` uses BroadcastChannel to detect same-case tabs and shows a banner; when clicked, background switches to the other tab.
 
-*   **Responsibility**: To act as a central event handler and router. Its sole job is to watch for URL changes in tabs.
-*   **Key Logic**: The `getPageType(url)` function contains a series of `if` statements that match URL patterns to predefined page types (e.g., `Case_Page`, `Cases_List_Page`, `Esploro_Customers_Wiki`).
-*   **Communication**: When a known page type is identified, it uses `chrome.tabs.sendMessage` to send a `pageTypeIdentified` message to the `content_script.js` running in that specific tab.
+### Sequence (Case Page)
 
-### `content_script.js` (The Worker)
+```mermaid
+sequenceDiagram
+   participant PI as PageIdentifier
+   participant EX as content_script_exlibris
+   participant SM as SettingsManager
+   participant CM as CacheManager
+   participant DE as CaseDataExtractor
+   participant FH as FieldHighlighter
+   participant DM as DynamicMenu
 
-*   **Responsibility**: To perform all actions on the web page. This is the largest and most complex script, acting as the engine for all user-facing features.
-*   **Activation**: It remains dormant until it receives the `pageTypeIdentified` message from the background script. The `handlePageChanges(pageType)` function serves as the main entry point for all logic.
-*   **Key Features**:
-    *   **Data Scraping & Caching**: Extracts data from specific DOM elements on Salesforce pages and stores it in a `caseDataCache` object to prevent redundant work.
-    *   **DOM Manipulation**: Injects dynamic menus, highlights fields, adds status badges to tables, and creates UI elements like the SQL Generator and side panel.
-    *   **Observers**: Heavily uses the `MutationObserver` to handle Salesforce's dynamic, lazy-loaded content.
-    *   **Case Comment Enhancements**: Provides a rich text-editing experience within the standard case comment `textarea`.
+   PI->>EX: on page change (CASE_PAGE)
+   EX->>SM: init() and get()
+   EX->>CM: get(caseId)
+   alt cache hit
+      CM-->>EX: cached data
+   else cache miss/stale
+      EX->>DE: getData()
+      DE-->>EX: caseData
+      EX->>CM: set(caseId, caseData)
+   end
+   EX->>FH: init()
+   EX->>DM: build + inject buttons
+   EX->>EX: observe comments tab, add memory + counter + multi-tab sync
+```
 
-### `popup.js` & `popup.html` (The Configurator)
+## Dependencies
 
-*   **Responsibility**: To provide a user-friendly interface for configuring the extension's behavior.
-*   **Key Logic**:
-    *   Loads current settings from `chrome.storage.sync` when opened.
-    *   Saves user-selected options back to `chrome.storage.sync`.
-    *   Conditionally displays settings only when the user is on a valid Salesforce page.
-*   **Storage**: Uses `chrome.storage.sync` to persist user settings across browser sessions and devices.
+- Chrome APIs: `contextMenus`, `runtime`, `tabs`, `storage`, `activeTab`.
+- Storage: `chrome.storage.sync` (user settings) and `chrome.storage.local` (cache/history).
+- SPA handling: MutationObserver + `popstate` watchers.
+- No external NPM dependencies; everything is vanilla JS modules loaded via manifest.
 
-## 4. Data Flow
+## Critical Logic Highlights
 
-Understanding how data moves through the extension is key to understanding the system.
+- Cache validation is tied to the case page’s “Last Modified” date parsed from DOM. `CacheManager.get(caseId)` performs this internally; callers should not pass timestamps.
+- Legacy feature reuse: On ProQuest, `content_script.js` must be included to provide `handleCases`, `handleStatus`, and `handleAnchors` used by the controller.
+- Dynamic Menu composition is driven by `UrlBuilder.buildAllButtons(caseData, style, timezone)`, then injected by `DynamicMenu` into configurable locations.
+- Context formatting is centralized: background builds menus; content side applies transformations through `TextFormatter` with robust style/case conversions.
 
-### Flow 1: Page Identification and Feature Activation
+## Coding Patterns and Practices
 
-1.  **User Navigation**: The user navigates to a Salesforce URL (e.g., a case list).
-2.  **Background Script Detects Change**: The `chrome.tabs.onUpdated` listener in `background.js` fires.
-3.  **Page Type Identified**: `getPageType()` matches the URL and returns a string (e.g., `'Cases_List_Page'`).
-4.  **Message Sent**: `background.js` sends a `pageTypeIdentified` message with the page type to the content script in that tab.
-5.  **Content Script Activates**: The listener in `content_script.js` receives the message.
-6.  **Logic Executed**: `handlePageChanges()` is called, which executes the block of code corresponding to `'Cases_List_Page'`, initiating the table highlighting logic.
+- Modular pattern with global objects (loaded via manifest) and a central controller (`content_script_exlibris.js`).
+- Observer-driven SPA support: MutationObserver and URL change detection to re-apply behaviors as Salesforce re-renders.
+- Throttling and cleanup: Components that observe or inject UI provide cleanup paths to avoid leaks on page changes.
+- Defensive DOM selectors: Queries are tolerant of Lightning DOM structure; retry loops used for late-loading elements.
 
-### Flow 2: Saving and Using Settings
+## Known Flaws / Gaps (after fixes in this commit)
 
-1.  **User Opens Popup**: The user clicks the extension icon on a Salesforce page.
-2.  **Settings Loaded**: `popup.js` calls `loadSettings()`, which fetches data from `chrome.storage.sync` and populates the form (e.g., checking the "Card Actions" box).
-3.  **User Changes Setting**: The user changes the "Button Naming Convention" to "Casual".
-4.  **Settings Saved**: The user clicks "Save". `saveSettings()` in `popup.js` bundles all form values into a `settings` object and saves it to `chrome.storage.sync`.
-5.  **Content Script Uses Setting**: The next time the user loads a `Case_Page`, the `injectDynamicMenu()` function in `content_script.js` reads the settings from `chrome.storage.sync` to determine which button labels to generate.
+- FIXED: `CacheManager.get(caseId, currentLastModified)` was incorrectly invoked with two arguments. The controller now calls `CacheManager.get(caseId)` only.
+- FIXED: Popup “About” version mismatch — now set dynamically from `manifest.version`.
+- FIXED: Minor CSS typo (`h2 { h2 { ... }`) in `popup.html`.
+- OPEN: `caseCommentExtractor.js` is not included on ProQuest in `manifest.json`. If its features are desired, it needs loading and light wiring.
+- RISK: DOM selectors may break with Salesforce UI changes; tests/documentation should be kept current.
 
-### Flow 3: Wiki Customer List Update
+## Purpose and Usage
 
-1.  **User Opens Popup**: The user clicks the extension icon.
-2.  **User Clicks Update**: The user clicks the "Update Customer List from Wiki" button.
-3.  **Wiki Page Opened**: `popup.js` opens the specific Esploro Customers wiki page in a new tab.
-4.  **Page Type Identified**: `background.js` identifies this new tab's URL and sends the `'Esploro_Customers_Wiki'` page type to the content script.
-5.  **Scraping Triggered**: `handlePageChanges()` in `content_script.js` runs the logic for the wiki page. It uses an XPath selector to find the customer table.
-6.  **Data Parsed & Saved**: `convertTableToObject()` processes the HTML table into a clean array of objects, which is then saved to `chrome.storage.local` under the key `scrapedCustomerList`.
+- Audience: Salesforce support engineers working across Clarivate/ProQuest instances.
+- Value:
+   - Visual cues (field/status/list aging), consistency (formatting tools), and productivity (dynamic buttons, keyboard shortcuts, auto-save, multi-tab warnings).
+- How to use:
+   - Install the extension (MV3). Open Salesforce case pages to enable features. 
+   - Configure settings via the extension popup while on a Salesforce tab. 
+   - Use context menu or keyboard shortcuts to format text.
 
-## 5. Coding Patterns & Critical Logic
+## Documentation Gaps (and pointers)
 
-*   **Check-Then-Observe (Critical Pattern)**: This is the most important pattern for ensuring the extension works in Salesforce Lightning. The code does not assume elements are present on page load. It first queries the DOM for a target element. If not found, it instantiates a `MutationObserver` to wait for the element to be added, then disconnects the observer once the work is done. This is critical for performance and reliability.
-*   **Asynchronous Operations**: The codebase makes extensive use of Promises and `async/await` to handle asynchronous Chrome APIs (like `chrome.storage` and `chrome.tabs`).
-*   **Data-Driven UI**: The dynamic menu is a prime example of a data-driven component. The `getButtonData()` function generates a structured array of button and group configurations, which is then rendered by separate `createButton()` and `createButtonGroup()` functions. This separates the data/logic from the presentation.
-*   **Robust Date Parsing**: The `handleCases` function contains multiple validation and conversion functions (`isValidDateFormat`, `convertDateFormat`, etc.) to handle the various date/time formats that can appear in the Salesforce UI.
-*   **DOM Selectors (Critical & Brittle)**: The entire extension is tightly coupled to the DOM structure of Salesforce. Selectors like `records-record-layout-item[field-label="..."]` and `lightning-card[...] slot[name="actions"]` are precise but are **highly vulnerable to breaking** if Salesforce updates its front-end code. Any maintenance on this extension should begin by verifying these selectors are still valid.
+- Where to look:
+   - `ARCHITECTURE.md` — diagrams and deep architecture details.
+   - `FEATURE_SUMMARY.md` — feature list and quick steps.
+   - `IMPLEMENTATION_GUIDE.md` — per-feature guidance and future enhancements.
+   - `COMPLETE_FLOW_DOCUMENTATION.md` — end-to-end flows and observer lifecycle.
+   - `DEBUG_INSTRUCTIONS.md` — manual test steps and DOM checks.
+- Gaps to consider filling:
+   - Add explicit mapping of selectors used in Lightning pages with screenshots.
+   - Add a testing matrix for common page variants and locales.
+   - Add performance notes with thresholds for observers and cache TTL tuning.
 
-## 6. Documentation Gaps & Questions
+## Diagrams
 
-The codebase is generally well-commented with JSDoc blocks. However, a few areas could be improved:
+### High-level Architecture
 
-*   **`saveSelection.js`**: The purpose of this file is unclear. It seems to duplicate functionality found in `popup.js` and `background.js` but for a generic `selectionDropdown` that doesn't appear in the HTML. **Question for developers**: Is this legacy code that can be removed?
-*   **High-Level Diagram**: While the code is well-structured, a visual diagram illustrating the data flow between the three main components (background, content, popup) and `chrome.storage` would significantly speed up the onboarding process.
-*   **Email Highlighting Logic**: The popup has a "Team / BU Setting" for highlighting emails, but the implementation of this feature is not immediately obvious within the `content_script.js` file. This logic should be clearly documented or linked to from the main `handlePageChanges` function.
+```mermaid
+flowchart LR
+   A[manifest.json] --> B[background.js]
+   A --> C[popup.html/js]
+   A --> D[content_script.js]
+   A --> E[content_script_exlibris.js]
+   E --> F[settingsManager]
+   E --> G[pageIdentifier]
+   E --> H[customerDataManager]
+   E --> I[cacheManager]
+   E --> J[caseDataExtractor]
+   E --> K[fieldHighlighter]
+   E --> L[urlBuilder]
+   E --> M[dynamicMenu]
+   E --> N[textFormatter]
+   E --> O[contextMenuHandler]
+   E --> P[keyboardShortcuts]
+   E --> Q[caseCommentMemory]
+   E --> R[multiTabSync]
+   E --> S[characterCounter]
+```
+
+## Development & Debugging Log
+
+- Change/Attempt: Ensure legacy list features on ProQuest
+   - Status/Outcome: Fixed — `manifest.json` loads `content_script.js` on ProQuest.
+   - Failures Observed: Legacy functions not available previously.
+   - Actual Root Cause: Script not loaded for ProQuest domain.
+   - Fixes & Successful Attempts: Add `content_script.js` to ProQuest content scripts block.
+   - Lessons Learned: When reusing legacy code across domains/instances, explicitly load it.
+
+- Change/Attempt: Cache retrieval on case page
+   - Status/Outcome: Fixed — controller calls `CacheManager.get(caseId)` only.
+   - Failures Observed: API signature mismatch risk.
+   - Actual Root Cause: Outdated call site passed extra parameter.
+   - Fixes & Successful Attempts: Removed extraneous argument; rely on internal validation.
+   - Lessons Learned: Keep controller ↔ module APIs aligned; avoid leaking internal details across layers.
+
+- Change/Attempt: Popup About version
+   - Status/Outcome: Fixed — version rendered dynamically from manifest.
+   - Failures Observed: Display mismatch (2.2 vs 4.0).
+   - Actual Root Cause: Hardcoded string drifted from manifest.
+   - Fixes & Successful Attempts: Replace with `chrome.runtime.getManifest().version`.
+   - Lessons Learned: Source-of-truth patterns reduce maintenance errors.
+
+- Change/Attempt: CSS selector issue in popup
+   - Status/Outcome: Fixed — corrected `h2` rule.
+   - Failures Observed: Invalid selector `h2 { h2 { ... }`.
+   - Actual Root Cause: Typo.
+   - Fixes & Successful Attempts: Remove nested `h2 {`.
+   - Lessons Learned: Small UI errors can hide in static assets—linting/preview helps.
+
+## Next Steps
+
+- Decide whether to include `modules/caseCommentExtractor.js` on ProQuest in `manifest.json`; if enabled, ensure it’s initialized safely (idempotent UI injection, cleanup on page change).
+- Add automated or scripted checks for selector presence to alert on Salesforce UI changes.
+- Consider centralizing DOM selectors and adding type/selector tests.
+- Optional: Add a lightweight telemetry/logging panel (disabled by default) to aid field debugging.
+
+## Quality Gates
+
+- Build: PASS (no build system for this MV3 extension; static assets only).
+- Lint/Typecheck: N/A (no configured linter/TS; recommend adding ESLint for future work).
+- Tests: N/A (no test harness present; consider adding a minimal DOM testing setup with jsdom for critical helpers).
+
+---
+
+If you spot discrepancies or want to enable additional features (like the comment extractor), see “Next Steps” and open an issue describing desired behavior and target pages.

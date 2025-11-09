@@ -1,0 +1,76 @@
+{
+"update_url": "https://clients2.google.com/service/update2/crx",
+
+  "manifest_version": 3,
+  "name": "Penang CoE Extension",
+  "version": "3.3",
+  "description": "Enhance your Salesforce Lightning Experience with powerful features, customizable shortcuts, themes, and case comment extraction",
+  "permissions": [
+    "storage",
+    "tabs",
+    "unlimitedStorage",
+    "activeTab",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "*://*.salesforce.com/*",
+    "*://*.lightning.force.com/*",
+    "*://*.visualforce.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "img/icon16.png",
+      "32": "img/icon32.png",
+      "48": "img/icon48.png",
+      "128": "img/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "img/icon16.png",
+    "32": "img/icon32.png",
+    "48": "img/icon48.png",
+    "128": "img/icon128.png"
+  },
+  "web_accessible_resources": [{
+    "resources": [
+      "styles.css",
+      "popup.css",
+      "fonts/*",
+      "img/*",
+      "icons/*"   
+    ],
+    "matches": [
+      "*://*.salesforce.com/*",
+      "*://*.lightning.force.com/*",
+      "*://*.visualforce.com/*",
+      "*://*.force.com/*"
+    ]
+  }],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.salesforce.com/*",
+        "*://*.lightning.force.com/*",
+        "*://*.visualforce.com/*",
+        "*://*.force.com/*"
+      ],
+      "css": [
+        "styles.css"
+      ],
+      "js": [
+        "content_script.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "offline_enabled": true,
+  "homepage_url": "https://github.com/faaizhipa/v3",
+  "author": "Amir",
+  "minimum_chrome_version": "88",
+  "incognito": "split"
+}

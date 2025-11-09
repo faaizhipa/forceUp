@@ -1,0 +1,363 @@
+/* styles.css */
+
+
+/*
+ * Salesforce UI Restyle - Apple Theme
+ *
+ * IMPORTANT NOTES:
+ * - These styles attempt to apply an Apple-like theme to Salesforce.
+ * - Selectors target general elements (body, buttons, common Salesforce classes).
+ * - These might be too broad or might conflict with/be overridden by specific Salesforce styles.
+ * - Use !important sparingly and only when necessary to override Salesforce defaults.
+ * - Fine-tuning will likely be required based on inspecting the actual Salesforce page DOM.
+ * - The frosted glass effect is applied to the body's ::before pseudo-element as an overlay.
+ * This might cover interactive elements if not adjusted carefully.
+ */
+
+/* --- Activation Class --- */
+/* Styles are scoped under this body class added by content.js */
+.sf-restyle-active {
+    font-family: "Product Sans", "Roboto", sans-serif !important;
+}
+
+/* --- Frosted Glass Background Effect (Applied to Body Overlay) --- */
+/*
+ * This creates a pseudo-element covering the whole viewport with a blurred background.
+ * It might need adjustments depending on Salesforce's layout (e.g., z-index).
+ * It could potentially interfere with clicking elements underneath.
+ * NOTE: filter, opacity, and transform create stacking contexts, which *could* interfere
+ * with dropdowns in rare cases. If other fixes fail, consider commenting this out temporarily.
+ */
+.sf-restyle-active::before{
+    content: "";
+    position: fixed; /* Changed from absolute to ensure it covers viewport */
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1; /* Keep behind content */
+
+    /* Background Image - Replace with a suitable default or remove if not desired */
+    background-image: url('http://media.idownloadblog.com/wp-content/uploads/2016/06/macOS-Sierra-Wallpaper-Macbook-Wallpaper.jpg');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+
+    /* Blur Effect */
+    filter: blur(15px);
+    -webkit-filter: blur(15px);
+
+    /* Ensure it covers the entire area */
+    margin: 0;
+    padding: 0;
+
+    /* Opacity to make it less intrusive */
+    opacity: 0.3;
+
+    /* Performance Optimization */
+    will-change: transform;
+    transform: translateZ(0); /* Creates stacking context */
+    pointer-events: none; /* Added to prevent interference with clicks */
+}
+
+/* --- General Card/Panel Styling (Attempting frosted glass on common containers) --- */
+/* Target common Salesforce container/card classes - These are guesses! */
+.sf-restyle-active .slds-card,
+.sf-restyle-active .forceListViewManager,
+.sf-restyle-active .oneConsoleObjectHome,
+.sf-restyle-active .oneRecordHomeFlexipage,
+.sf-restyle-active .slds-page-header_record-home,
+.sf-restyle-active .slds-tabs_default__nav { /* Added tabs nav here for consistency */
+    border-radius: 8px !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1), 0 1px 5px rgba(0, 0, 0, 0.08) !important;
+    /* overflow: hidden !important; */ /* AMENDED: Commented out - Likely cause of clipped dropdowns */
+    background-color: rgba(243, 242, 242, 0.75) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    margin-bottom: 1rem;
+    position: relative; /* Needed for potential internal absolute positioning */
+    /* transform: translateZ(0); */ /* AMENDED: Commented out - Can create stacking context issues */
+}
+
+/* --- Header/Bar Styling (Example for Global Header) --- */
+/* Target Salesforce Global Header - Selector might change! */
+.sf-restyle-active .slds-global-header,
+.sf-restyle-active .slds-global-header_container {
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1), 0 1px 5px rgba(0, 0, 0, 0.08) !important;
+    /* overflow: hidden !important; */ /* AMENDED: Commented out - Likely cause of clipped dropdowns */
+    background-color: rgba(243, 242, 242, 0.75) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    box-shadow: none !important;
+    z-index: 5000 !important; /* Adjusted z-index - ensure it's below dropdowns/modals */
+}
+   
+
+/* AMENDED: Interactive elements z-index - Increased and consolidated */
+.sf-restyle-active .slds-dropdown,
+.sf-restyle-active .slds-datepicker,
+.sf-restyle-active .slds-popover,
+.sf-restyle-active .slds-dropdown-trigger .slds-dropdown { /* Added target for dropdowns within triggers */
+    z-index: 10000 !important; /* Increased z-index significantly */
+}
+
+/* AMENDED: Removed redundant/conflicting lower z-index for slds-dropdown */
+/*
+.sf-restyle-active .slds-dropdown {
+    z-index: var(--lwc-zIndexDropdown, 7000) !important;
+}
+*/
+
+/* AMENDED: Adjusted z-index for triggers/icons - Ensure they are below the dropdown menu itself */
+.sf-restyle-active .slds-button_icon-border,
+.sf-restyle-active .slds-button_icon-more,
+.sf-restyle-active button[aria-haspopup="true"],
+.sf-restyle-active .slds-dropdown-trigger { /* Simplified selectors */
+    z-index: 8500 !important; /* Kept relative order but below dropdown */
+    position: relative; /* Sometimes helps ensure z-index is respected */
+}
+
+/* Ensure SVG icons within buttons are visible but below dropdowns */
+.sf-restyle-active .slds-button svg.slds-button__icon { /* More specific */
+    z-index: 8600 !important;
+    position: relative; /* Ensure z-index applies */
+}
+
+/* --- Tab Styling --- */
+.sf-restyle-active .slds-tabs_default__nav {
+    /* border-radius: 8px !important; */ /* Already covered by card styles */
+    /* box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1), 0 1px 5px rgba(0, 0, 0, 0.08) !important; */ /* Already covered */
+    /* overflow: hidden !important; */ /* AMENDED: Commented out */
+    /* background-color: rgba(243, 242, 242, 0.75) !important; */ /* Already covered */
+    /* border: 1px solid rgba(255, 255, 255, 0.2) !important; */ /* Already covered */
+    margin-bottom: var(--lwc-templateGutters);
+    /* transform: translateZ(0); */ /* AMENDED: Commented out */
+    color: transparent !important; /* This seems questionable - makes tab text invisible? Check if intended */
+    background-color: transparent !important; /* Overriding card background if tabs need to be transparent */
+    border-left-width: 5px !important;
+    border-top-width: 5px !important;
+    border-right-width: 5px !important;
+    border-bottom: none !important; /* Ensure no bottom border if it's part of the card style */
+}
+
+/* General Button Styling */
+.sf-restyle-active .slds-button {
+    transition: all 0.2s ease-out !important;
+    outline: none !important;
+    cursor: pointer !important;
+    font-family: "Roboto", sans-serif !important;
+    /* overflow: hidden; */ /* AMENDED: Removed - unlikely needed and could clip internal elements */
+}
+
+.sf-restyle-active .slds-button:hover {
+    transform: translateY(-1px);
+}
+
+.sf-restyle-active .slds-button:active {
+    transform: translateY(0);
+}
+
+/* Brand Button Styling (Apple Blue) */
+.sf-restyle-active .slds-button_brand {
+    background: linear-gradient(to bottom, #6bb3fb, #067dff) !important;
+    color: #fff !important;
+    border: 1px solid rgba(0, 0, 0, 0.2) !important;
+    text-shadow: 0 -1px 0 rgba(0,0,0,0.1);
+}
+
+/* --- Input Styling (Basic Example) --- */
+.sf-restyle-active .slds-input,
+.sf-restyle-active .slds-textarea,
+.sf-restyle-active .slds-select {
+    border-radius: 6px !important;
+    border: 1px solid #ccc !important;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+    transition: all 0.2s ease-out !important;
+}
+
+.sf-restyle-active .slds-input:focus,
+.sf-restyle-active .slds-textarea:focus,
+.sf-restyle-active .slds-select:focus {
+    border-color: #067dff !important;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.05), 0 0 5px rgba(6, 125, 255, 0.5) !important;
+    outline: none;
+}
+
+/* --- Link Styling --- */
+.sf-restyle-active a {
+    color: #0070d2;
+    text-decoration: none;
+    transition: color 0.2s ease-out;
+}
+
+.sf-restyle-active a:hover {
+    color: #005fb2;
+    text-decoration: underline;
+}
+
+/* --- SFDC Specific Components --- */
+.sf-restyle-active .slds-tabs_card {
+    padding: 0px !important;
+    border-radius: 8px !important;
+    background: rgba(243, 242, 242, 0.75) !important; /* Ensure it matches the card background */
+
+}
+
+.sf-restyle-active .forceSearchAssistant .search-button {
+    padding: 0px !important;
+    border-radius: 10px !important;
+}
+
+.sf-restyle-active .forceSearchAssistant .search-button .slds-button__icon_left {
+    margin-left: var(--lwc-templateGutters) !important;
+}
+
+/* Tab content adjustment */
+.sf-restyle-active .slds-tabs_default__content {
+    padding-top: 0px !important;
+}
+
+/* Path adjustments */
+.sf-restyle-active .slds-path__link::before,
+.sf-restyle-active .slds-path__link::after {
+    background-color: #fff !important; /* Or match the card background */
+}
+
+.sf-restyle-active .slds-tabs_card article.slds-card .slds-card__header {
+    margin-left: var(--lwc-templateGutters) !important;
+}
+
+.sf-restyle-active .region-header {
+    padding-bottom: 0px !important;
+    margin-top: var(--lwc-templateGutters);
+}
+
+.sf-restyle-active .row-main {
+    margin-top: 0px !important;
+}
+
+
+/* --- Scrollbar Styling --- */
+@supports not selector(::-webkit-scrollbar) {
+    html.sf-restyle-active { /* Added scoping class */
+      scrollbar-color: transparent rgba(167, 175, 193, .42) !important;
+      scrollbar-track-color: #6bb3fb !important;
+      scrollbar-gutter: stable !important;
+    }
+  }
+
+  .sf-restyle-active ::-webkit-scrollbar { /* Added scoping class */
+    width: 16px !important;
+    height: 16px !important;
+  }
+
+  .sf-restyle-active ::-webkit-scrollbar-corner,
+  .sf-restyle-active ::-webkit-scrollbar-track,
+  .sf-restyle-active ::-webkit-scrollbar-track-piece { /* Added scoping class */
+    border: none !important;
+    background: none !important;
+    box-shadow: none !important;
+    background-color: transparent !important;
+
+  }
+
+  .sf-restyle-active ::-webkit-scrollbar-thumb { /* Added scoping class */
+    min-height: 48px !important;
+    border: 4px solid transparent !important; /* Removed 's' typo */
+    border-radius: 8px !important;
+    background: rgba(167, 175, 193, .42) !important;
+    background-clip: padding-box !important;
+    box-shadow: none !important;
+  }
+
+  .sf-restyle-active ::-webkit-scrollbar-thumb:hover { /* Added scoping class */
+    background-color: rgba(52, 103, 221, 0.808) !important;
+  }
+
+  .sf-restyle-active ::-webkit-scrollbar-thumb:active { /* Added scoping class */
+    background-color: rgba(255, 255, 255, 0.72) !important;
+  }
+
+/* Ensure modal containers have high z-index but below dropdowns if necessary */
+/* Note: Modals often handle their own z-index well, this might be overkill */
+.sf-restyle-active .slds-modal__container {
+    border-radius: 8px !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1), 0 1px 5px rgba(0, 0, 0, 0.08) !important;
+    /* overflow: hidden !important; */ /* AMENDED: Commented out */
+    background-color: rgba(243, 242, 242, 0.75) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    margin-bottom: 1rem;
+    /* transform: translateZ(0); */ /* AMENDED: Commented out */
+    z-index: 9000 !important; /* Standard high z-index for modals */
+}
+
+/* Esploro Container Styling [cite: 75, 76, 77] */
+.esploro-wrapper-container {
+    display: flex;
+    flex-direction: row; /* Explicitly set row direction */
+    justify-content: space-between; /* Distribute space between items */
+    /* Add other container styles as needed (e.g., width, padding) */
+    width: 100%; /* Example: Make container take full width */
+    padding: 10px; /* Example: Add some padding */
+    box-sizing: border-box;
+  }
+  
+  /* Esploro Item Styling [cite: 79, 80, 81] */
+  /* Target direct children as flex items */
+  .esploro-wrapper-container > * {
+    width: min-content; /* Size item based on its minimum content width */
+    flex-grow: 0; /* Prevent item from growing to fill extra space */
+    flex-shrink: 1; /* Allow item to shrink if needed (default) [cite: 82] */
+    flex-basis: auto; /* Base size on width/content (default) [cite: 83] */
+    /* Add other item styles as needed (e.g., margin, padding, border) */
+    /* border: 1px solid #ccc; */ /* Example: Visualize items [cite: 84] */
+    /* padding: 5px; */ /* Example: Add padding within items [cite: 84] */
+  }
+  
+  .sf-restyle-active .slds-global-header,
+  .sf-restyle-active .slds-global-header_container {
+      /* overflow: hidden !important; */ /* Ensure this is commented out or removed */
+       z-index: 5000 !important; /* Review this value - might need adjustment */
+       /* ... other styles ... */
+  }
+  
+  .sf-restyle-active .slds-dropdown,
+  .sf-restyle-active .slds-datepicker,
+  .sf-restyle-active .slds-popover,
+  .sf-restyle-active .slds-dropdown-trigger .slds-dropdown {
+      z-index: 10000 !important; /* Ensure this is high enough */
+  }
+  
+  .sf-restyle-active .slds-button_icon-border,
+  .sf-restyle-active .slds-button_icon-more,
+  .sf-restyle-active button[aria-haspopup="true"],
+  .sf-restyle-active .slds-dropdown-trigger {
+      z-index: 8500 !important; /* Ensure this is below dropdowns */
+      position: relative;
+  }
+  
+  .sf-restyle-active .slds-button svg.slds-button__icon {
+      z-index: 8600 !important; /* Ensure this is below dropdowns but above trigger */
+      position: relative;
+  }
+  
+  /* Ensure modals are also adjusted if needed */
+  .sf-restyle-active .slds-modal__container {
+      /* overflow: hidden !important; */ /* Ensure this is commented out or removed */
+      z-index: 9000 !important; /* Adjust as needed relative to dropdowns */
+  }
+
+  div.esploro-details-column {
+    display: flex !important;
+    flex-direction: row !important; /* Stack items vertically */ 
+    flex-wrap: wrap !important; /* Center items vertically */
+    justify-content: space-between !important; /* Distribute space between items */
+    max-width: 50% !important; /* Set max width to 50% */
+};
+
+div.esploro-details-column > div {
+    min-height: 100px;
+    margin-top: 0px !important; /* Remove top margin */
+    margin-bottom: 0px !important; /* Remove bottom margin */
+    padding-bottom: 0.3rem !important; /* Add bottom padding */
+};
