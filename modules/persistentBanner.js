@@ -118,19 +118,32 @@ const PersistentBanner = {
         document.addEventListener('casePageDataExtracted', (event) => {
             const data = event.detail;
             console.log('[PersistentBanner] Received case page data from CasePageDataExtractor:', data);
-            
-            // Extract case ID from the data
-            const newCaseId = data.caseNumber || null;
-            
+
+            // Validate that the data matches the current URL's case ID
+            const currentUrlCaseId = this.getCurrentCaseIdFromUrl();
+            const dataCaseId = data.caseId || data.caseNumber || null;
+
+            if (!currentUrlCaseId) {
+                console.warn('[PersistentBanner] No case ID in current URL, ignoring case data');
+                return;
+            }
+
+            if (dataCaseId && currentUrlCaseId !== dataCaseId) {
+                console.warn(`[PersistentBanner] Data case ID (${dataCaseId}) does not match URL case ID (${currentUrlCaseId}), ignoring stale data`);
+                return;
+            }
+
+            console.log('[PersistentBanner] Data validated for case:', currentUrlCaseId);
+
             // Check if we've navigated to a different case
-            if (this.currentCaseId && newCaseId && this.currentCaseId !== newCaseId) {
-                console.log(`[PersistentBanner] Navigated from case ${this.currentCaseId} to ${newCaseId}, clearing old data...`);
+            if (this.currentCaseId && currentUrlCaseId && this.currentCaseId !== currentUrlCaseId) {
+                console.log(`[PersistentBanner] Navigated from case ${this.currentCaseId} to ${currentUrlCaseId}, clearing old data...`);
                 this.clearCaseData();
             }
-            
+
             // Update current case ID
-            this.currentCaseId = newCaseId;
-            
+            this.currentCaseId = currentUrlCaseId;
+
             // Update customer metadata from extracted data
             // CasePageDataExtractor now enriches data with custID, instID, server from CustomerDataManager
             this.customerMetadata = {
@@ -140,20 +153,59 @@ const PersistentBanner = {
                 productServiceName: data.platformService || null,  // Platform/Service with fallback
                 institutionCode: data.exLibrisAccountNumber || null  // Institution code (61USC_INST, etc.)
             };
-            
+
             console.log('[PersistentBanner] Updated customer metadata:', this.customerMetadata);
-            
+
             // Update current page status from direct page data (for gradient coloring)
             if (data.pageStatus) {
                 this.currentPage.status = data.pageStatus;
                 console.log('[PersistentBanner] Updated status from page data:', data.pageStatus);
             }
-            
+
             // Update banner UI with new metadata and status
             this.updateBannerUI();
         });
-        
-        console.log('[PersistentBanner] CasePageDataExtractor listener registered');
+
+        // Also listen to PageIdentifier for view changes within the same case
+        if (typeof PageIdentifier !== 'undefined' && typeof PageIdentifier.monitorPageChanges === 'function') {
+            PageIdentifier.monitorPageChanges((pageInfo) => {
+                console.log('[PersistentBanner] PageIdentifier change detected:', pageInfo);
+
+                // Check if we're on a case page
+                if (pageInfo.type === 'case_page' || pageInfo.type === 'case_comments') {
+                    const caseId = pageInfo.caseId;
+
+                    // If the case ID changed, clear old data
+                    if (caseId && this.currentCaseId && caseId !== this.currentCaseId) {
+                        console.log(`[PersistentBanner] Case changed from ${this.currentCaseId} to ${caseId}`);
+                        this.clearCaseData();
+                        this.currentCaseId = caseId;
+                    }
+                } else {
+                    // Not a case page, clear case data
+                    if (this.currentCaseId) {
+                        console.log('[PersistentBanner] Left case page, clearing case data');
+                        this.clearCaseData();
+                    }
+                }
+            });
+            console.log('[PersistentBanner] PageIdentifier listener registered');
+        }
+
+        console.log('[PersistentBanner] Case data listeners registered');
+    },
+
+    /**
+     * Get current case ID from URL using CaseIdentifiers utility
+     * @returns {string|null}
+     */
+    getCurrentCaseIdFromUrl() {
+        if (typeof CaseIdentifiers !== 'undefined') {
+            return CaseIdentifiers.getCaseIdFromUrl();
+        }
+        // Fallback to manual extraction
+        const match = window.location.pathname.match(/\/(?:Case|lightning\/r\/Case)\/([a-zA-Z0-9]{15,18})/i);
+        return match ? match[1] : null;
     },
 
     /**
@@ -215,11 +267,22 @@ const PersistentBanner = {
      * @param {string} newUrl
      */
     handleUrlChange(newUrl) {
-        console.log('[PersistentBanner] Handling URL change, resetting current page data');
-        
-        // Clear case-specific data when navigating away
-        this.clearCaseData();
-        
+        console.log('[PersistentBanner] Handling URL change to:', newUrl);
+
+        // Get the new case ID from URL
+        const newCaseId = this.getCurrentCaseIdFromUrl();
+
+        // Check if we navigated to a different case or away from a case
+        if (this.currentCaseId && newCaseId !== this.currentCaseId) {
+            console.log(`[PersistentBanner] Case changed from ${this.currentCaseId} to ${newCaseId || 'non-case page'}`);
+            // Clear case-specific data when navigating to a different case
+            this.clearCaseData();
+        } else if (this.currentCaseId && !newCaseId) {
+            console.log('[PersistentBanner] Navigated away from case page');
+            // Clear case-specific data when navigating away from case pages
+            this.clearCaseData();
+        }
+
         // Reset current page to initial state
         this.currentPage = {
             type: 'Unknown',
@@ -230,10 +293,10 @@ const PersistentBanner = {
             url: newUrl,
             timestamp: new Date().toISOString()
         };
-        
+
         // Update UI to show loading/unknown state
         this.updateBannerUI();
-        
+
         // The content script will call updateCurrentPage with proper data after page analysis
         console.log('[PersistentBanner] Waiting for content script to update page data...');
     },
@@ -323,6 +386,17 @@ const PersistentBanner = {
      * @param {Object} pageData
      */
     updateCurrentPage(pageData = {}) {
+        // Validate case data matches current URL if this is a case page
+        if (pageData.type === 'Case' && pageData.caseNumber) {
+            const currentUrlCaseId = this.getCurrentCaseIdFromUrl();
+
+            // Check if the page data case matches the URL
+            if (currentUrlCaseId && pageData.caseId && currentUrlCaseId !== pageData.caseId) {
+                console.warn(`[PersistentBanner] updateCurrentPage: case ID mismatch (data: ${pageData.caseId}, URL: ${currentUrlCaseId}), ignoring`);
+                return;
+            }
+        }
+
         this.currentPage = {
             type: pageData.type || 'Unknown',
             caseNumber: pageData.caseNumber || null,
@@ -334,10 +408,19 @@ const PersistentBanner = {
         };
 
         console.log('[PersistentBanner] Updated current page:', this.currentPage);
-        
+
+        // Update current case ID if on a case page
+        if (this.currentPage.type === 'Case') {
+            const caseId = this.getCurrentCaseIdFromUrl();
+            if (caseId && caseId !== this.currentCaseId) {
+                this.currentCaseId = caseId;
+                console.log('[PersistentBanner] Updated current case ID:', this.currentCaseId);
+            }
+        }
+
         // Update UI
         this.updateBannerUI();
-        
+
         // Add to navigation history
         this.addToNavigationHistory({
             type: this.currentPage.type,
