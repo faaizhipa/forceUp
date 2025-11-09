@@ -299,15 +299,14 @@ const CaseCommentMemory = {
       return;
     }
     textarea.dataset.caseCommentMemoryInitialized = 'true';
-    console.log('[CaseCommentMemory] Setting up character count and restore button');
-    this.insertCharacterCounter(textarea);
+    console.log('[CaseCommentMemory] Setting up restore button');
     const history = await this.getHistory(caseNumber);
     if (history.length > 0) {
       console.log(`[CaseCommentMemory] Memory exists (${history.length} entries)`);
       await this.addRestoreButton(caseNumber, addNewButton);
     } else {
       console.log('[CaseCommentMemory] No memory exists');
-      this.addDisabledRestoreButton(addNewButton);
+      this.addDisabledRestoreButton(caseNumber, addNewButton);
     }
     await this.monitorTextarea(caseNumber, textarea);
   },
@@ -318,41 +317,17 @@ const CaseCommentMemory = {
            document.querySelector('textarea[id*=\"input-\"]');
   },
 
-  insertCharacterCounter(textarea) {
-    if (document.querySelector('.exl-character-counter')) {
-      console.log('[CaseCommentMemory] Character counter already exists');
-      return;
-    }
-    const buttonContainer = textarea.closest('.slds-form-element__control')?.nextElementSibling ||
-                           textarea.parentElement?.querySelector('.slds-col_bump-left');
-    if (!buttonContainer) {
-      console.warn('[CaseCommentMemory] Could not find button container');
-      return;
-    }
-    const counter = document.createElement('div');
-    counter.className = 'exl-character-counter';
-    counter.style.cssText = 'margin-left: 10px; font-size: 12px; color: #706e6b;';
-    counter.textContent = `Characters: ${textarea.value.length}`;
-    buttonContainer.insertBefore(counter, buttonContainer.firstChild);
-    
-    // Debounce counter updates to avoid excessive DOM manipulation
-    const updateCounter = DebounceUtils.throttle(() => {
-      counter.textContent = `Characters: ${textarea.value.length}`;
-    }, 100); // Update at most every 100ms
-    
-    textarea.addEventListener('input', updateCounter);
-    console.log('[CaseCommentMemory] Character counter inserted');
-  },
-
-  addDisabledRestoreButton(addNewButton) {
+  addDisabledRestoreButton(caseNumber, addNewButton) {
     if (document.querySelector('.exl-restore-button')) return;
     const buttonContainer = addNewButton.parentElement;
     const restoreBtn = document.createElement('button');
     restoreBtn.type = 'button';
     restoreBtn.className = 'slds-button slds-button_neutral exl-restore-button';
-    restoreBtn.textContent = 'Restore Comment';
+    restoreBtn.textContent = `No comments to restore for case ${caseNumber}`;
     restoreBtn.disabled = true;
     restoreBtn.style.marginLeft = '8px';
+    restoreBtn.style.opacity = '0.6';
+    restoreBtn.style.cursor = 'not-allowed';
     buttonContainer.insertBefore(restoreBtn, addNewButton);
     console.log('[CaseCommentMemory] Disabled restore button added');
   },
@@ -497,7 +472,7 @@ const CaseCommentMemory = {
     }
     const history = await this.getHistory(caseNumber);
     if (history.length === 0) {
-      this.addDisabledRestoreButton(addNewButton);
+      this.addDisabledRestoreButton(caseNumber, addNewButton);
       return;
     }
     const buttonContainer = addNewButton.parentElement;
@@ -536,8 +511,6 @@ const CaseCommentMemory = {
         if (textarea) {
           textarea.value = entry.text;
           textarea.dispatchEvent(new Event('input', { bubbles: true }));
-          const counter = document.querySelector('.exl-character-counter');
-          if (counter) counter.textContent = `Characters: ${entry.text.length}`;
         }
         document.body.removeChild(modal);
       });
