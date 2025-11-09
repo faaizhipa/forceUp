@@ -13,40 +13,17 @@ const CaseCommentExtractor = (() => {
     let extractorObserver = null;
     let currentCaseId = null; // Track current case to detect navigation
 
+    // Helper reference to DomUtilities
+    const isElementVisible = (element) => {
+        return typeof DomUtilities !== 'undefined' ? DomUtilities.isElementVisible(element) : true;
+    };
+
     /**
-     * Gets the current case ID from URL
-     * Supports both case detail page and case comments full view page
+     * Gets the current case ID from URL using CaseIdentifiers utility
      * @returns {string|null} Case ID or null
      */
     function getCurrentCaseId() {
-        // Match case detail page: /Case/[ID] or /lightning/r/Case/[ID]
-        const caseDetailMatch = window.location.pathname.match(/\/(?:Case|lightning\/r\/Case)\/([a-zA-Z0-9]{15,18})/i);
-        if (caseDetailMatch) {
-            return caseDetailMatch[1];
-        }
-        
-        // Match case comments full view page: /lightning/r/Case/[ID]/related/CaseComments/view
-        const caseCommentsMatch = window.location.pathname.match(/\/lightning\/r\/Case\/([a-zA-Z0-9]{15,18})\/related\/CaseComments\/view/i);
-        if (caseCommentsMatch) {
-            return caseCommentsMatch[1];
-        }
-        
-        return null;
-    }
-
-    /**
-     * Escapes special XML characters
-     * @param {string} str - String to escape
-     * @returns {string} Escaped string
-     */
-    function escapeXML(str) {
-        if (typeof str !== 'string') return '';
-        return str
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&apos;');
+        return typeof CaseIdentifiers !== 'undefined' ? CaseIdentifiers.getCaseIdFromUrl() : null;
     }
 
     /**
@@ -183,42 +160,6 @@ const CaseCommentExtractor = (() => {
                 setTimeout(() => el.remove(), 500);
             }
         }, 3500);
-    }
-
-    /**
-     * Copies text to clipboard
-     * @param {string} text - Text to copy
-     * @returns {Promise<boolean>} Success status
-     */
-    async function copyToClipboard(text) {
-        try {
-            if (navigator.clipboard && window.isSecureContext) {
-                await navigator.clipboard.writeText(text);
-                console.log('Text copied using navigator.clipboard');
-                return true;
-            } else {
-                console.log('Attempting fallback copy...');
-                const textArea = document.createElement('textarea');
-                textArea.value = text;
-                textArea.style.position = 'fixed';
-                textArea.style.opacity = '0';
-                document.body.appendChild(textArea);
-                textArea.select();
-                const successful = document.execCommand('copy');
-                document.body.removeChild(textArea);
-                
-                if (successful) {
-                    console.log('Fallback copy successful');
-                    return true;
-                } else {
-                    console.error('Fallback copy failed');
-                    return false;
-                }
-            }
-        } catch (err) {
-            console.error('Failed to copy text:', err);
-            return false;
-        }
     }
 
     /**
@@ -529,9 +470,9 @@ const CaseCommentExtractor = (() => {
      */
     function generateXML(data) {
         if (!data || !data.comments) return '<error>No data extracted</error>';
-        
+
         const getMeta = (key) => data.metadata?.[key] || '';
-        const escape = escapeXML;
+        const escape = typeof DomUtilities !== 'undefined' ? DomUtilities.escapeXML : (str) => str;
         
         let xml = '<case>\n';
         xml += '  <metadata>\n';
@@ -713,7 +654,7 @@ const CaseCommentExtractor = (() => {
             const data = extractCaseComments();
             if (data && data.comments.length > 0) {
                 const tableText = generateTable(data);
-                const success = await copyToClipboard(tableText);
+                const success = typeof DomUtilities !== 'undefined' ? await DomUtilities.copyToClipboard(tableText) : false;
                 showToast(
                     success ? 'Table copied to clipboard' : 'Copy failed',
                     success ? 'success' : 'error'
@@ -725,17 +666,17 @@ const CaseCommentExtractor = (() => {
                 );
             }
         });
-        
+
         // Create Copy XML button
         const copyXMLButton = createButton('Copy XML', 'Copy comments as XML');
         copyXMLButton.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            
+
             const data = extractCaseComments();
             if (data && data.comments.length > 0) {
                 const xmlText = generateXML(data);
-                const success = await copyToClipboard(xmlText);
+                const success = typeof DomUtilities !== 'undefined' ? await DomUtilities.copyToClipboard(xmlText) : false;
                 showToast(
                     success ? 'XML copied to clipboard' : 'Copy failed',
                     success ? 'success' : 'error'
@@ -753,29 +694,6 @@ const CaseCommentExtractor = (() => {
         actionContainer.appendChild(copyXMLButton);
         
         console.log('Copy buttons added successfully.');
-    }
-
-    /**
-     * Checks if an element is visible
-     * @param {HTMLElement} element - Element to check
-     * @returns {boolean} True if element is visible
-     */
-    function isElementVisible(element) {
-        if (!element) return false;
-        
-        // Check if element or any parent has display:none or visibility:hidden
-        let current = element;
-        while (current && current !== document.body) {
-            const style = window.getComputedStyle(current);
-            if (style.display === 'none' || style.visibility === 'hidden') {
-                return false;
-            }
-            current = current.parentElement;
-        }
-        
-        // Check if element has dimensions
-        const rect = element.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
     }
 
     /**

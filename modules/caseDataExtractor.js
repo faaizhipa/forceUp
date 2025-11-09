@@ -61,11 +61,11 @@ const CaseDataExtractor = {
 
   /**
    * Retrieves the case identifier from the current URL
+   * Uses CaseIdentifiers utility for consistent case ID extraction
    * @returns {string|null}
    */
   getCaseIdFromUrl() {
-    const match = window.location.pathname.match(/Case\/([a-zA-Z0-9]{15,18})/);
-    return match ? match[1] : null;
+    return typeof CaseIdentifiers !== 'undefined' ? CaseIdentifiers.getCaseIdFromUrl() : null;
   },
 
   /**

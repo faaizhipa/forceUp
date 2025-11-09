@@ -9,21 +9,6 @@ const CaseDetailExtractor = (() => {
     'use strict';
 
     /**
-     * Escapes special XML characters
-     * @param {string} str - String to escape
-     * @returns {string} Escaped string
-     */
-    function escapeXML(str) {
-        if (typeof str !== 'string') return '';
-        return str
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&apos;');
-    }
-
-    /**
      * Extracts case details from the page
      * Uses already-processed case data from ExLibrisExtension if available
      * Falls back to customer list data when case data is incomplete
@@ -68,9 +53,8 @@ const CaseDetailExtractor = (() => {
             }
         }
         
-        // Extract Case ID from URL
-        const urlMatch = window.location.pathname.match(/\/(?:Case|lightning\/r\/Case)\/([a-zA-Z0-9]{15,18})/i);
-        details.caseId = urlMatch?.[1] || caseData?.caseId || null;
+        // Extract Case ID from URL using CaseIdentifiers
+        details.caseId = (typeof CaseIdentifiers !== 'undefined' ? CaseIdentifiers.getCaseIdFromUrl() : null) || caseData?.caseId || null;
         
         // Use case data if available, otherwise extract from DOM
         details.caseNumber = caseData?.caseNumber || null;
@@ -310,8 +294,8 @@ const CaseDetailExtractor = (() => {
      */
     function generateXML(details) {
         if (!details) return '<error>No data extracted</error>';
-        
-        const escape = escapeXML;
+
+        const escape = typeof DomUtilities !== 'undefined' ? DomUtilities.escapeXML : (str) => str;
         const val = (key) => details[key] || 'null';
         const urlVal = (path) => {
             const keys = path.split('.');
@@ -426,50 +410,14 @@ const CaseDetailExtractor = (() => {
     }
 
     /**
-     * Copies text to clipboard
-     * @param {string} text - Text to copy
-     * @returns {Promise<boolean>} Success status
-     */
-    async function copyToClipboard(text) {
-        try {
-            if (navigator.clipboard && window.isSecureContext) {
-                await navigator.clipboard.writeText(text);
-                console.log('Text copied using navigator.clipboard');
-                return true;
-            } else {
-                console.log('Attempting fallback copy...');
-                const textArea = document.createElement('textarea');
-                textArea.value = text;
-                textArea.style.position = 'fixed';
-                textArea.style.opacity = '0';
-                document.body.appendChild(textArea);
-                textArea.select();
-                const successful = document.execCommand('copy');
-                document.body.removeChild(textArea);
-                
-                if (successful) {
-                    console.log('Fallback copy successful');
-                    return true;
-                } else {
-                    console.error('Fallback copy failed');
-                    return false;
-                }
-            }
-        } catch (err) {
-            console.error('Failed to copy text:', err);
-            return false;
-        }
-    }
-
-    /**
      * Extracts and copies case details as XML
      * @returns {Promise<Object>} Result object with success status and message
      */
     async function copyAsXML() {
         const details = await extractCaseDetails();
         const xml = generateXML(details);
-        const success = await copyToClipboard(xml);
-        
+        const success = typeof DomUtilities !== 'undefined' ? await DomUtilities.copyToClipboard(xml) : false;
+
         return {
             success,
             message: success ? 'Case details (XML) copied to clipboard' : 'Failed to copy XML',
@@ -484,8 +432,8 @@ const CaseDetailExtractor = (() => {
     async function copyAsTSV() {
         const details = await extractCaseDetails();
         const tsv = generateTSV(details);
-        const success = await copyToClipboard(tsv);
-        
+        const success = typeof DomUtilities !== 'undefined' ? await DomUtilities.copyToClipboard(tsv) : false;
+
         return {
             success,
             message: success ? 'Case details (TSV) copied to clipboard' : 'Failed to copy TSV',
@@ -499,7 +447,6 @@ const CaseDetailExtractor = (() => {
         generateXML,
         generateTSV,
         copyAsXML,
-        copyAsTSV,
-        copyToClipboard
+        copyAsTSV
     };
 })();
