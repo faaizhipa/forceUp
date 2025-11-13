@@ -64,7 +64,8 @@ function getDefaultSettings() {
         multiTabSync: true,
         caseCommentMemory: true,
         characterCounter: true,
-        dynamicMenu: true
+        dynamicMenu: true,
+        persistentBanner: true
       },
       ui: {
         buttonLabelStyle: 'casual',
@@ -173,6 +174,7 @@ function populateUI(settings) {
     document.getElementById('featureCommentMemory').checked = settings.exlibris.features.caseCommentMemory !== false;
     document.getElementById('featureCharCounter').checked = settings.exlibris.features.characterCounter !== false;
     document.getElementById('featureDynamicMenu').checked = settings.exlibris.features.dynamicMenu !== false;
+    document.getElementById('featurePersistentBanner').checked = settings.exlibris.features.persistentBanner !== false;
   }
   
   // UI preferences
@@ -256,7 +258,8 @@ function getSettingsFromUI() {
         multiTabSync: document.getElementById('featureMultiTab').checked,
         caseCommentMemory: document.getElementById('featureCommentMemory').checked,
         characterCounter: document.getElementById('featureCharCounter').checked,
-        dynamicMenu: document.getElementById('featureDynamicMenu').checked
+        dynamicMenu: document.getElementById('featureDynamicMenu').checked,
+        persistentBanner: document.getElementById('featurePersistentBanner').checked
       },
       ui: {
         buttonLabelStyle: document.getElementById('labelStyleSelect').value,

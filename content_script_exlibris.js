@@ -918,6 +918,11 @@
         FlexipagePanelInjector.teardown();
       }
 
+      // Cleanup PersistentBanner
+      if (typeof PersistentBanner !== 'undefined' && PersistentBanner.cleanup) {
+        PersistentBanner.cleanup();
+      }
+
       // Cleanup CaseTimezoneResolver
       if (typeof CaseTimezoneResolver !== 'undefined' && CaseTimezoneResolver.cleanup) {
         CaseTimezoneResolver.cleanup();
@@ -953,6 +958,9 @@
       }
       if (typeof FlexipagePanelInjector !== 'undefined' && FlexipagePanelInjector.teardown) {
         FlexipagePanelInjector.teardown();
+      }
+      if (typeof PersistentBanner !== 'undefined' && PersistentBanner.cleanup) {
+        PersistentBanner.cleanup();
       }
       
       this.isInitialized = false;

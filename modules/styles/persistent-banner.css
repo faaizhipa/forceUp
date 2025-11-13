@@ -16,6 +16,7 @@ body > div.desktop.container.forceStyle.oneOne.navexDesktopLayoutContainer.lafAp
     top: 95px;
 }
 
+/* Push Document view toolbar down to accommodate both global header and extension banner */
 div.toolbar.top.fadeOut.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar, 
 div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar {
     top: 45px;

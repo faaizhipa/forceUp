@@ -84,9 +84,16 @@ const PersistentBanner = {
     /**
      * Initialize the persistent banner
      */
-    init() {
+    async init() {
         if (this.isInitialized) {
             console.log('[PersistentBanner] Already initialized');
+            return;
+        }
+
+        // Check if feature is enabled in settings
+        const isEnabled = await this.isFeatureEnabled();
+        if (!isEnabled) {
+            console.log('[PersistentBanner] Feature is disabled in settings');
             return;
         }
 
@@ -107,8 +114,93 @@ const PersistentBanner = {
         // Listen for CasePageDataExtractor events
         this.setupCaseDataListener();
         
+        // Listen for settings changes
+        this.setupSettingsListener();
+        
         this.isInitialized = true;
         console.log('[PersistentBanner] Initialized');
+    },
+
+    /**
+     * Check if persistent banner feature is enabled in settings
+     */
+    async isFeatureEnabled() {
+        return new Promise((resolve) => {
+            chrome.storage.sync.get(['exlibris'], (result) => {
+                const enabled = result.exlibris?.features?.persistentBanner !== false;
+                resolve(enabled);
+            });
+        });
+    },
+
+    /**
+     * Setup listener for settings changes
+     */
+    setupSettingsListener() {
+        chrome.storage.onChanged.addListener((changes, areaName) => {
+            if (areaName === 'sync' && changes.exlibris) {
+                const newEnabled = changes.exlibris.newValue?.features?.persistentBanner !== false;
+                const oldEnabled = changes.exlibris.oldValue?.features?.persistentBanner !== false;
+                
+                if (newEnabled !== oldEnabled) {
+                    console.log('[PersistentBanner] Feature toggle changed:', newEnabled);
+                    if (newEnabled) {
+                        this.show();
+                    } else {
+                        this.hide();
+                    }
+                }
+            }
+        });
+    },
+
+    /**
+     * Show the banner
+     */
+    show() {
+        const banner = document.getElementById(this.bannerId);
+        if (banner) {
+            banner.style.display = 'block';
+            // Restore Salesforce layout adjustments
+            this.applySalesforceLayoutAdjustments(true);
+            console.log('[PersistentBanner] Shown');
+        } else if (!this.isInitialized) {
+            // Re-initialize if banner doesn't exist
+            this.init();
+        }
+    },
+
+    /**
+     * Hide the banner
+     */
+    hide() {
+        const banner = document.getElementById(this.bannerId);
+        if (banner) {
+            banner.style.display = 'none';
+            // Remove Salesforce layout adjustments
+            this.applySalesforceLayoutAdjustments(false);
+            console.log('[PersistentBanner] Hidden');
+        }
+    },
+
+    /**
+     * Apply or remove Salesforce layout adjustments
+     * @param {boolean} apply - True to apply, false to remove
+     */
+    applySalesforceLayoutAdjustments(apply) {
+        const globalHeader = document.querySelector('#oneHeader > div.slds-global-header.slds-grid.slds-grid_align-spread');
+        const tabBar = document.querySelector('body > div.desktop.container.forceStyle.oneOne.navexDesktopLayoutContainer.lafAppLayoutHost.forceAccess > div.viewport > section > div.workspaceManager.navexWorkspaceManager > div > div.tabsetHeader.slds-context-bar.slds-context-bar--tabs.slds-no-print');
+        const toolbars = document.querySelectorAll('div.toolbar.top.fadeOut.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar, div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar');
+
+        if (apply) {
+            if (globalHeader) globalHeader.style.marginTop = '45px';
+            if (tabBar) tabBar.style.top = '95px';
+            toolbars.forEach(toolbar => toolbar.style.top = '45px');
+        } else {
+            if (globalHeader) globalHeader.style.marginTop = '';
+            if (tabBar) tabBar.style.top = '';
+            toolbars.forEach(toolbar => toolbar.style.top = '');
+        }
     },
 
     /**

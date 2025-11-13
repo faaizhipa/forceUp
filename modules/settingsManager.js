@@ -17,7 +17,8 @@ const SettingsManager = (function() {
         multiTabSync: true,
         caseCommentMemory: true,
         characterCounter: true,
-        dynamicMenu: true
+        dynamicMenu: true,
+        persistentBanner: true
       },
 
       // UI preferences
