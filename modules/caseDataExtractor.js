@@ -6,12 +6,28 @@
 const CaseDataExtractor = {
   /**
    * Extracts all relevant case data for downstream modules
+   * Reads case number and case ID from GlobalCaseState as source of truth
    * @returns {Object}
    */
   extractCaseData() {
-    return {
-      caseId: this.getCaseIdFromUrl(),
-      caseNumber: this.getCaseNumber(),
+    // Read from GlobalCaseState as source of truth
+    let caseId = null;
+    let caseNumber = null;
+
+    if (typeof GlobalCaseState !== 'undefined') {
+      caseId = GlobalCaseState.getCaseId();
+      caseNumber = GlobalCaseState.getCaseNumber();
+      console.log('[CaseDataExtractor] Using GlobalCaseState - Case ID:', caseId, 'Case Number:', caseNumber);
+    } else {
+      console.warn('[CaseDataExtractor] GlobalCaseState not available, falling back to extraction');
+      // Fallback to extraction
+      caseId = this.getCaseIdFromUrl();
+      caseNumber = this.getCaseNumber();
+    }
+
+    const extractedData = {
+      caseId: caseId,
+      caseNumber: caseNumber,
       subject: this.getSubject(),
       description: this.getDescription(),
       contactName: this.getFieldValue(['Contact Name']),
@@ -36,6 +52,13 @@ const CaseDataExtractor = {
       instID: null,
       customerName: null
     };
+
+    // Mark that CaseDataExtractor has consumed the global state
+    if (typeof GlobalCaseState !== 'undefined' && caseNumber) {
+      GlobalCaseState.markCaseDataExtractorUsed(caseNumber);
+    }
+
+    return extractedData;
   },
 
   /**

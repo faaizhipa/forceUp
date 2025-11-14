@@ -15,8 +15,41 @@ const CacheManager = (function() {
   
   let memoryCache = new Map(); // In-memory cache for current session
   let isInitialized = false;
+  let currentUrl = window.location.href; // Track URL for navigation detection
+  let ongoingValidations = new Map(); // Track ongoing background validations
+
+  // Lifecycle state tracking
+  let lifecycleState = 'uninitialized'; // 'uninitialized' | 'initialized' | 'resetting' | 'refreshing' | 'initiating'
+  let trackedCaseNumber = null; // Track current case number
+  let stateChangeUnsubscribe = null; // Function to unsubscribe from GlobalCaseState
 
   // ========== PRIVATE FUNCTIONS ==========
+
+  /**
+   * Extracts case ID from current URL
+   * @returns {string|null} Case ID or null if not found
+   */
+  function getCaseIdFromUrl() {
+    const url = window.location.href;
+    
+    // Salesforce Lightning case page patterns
+    const patterns = [
+      /\/lightning\/r\/Case\/([a-zA-Z0-9]{15,18})\/view/,  // Lightning record page
+      /\/[a-zA-Z0-9]{15,18}\/Case\/([a-zA-Z0-9]{15,18})/,  // Console view
+      /Case\/([a-zA-Z0-9]{15,18})/                          // General case pattern
+    ];
+    
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match) {
+        console.log(`[CacheManager] Extracted case ID ${match[1]} from URL`);
+        return match[1];
+      }
+    }
+    
+    console.log('[CacheManager] No case ID found in URL:', url);
+    return null;
+  }
 
   /**
    * Gets cache data from chrome.storage.local
@@ -186,6 +219,127 @@ const CacheManager = (function() {
     ].map((value) => (value || '').toLowerCase()).join('|');
   }
 
+  /**
+   * Resolve CaseDataExtractor module if available
+   * Supports window.CaseDataExtractor or require('./caseDataExtractor')
+   * @returns {Object|null}
+   */
+  function getCaseDataExtractor() {
+    if (typeof window !== 'undefined' && window.CaseDataExtractor) {
+      return window.CaseDataExtractor;
+    }
+
+    try {
+      if (typeof require !== 'undefined') {
+        // attempt require; may throw in content script context where require is undefined
+        // eslint-disable-next-line global-require
+        return require('./caseDataExtractor');
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    return null;
+  }
+
+  /**
+   * Performs silent background validation and updates cache if needed
+   * @param {string} caseId - Case ID to validate
+   * @param {Object} cachedData - Currently cached data
+   * @param {string} validationUrl - URL when validation started (for abort detection)
+   * @returns {Promise<void>}
+   */
+  async function _validateAndUpdateCache(caseId, cachedData, validationUrl) {
+    const validationId = `${caseId}_${Date.now()}`;
+    
+    try {
+      console.log(`[CacheManager] Starting background validation for case ${caseId}`);
+      ongoingValidations.set(caseId, validationId);
+
+      // Get extractor
+      const extractor = getCaseDataExtractor();
+      if (!extractor || typeof extractor.extractCaseData !== 'function') {
+        console.warn('[CacheManager] CaseDataExtractor not available for background validation');
+        return;
+      }
+
+      // Silent extraction
+      const freshData = await extractor.extractCaseData(caseId).catch((err) => {
+        console.error('[CacheManager] Background extraction failed:', err);
+        return null;
+      });
+
+      // Abort checks
+      if (!freshData) {
+        console.log('[CacheManager] Background extraction returned no data, aborting validation');
+        return;
+      }
+
+      if (window.location.href !== validationUrl) {
+        console.log('[CacheManager] URL changed during validation, aborting update');
+        return;
+      }
+
+      if (ongoingValidations.get(caseId) !== validationId) {
+        console.log('[CacheManager] Newer validation started, aborting this one');
+        return;
+      }
+
+      // Validation conditions
+      const cachedCaseId = cachedData.caseId || cachedData['Case ID'] || '';
+      const cachedCaseNumber = cachedData.caseNumber || cachedData['Case Number'] || '';
+      const freshCaseId = freshData.caseId || freshData['Case ID'] || '';
+      const freshCaseNumber = freshData.caseNumber || freshData['Case Number'] || '';
+      const cachedLastModified = cachedData.lastModified || cachedData['Last Modified Date'] || '';
+      const freshLastModified = freshData.lastModified || freshData['Last Modified Date'] || '';
+
+      // Condition 1: Case IDs must match
+      if (freshCaseId !== cachedCaseId || freshCaseId !== caseId) {
+        console.warn(`[CacheManager] Case ID mismatch - Fresh: ${freshCaseId}, Cached: ${cachedCaseId}, Expected: ${caseId} - Aborting update`);
+        return;
+      }
+
+      // Condition 2: Case Numbers must match
+      if (freshCaseNumber !== cachedCaseNumber) {
+        console.warn(`[CacheManager] Case Number mismatch - Fresh: ${freshCaseNumber}, Cached: ${cachedCaseNumber} - Aborting update`);
+        return;
+      }
+
+      // Condition 3: Fresh data must be newer
+      if (freshLastModified <= cachedLastModified) {
+        console.log(`[CacheManager] Cached data is up-to-date (${cachedLastModified}), no update needed`);
+        return;
+      }
+
+      // All conditions passed - update cache
+      console.log(`[CacheManager] Updating cache for case ${caseId} (${cachedLastModified} -> ${freshLastModified})`);
+      
+      const cacheEntry = {
+        data: freshData,
+        timestamp: Date.now(),
+        caseNumber: freshCaseNumber
+      };
+
+      // Update memory cache
+      memoryCache.set(caseId, cacheEntry);
+
+      // Update storage
+      const storageData = await loadFromStorage();
+      storageData.data[caseId] = cacheEntry;
+      await saveToStorage(storageData.data);
+
+      console.log(`[CacheManager] Cache updated successfully for case ${caseId}`);
+
+    } catch (err) {
+      console.error(`[CacheManager] Background validation error for case ${caseId}:`, err);
+    } finally {
+      // Clean up validation tracking
+      if (ongoingValidations.get(caseId) === validationId) {
+        ongoingValidations.delete(caseId);
+      }
+    }
+  }
+
   // ========== PUBLIC API ==========
 
   return {
@@ -208,6 +362,7 @@ const CacheManager = (function() {
         
         // Load into memory cache
         for (const caseId in trimmed) {
+          console.log(`[CacheManager] Loaded cached case ${caseId} where ${trimmed[caseId]}`);
           memoryCache.set(caseId, trimmed[caseId]);
         }
 
@@ -217,163 +372,238 @@ const CacheManager = (function() {
         }
 
         console.log(`[CacheManager] Initialized with ${memoryCache.size} cached cases`);
-        
+
         isInitialized = true;
+        lifecycleState = 'initialized';
+
+        // Register listener for GlobalCaseState changes
+        if (typeof GlobalCaseState !== 'undefined') {
+          stateChangeUnsubscribe = GlobalCaseState.onStateChange('CacheManager', (previousState, newState) => {
+            this._handleStateChange(previousState, newState);
+          });
+          console.log('[CacheManager] Registered GlobalCaseState listener');
+        }
       } catch (err) {
         console.error('[CacheManager] Initialization error:', err);
         isInitialized = true; // Continue anyway
+        lifecycleState = 'initialized';
       }
     },
 
     /**
+     * Handle GlobalCaseState changes - implements reactive lifecycle
+     * @param {Object} previousState - Previous state
+     * @param {Object} newState - New state
+     * @private
+     */
+    async _handleStateChange(previousState, newState) {
+      console.log('[CacheManager] GlobalCaseState changed:', { previousState, newState });
+
+      // Check if case number changed
+      if (previousState.caseNumber === newState.caseNumber) {
+        console.log('[CacheManager] Case number unchanged, ignoring');
+        return;
+      }
+
+      console.log(`[CacheManager] Case changed from ${previousState.caseNumber} to ${newState.caseNumber}, starting lifecycle`);
+
+      try {
+        // PHASE 1: Resetting
+        lifecycleState = 'resetting';
+        console.log('[CacheManager] Lifecycle: RESETTING');
+
+        // Abort all ongoing validations
+        ongoingValidations.clear();
+        console.log('[CacheManager] Aborted all ongoing validations');
+
+        // PHASE 2: Refreshing
+        lifecycleState = 'refreshing';
+        console.log('[CacheManager] Lifecycle: REFRESHING');
+
+        // Update tracked case number
+        trackedCaseNumber = newState.caseNumber;
+        console.log('[CacheManager] Updated tracked case number:', trackedCaseNumber);
+
+        // PHASE 3: Initiating
+        lifecycleState = 'initiating';
+        console.log('[CacheManager] Lifecycle: INITIATING');
+
+        // Trigger cache lookup/refresh for new case
+        // This will be called by other modules, we just track state here
+        console.log('[CacheManager] Ready for new case data requests');
+
+        lifecycleState = 'initialized';
+        console.log('[CacheManager] Lifecycle: INITIALIZED (ready)');
+
+      } catch (error) {
+        console.error('[CacheManager] Error in lifecycle:', error);
+        lifecycleState = 'initialized'; // Reset to initialized on error
+      }
+    },
+
+    /**
+     * Gets current lifecycle state
+     * @returns {string} Current state
+     */
+    getLifecycleState() {
+      return lifecycleState;
+    },
+
+    /**
      * Gets cached data for a case
-     * @param {string} caseId
-     * @returns {Object|null} Cached data or null if not found or invalid
+     * Returns cached data immediately and performs background validation
+     * Uses GlobalCaseState as source of truth for current case
+     * @param {string} caseId - Optional case ID, will use GlobalCaseState if not provided
+     * @returns {Object|null} Cached data or null if not found
      */
     async get(caseId) {
       if (!isInitialized) {
         await this.init();
       }
 
-      if (!caseId) return null;
+      // ALWAYS read from GlobalCaseState as source of truth
+      let targetCaseId = caseId;
+      let targetCaseNumber = null;
 
-      // Check memory cache
-      const cached = memoryCache.get(caseId);
-      if (!cached) {
-        console.log(`[CacheManager] Cache miss for case ${caseId}`);
+      if (typeof GlobalCaseState !== 'undefined') {
+        const globalCaseId = GlobalCaseState.getCaseId();
+        const globalCaseNumber = GlobalCaseState.getCaseNumber();
+
+        // If GlobalCaseState has a case, use it
+        if (globalCaseId) {
+          // If provided caseId differs from global, warn and use global
+          if (caseId && caseId !== globalCaseId) {
+            console.warn(`[CacheManager] Provided case ID (${caseId}) differs from GlobalCaseState (${globalCaseId}), using GlobalCaseState`);
+          }
+          targetCaseId = globalCaseId;
+          targetCaseNumber = globalCaseNumber;
+          console.log(`[CacheManager] Using GlobalCaseState - Case ID: ${targetCaseId}, Case Number: ${targetCaseNumber}`);
+        } else {
+          console.warn('[CacheManager] GlobalCaseState has no case info, falling back to URL extraction');
+        }
+      } else {
+        console.warn('[CacheManager] GlobalCaseState not available!');
+      }
+
+      // Fallback: Extract from URL if GlobalCaseState not available
+      if (!targetCaseId) {
+        targetCaseId = getCaseIdFromUrl();
+        console.log(`[CacheManager] Extracted case ID from URL: ${targetCaseId}`);
+      }
+
+      if (!targetCaseId) {
+        console.warn('[CacheManager] No case ID available from any source');
         return null;
       }
 
-      // Get current last modified date from DOM
-      const currentSignature = buildSignature();
+      // Update current URL for navigation detection
+      currentUrl = window.location.href;
 
-      if (!currentSignature) {
-        console.warn('[CacheManager] Could not resolve status signature, using cached data as fallback');
+      // Check memory cache
+      const cached = memoryCache.get(targetCaseId);
+
+      if (cached && cached.data) {
+        console.log(`[CacheManager] Cache hit for case ${targetCaseId} (Case Number: ${cached.caseNumber})`);
+
+        // Mark that CacheManager has consumed the global state
+        if (typeof GlobalCaseState !== 'undefined' && targetCaseNumber) {
+          GlobalCaseState.markCacheManagerUsed(targetCaseNumber);
+        }
+
+        // Trigger background validation (fire and forget)
+        _validateAndUpdateCache(targetCaseId, cached.data, currentUrl).catch((err) => {
+          console.error('[CacheManager] Background validation error:', err);
+        });
+
+        // Return cached data immediately
         return cached.data;
       }
 
-      if (cached.signature && cached.signature === currentSignature) {
-        console.log(`[CacheManager] Cache hit for case ${caseId} (signature: ${currentSignature})`);
-        return cached.data;
+      // Cache miss - extract fresh data
+      console.log(`[CacheManager] Cache miss for case ${targetCaseId} -> extracting fresh data`);
+      const extractor = getCaseDataExtractor();
+      if (!extractor || typeof extractor.extractCaseData !== 'function') {
+        console.warn('[CacheManager] CaseDataExtractor not available');
+        return null;
       }
-
-      console.log(`[CacheManager] Cache invalid for case ${caseId} (signature mismatch)`);
-      return null;
-    },
-
-    /**
-     * Sets cached data for a case
-     * @param {string} caseId
-     * @param {Object} data - Case data to cache
-     * @returns {Promise<void>}
-     */
-    async set(caseId, data) {
-      if (!isInitialized) {
-        await this.init();
-      }
-
-      if (!caseId || !data) return;
-
-      const signature = buildSignature();
-      
-      const cacheEntry = {
-        signature,
-        data: data,
-        timestamp: Date.now()
-      };
-
-      // Update memory cache
-      memoryCache.set(caseId, cacheEntry);
-
-      console.log(`[CacheManager] Cached data for case ${caseId} (signature: ${signature || 'n/a'})`);
-
-      // Update storage (throttled)
-      await this.persistToStorage();
-    },
-
-    /**
-     * Persists memory cache to storage
-     * @returns {Promise<void>}
-     */
-    async persistToStorage() {
-      if (!isInitialized) return;
 
       try {
-        const cacheData = {};
-        memoryCache.forEach((entry, caseId) => {
-          cacheData[caseId] = entry;
-        });
+        const extracted = await extractor.extractCaseData(targetCaseId).catch(() => extractor.extractCaseData());
 
-        await saveToStorage(cacheData);
-        console.log(`[CacheManager] Persisted ${memoryCache.size} entries to storage`);
+        if (!extracted) {
+          console.warn(`[CacheManager] Extraction returned no data for case ${targetCaseId}`);
+          return null;
+        }
+
+        // Create cache entry
+        const extractedCaseNumber = extracted.caseNumber || extracted['Case Number'] || targetCaseNumber || '';
+        const cacheEntry = {
+          data: extracted,
+          timestamp: Date.now(),
+          caseNumber: extractedCaseNumber
+        };
+
+        // Store in memory cache
+        memoryCache.set(targetCaseId, cacheEntry);
+
+        // Store in chrome.storage
+        const storageData = await loadFromStorage();
+        storageData.data[targetCaseId] = cacheEntry;
+        await saveToStorage(storageData.data);
+
+        console.log(`[CacheManager] Cached new data for case ${targetCaseId} (Case Number: ${extractedCaseNumber})`);
+
+        // Mark that CacheManager has consumed the global state
+        if (typeof GlobalCaseState !== 'undefined' && targetCaseNumber) {
+          GlobalCaseState.markCacheManagerUsed(targetCaseNumber);
+        }
+
+        return extracted;
       } catch (err) {
-        console.error('[CacheManager] Error persisting cache:', err);
+        console.error(`[CacheManager] Error extracting data for case ${targetCaseId}:`, err);
+        return null;
       }
     },
 
     /**
-     * Clears cache for a specific case
-     * @param {string} caseId
+     * Manually invalidates cache for a case
+     * @param {string} caseId - Case ID to invalidate
      */
-    async clear(caseId) {
-      if (!isInitialized) {
-        await this.init();
+    async invalidate(caseId) {
+      if (!caseId) {
+        caseId = getCaseIdFromUrl();
+      }
+      
+      if (!caseId) {
+        console.warn('[CacheManager] Cannot invalidate: no case ID provided');
+        return;
       }
 
-      if (!caseId) return;
-
+      console.log(`[CacheManager] Invalidating cache for case ${caseId}`);
+      
+      // Remove from memory
       memoryCache.delete(caseId);
-      await this.persistToStorage();
 
-      console.log(`[CacheManager] Cleared cache for case ${caseId}`);
+      // Remove from storage
+      const storageData = await loadFromStorage();
+      if (storageData.data[caseId]) {
+        delete storageData.data[caseId];
+        await saveToStorage(storageData.data);
+      }
     },
 
     /**
-     * Clears all cache
+     * Clears all cached data
      */
-    async clearAll() {
+    async clear() {
+      console.log('[CacheManager] Clearing all cache data');
       memoryCache.clear();
-      
-      await new Promise((resolve) => {
-        chrome.storage.local.remove([STORAGE_KEY, 'cacheVersion'], () => {
-          console.log('[CacheManager] Cleared all cache');
-          resolve();
-        });
-      });
-    },
-
-    /**
-     * Gets cache statistics
-     * @returns {Promise<Object>}
-     */
-    async getStats() {
-      const bytesUsed = await getStorageUsage();
-      
-      return {
-        entriesCount: memoryCache.size,
-        bytesUsed: bytesUsed,
-        megabytesUsed: (bytesUsed / 1024 / 1024).toFixed(2),
-        percentageUsed: ((bytesUsed / (MAX_CACHE_SIZE_MB * 1024 * 1024)) * 100).toFixed(2)
-      };
-    },
-
-    /**
-     * Cleans up the cache manager
-     */
-    cleanup() {
-      if (!isInitialized) return;
-
-      console.log('[CacheManager] Cleaning up...');
-      
-      // Persist any unsaved data
-      this.persistToStorage();
-      
-      isInitialized = false;
+      await saveToStorage({});
     }
   };
 })();
 
 // Export for use in other modules
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = CacheManager;
+if (typeof window !== 'undefined') {
+  window.CacheManager = CacheManager;
 }

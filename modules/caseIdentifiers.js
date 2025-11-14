@@ -10,10 +10,33 @@ const CaseIdentifiers = (() => {
 
     /**
      * Gets the current case ID from URL
-     * Supports both case detail page and case comments full view page
+     * Supports:
+     * - Case detail page: /Case/[ID] or /lightning/r/Case/[ID]
+     * - Case comments full view page: /lightning/r/Case/[ID]/related/CaseComments/view
+     * - Child case viewed in parent context: ?ws=%2Flightning%2Fr%2FCase%2F[CHILD_ID]%2Fview
+     *
+     * Priority: ws parameter (actual case) > pathname (parent/original case)
      * @returns {string|null} Case ID or null
      */
     function getCaseIdFromUrl() {
+        // PRIORITY 1: Check ws (workspace) parameter for actual case being viewed
+        // This handles child cases viewed within parent case context
+        // Example: /lightning/r/Case/PARENT_ID/view?ws=%2Flightning%2Fr%2FCase%2FCHILD_ID%2Fview
+        const urlParams = new URLSearchParams(window.location.search);
+        const wsParam = urlParams.get('ws');
+
+        if (wsParam) {
+            // ws parameter is URL-encoded: %2F = /, %2Flightning%2Fr%2FCase%2F[ID]%2Fview
+            // Decode and extract case ID from workspace path
+            const decodedWs = decodeURIComponent(wsParam);
+            const wsMatch = decodedWs.match(/\/(?:Case|lightning\/r\/Case)\/([a-zA-Z0-9]{15,18})/i);
+            if (wsMatch) {
+                console.log('[CaseIdentifiers] Case ID extracted from ws parameter:', wsMatch[1]);
+                return wsMatch[1];
+            }
+        }
+
+        // PRIORITY 2: Check pathname for case detail page
         const pathname = window.location.pathname;
 
         // Match case detail page: /Case/[ID] or /lightning/r/Case/[ID]

@@ -9,7 +9,7 @@ const DomUtilities = (() => {
     'use strict';
 
     /**
-     * Escapes special XML characters
+     * Escapes special XML characters and control characters
      * @param {string} str - String to escape
      * @returns {string} Escaped string
      */
@@ -20,7 +20,12 @@ const DomUtilities = (() => {
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
-            .replace(/'/g, '&apos;');
+            .replace(/'/g, '&apos;')
+            // Escape control characters (0x00-0x1F except tab, newline, carriage return)
+            // and DEL (0x7F) which are invalid in XML
+            .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, (char) => {
+                return '&#x' + char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0') + ';';
+            });
     }
 
     /**

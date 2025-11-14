@@ -93,17 +93,38 @@ const FieldHighlighter = {
 
   /**
    * Applies highlight to a single field
+   * Uses scoped selectors to target visible fields in active tab
    * @param {Object} fieldSelector - Object with container and input selectors
    */
   highlightField(fieldSelector) {
-    const container = document.querySelector(fieldSelector.container);
+    // Priority 1: Find field within active tab's visible record layout
+    const activeTabScope = 'section.tabContent.active .forcegenerated-record-layout2[style*="display: block"]';
+    let container = document.querySelector(`${activeTabScope} ${fieldSelector.container}`);
+
+    // Priority 2: Fallback to unscoped selector (for edge cases)
+    if (!container) {
+      container = document.querySelector(fieldSelector.container);
+    }
+
     if (!container) {
       console.log('[FieldHighlighter] Container not found for selector:', fieldSelector.container);
       return;
     }
 
-    const input = document.querySelector(fieldSelector.input);
-    const label = fieldSelector.label ? document.querySelector(fieldSelector.label) : null;
+    // Use same scoping for input and label
+    let input = document.querySelector(`${activeTabScope} ${fieldSelector.input}`);
+    if (!input) {
+      input = document.querySelector(fieldSelector.input);
+    }
+
+    let label = null;
+    if (fieldSelector.label) {
+      label = document.querySelector(`${activeTabScope} ${fieldSelector.label}`);
+      if (!label) {
+        label = document.querySelector(fieldSelector.label);
+      }
+    }
+
     const isEmpty = this.isEmpty(input);
 
     if (isEmpty) {
@@ -121,12 +142,29 @@ const FieldHighlighter = {
 
   /**
    * Removes highlight from a field
+   * Uses scoped selectors to target visible fields in active tab
    * @param {Object} fieldSelector
    */
   removeHighlight(fieldSelector) {
-    const container = document.querySelector(fieldSelector.container);
-    const input = document.querySelector(fieldSelector.input);
-    const label = fieldSelector.label ? document.querySelector(fieldSelector.label) : null;
+    // Priority 1: Find field within active tab's visible record layout
+    const activeTabScope = 'section.tabContent.active .forcegenerated-record-layout2[style*="display: block"]';
+    let container = document.querySelector(`${activeTabScope} ${fieldSelector.container}`);
+    if (!container) {
+      container = document.querySelector(fieldSelector.container);
+    }
+
+    let input = document.querySelector(`${activeTabScope} ${fieldSelector.input}`);
+    if (!input) {
+      input = document.querySelector(fieldSelector.input);
+    }
+
+    let label = null;
+    if (fieldSelector.label) {
+      label = document.querySelector(`${activeTabScope} ${fieldSelector.label}`);
+      if (!label) {
+        label = document.querySelector(fieldSelector.label);
+      }
+    }
 
     if (container) {
       container.style.backgroundColor = '';
@@ -152,19 +190,32 @@ const FieldHighlighter = {
   },
 
   /**
-   * Highlights all configured fields
+   * Highlights all configured fields (main fields + Problem Root Cause only)
+   * Note: Primary_Jira__c and Jira_Status__c are highlighted when panel is shown
    */
   highlightAllFields() {
     console.log('[FieldHighlighter] highlightAllFields() called');
-    
+
     // Highlight main fields
     this.highlightField(this.fieldSelectors.category);
     this.highlightField(this.fieldSelectors.subCategory);
     this.highlightField(this.fieldSelectors.description);
     this.highlightField(this.fieldSelectors.status);
 
-    // Highlight Jira section fields
+    // Highlight Problem Root Cause (visible without panel)
     this.highlightField(this.fieldSelectors.rootCause);
+
+    // NOTE: Primary_Jira__c and Jira_Status__c are NOT highlighted here
+    // They are highlighted when the panel is shown (in highlightJiraFields)
+  },
+
+  /**
+   * Highlights Jira-specific fields (Primary Jira and Jira Status)
+   * Called when the panel is shown
+   */
+  highlightJiraFields() {
+    console.log('[FieldHighlighter] highlightJiraFields() called');
+
     this.highlightField(this.fieldSelectors.primaryJira);
     this.highlightField(this.fieldSelectors.jiraStatus);
   },

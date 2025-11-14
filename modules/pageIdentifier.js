@@ -17,6 +17,7 @@ const PageIdentifier = {
 
   // Throttling state
   _lastPageInfo: null,
+  _lastDetectedCaseNumber: null, // Track last detected case number
   _throttleTimer: null,
   _throttleDelay: 300, // 300ms throttle delay
   _pendingCallback: null,
@@ -26,39 +27,155 @@ const PageIdentifier = {
    * Detects the active tab view on a case page
    * @returns {string|null} 'details', 'communication', 'files', or null if not detectable
    */
+  /**
+   * Gets the case number from the page header
+   * Uses reliable Salesforce Lightning selectors to find visible case title
+   * @returns {string|null}
+   */
+  getCaseNumberFromPage() {
+    try {
+      // Priority 1: Check active tab with visible record layout (most reliable)
+      // Use querySelectorAll to find all potential matches and filter by actual visibility
+      const candidateElements = document.querySelectorAll(
+        'section.tabContent.active .forcegenerated-record-layout2 div.highlights .slds-page-header__title lightning-formatted-text'
+      );
+
+      if (candidateElements.length > 0) {
+        // Filter by actual computed visibility (checking if element and ancestors are visible)
+        for (const element of candidateElements) {
+          // Check if element is actually visible (offsetParent !== null means it's rendered)
+          if (element.offsetParent !== null) {
+            const headerText = (element.textContent || '').trim();
+            if (headerText) {
+              // Extract case number (6+ digits at start of header)
+              const numberMatch = headerText.match(/^([0-9]{6,})/);
+              if (numberMatch) {
+                const caseNumber = numberMatch[1];
+                console.log('[PageIdentifier] Found visible case number:', caseNumber, 'from element:', element);
+                
+                // Update state and notify dependent modules
+                this._updateCaseNumberState(caseNumber);
+                
+                return caseNumber;
+              }
+            }
+          }
+        }
+      }
+
+      // Priority 2: Fallback to legacy selectors (for edge cases)
+      const fallbackField = document.querySelector('slot[name="primaryField"] lightning-formatted-text, records-formula-output[slot="primaryField"] lightning-formatted-text');
+      if (fallbackField && fallbackField.offsetParent !== null) {
+        const headerText = (fallbackField.textContent || '').trim();
+        if (headerText) {
+          const numberMatch = headerText.match(/^([0-9]{6,})/);
+          if (numberMatch) {
+            const caseNumber = numberMatch[1];
+            console.log('[PageIdentifier] Found case number from fallback:', caseNumber);
+            
+            // Update state and notify dependent modules
+            this._updateCaseNumberState(caseNumber);
+            
+            return caseNumber;
+          }
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.warn('PageIdentifier: Error extracting case number:', error);
+      return null;
+    }
+  },
+
+  /**
+   * Update case number state and notify dependent modules
+   * Updates GlobalCaseState which all other modules read from
+   * @param {string} caseNumber - Detected case number
+   * @private
+   */
+  _updateCaseNumberState(caseNumber) {
+    // Skip if case number hasn't changed
+    if (this._lastDetectedCaseNumber === caseNumber) {
+      return;
+    }
+
+    console.log('[PageIdentifier] Case number changed:', this._lastDetectedCaseNumber, '->', caseNumber);
+    this._lastDetectedCaseNumber = caseNumber;
+
+    // Get current page info to extract case ID
+    const currentPageInfo = this.identifyPage();
+
+    // Update GlobalCaseState (ONLY PageIdentifier can do this)
+    if (typeof GlobalCaseState !== 'undefined') {
+      GlobalCaseState.updateCaseInfo(
+        {
+          caseNumber: caseNumber,
+          caseId: currentPageInfo.caseId,
+          url: window.location.href
+        },
+        'PageIdentifier'
+      );
+      console.log('[PageIdentifier] Updated GlobalCaseState:', {
+        caseNumber,
+        caseId: currentPageInfo.caseId,
+        url: window.location.href
+      });
+    } else {
+      console.warn('[PageIdentifier] GlobalCaseState not available!');
+    }
+  },
+
   detectCasePageView() {
     try {
+      // Get case number from page header
+      const caseNumber = this.getCaseNumberFromPage();
+
       // Check for active tab in Lightning interface
       const activeTab = document.querySelector('a[role="tab"][aria-selected="true"]');
       if (activeTab) {
-        const tabText = activeTab.textContent?.trim().toLowerCase();
-        
-        if (tabText?.includes('detail')) {
-          return 'details';
-        } else if (tabText?.includes('communication')) {
-          return 'communication';
-        } else if (tabText?.includes('file') || tabText?.includes('attachment')) {
-          return 'files';
-        } else if (tabText?.includes('related')) {
-          return 'related';
+        const tabText = activeTab.textContent?.trim();
+
+        // Extract just the tab name by removing ALL case numbers (6+ digit sequences)
+        let tabName = tabText;
+        if (tabText) {
+          // Remove all 6+ digit case numbers from the tab text
+          tabName = tabText.replace(/\b\d{6,}\b/g, '').trim();
+          // Remove leading/trailing separators like | or -
+          tabName = tabName.replace(/^[\s|\-]+|[\s|\-]+$/g, '').trim();
+          // Remove any duplicate separators in the middle
+          tabName = tabName.replace(/[\s|\-]+[\s|\-]+/g, ' | ').trim();
         }
-        
-        // Return the actual tab text if it doesn't match known patterns
-        return tabText || null;
+
+        // Format as "CaseNumber | TabName" if we have both
+        if (caseNumber && tabName) {
+          // Capitalize first letter of tab name
+          const capitalizedTab = tabName.charAt(0).toUpperCase() + tabName.slice(1);
+          return `${caseNumber} | ${capitalizedTab}`;
+        }
+
+        // If we only have case number, add default "Case" label
+        if (caseNumber) {
+          return `${caseNumber} | Case`;
+        }
+
+        // Fallback to just tab name if no case number
+        return tabName || null;
       }
-      
+
       // Fallback: check for specific components that indicate the view
-      if (document.querySelector('records-lwc-detail-panel') || 
+      if (document.querySelector('records-lwc-detail-panel') ||
           document.querySelector('force-record-layout-item')) {
-        return 'details';
+        return caseNumber ? `${caseNumber} | Details` : 'details';
       }
-      
+
       if (document.querySelector('runtime_sales_activities-activity-panel') ||
           document.querySelector('[data-component-id*="Communication"]')) {
-        return 'communication';
+        return caseNumber ? `${caseNumber} | Communication` : 'communication';
       }
-      
-      return null;
+
+      // Return just case number if we have it but no tab
+      return caseNumber ? `${caseNumber} | Case` : null;
     } catch (error) {
       console.log('PageIdentifier: Error detecting case page view:', error);
       return null;
@@ -79,9 +196,16 @@ const PageIdentifier = {
     const casePageMatch = url.match(/\/lightning\/r\/Case\/([^\/]+)\/view(?:\?|$)/);
     if (casePageMatch) {
       const view = this.detectCasePageView();
+      // Use CaseIdentifiers to get actual case ID (handles ws parameter)
+      const actualCaseId = typeof CaseIdentifiers !== 'undefined'
+        ? CaseIdentifiers.getCaseIdFromUrl()
+        : casePageMatch[1];
+      // Extract case number from page header
+      const caseNumber = this.getCaseNumberFromPage();
       const result = {
         type: this.pageTypes.CASE_PAGE,
-        caseId: casePageMatch[1],
+        caseId: actualCaseId,
+        caseNumber: caseNumber,
         reportId: null,
         view: view
       };
@@ -92,9 +216,16 @@ const PageIdentifier = {
     // Case Comments "View All" Page
     const caseCommentsMatch = url.match(/\/lightning\/r\/Case\/([^\/]+)\/related\/CaseComments\/view(?:\?|$)/);
     if (caseCommentsMatch) {
+      // Use CaseIdentifiers to get actual case ID (handles ws parameter)
+      const actualCaseId = typeof CaseIdentifiers !== 'undefined'
+        ? CaseIdentifiers.getCaseIdFromUrl()
+        : caseCommentsMatch[1];
+      // Extract case number from page header
+      const caseNumber = this.getCaseNumberFromPage();
       const result = {
         type: this.pageTypes.CASE_COMMENTS,
-        caseId: caseCommentsMatch[1],
+        caseId: actualCaseId,
+        caseNumber: caseNumber,
         reportId: null,
         view: 'case_comments'
       };
@@ -107,6 +238,7 @@ const PageIdentifier = {
       const result = {
         type: this.pageTypes.CASES_LIST,
         caseId: null,
+        caseNumber: null,
         reportId: null,
         view: null
       };
@@ -119,6 +251,7 @@ const PageIdentifier = {
       const result = {
         type: this.pageTypes.REPORT_HOME,
         caseId: null,
+        caseNumber: null,
         reportId: null,
         view: null
       };
@@ -132,6 +265,7 @@ const PageIdentifier = {
       const result = {
         type: this.pageTypes.REPORT_PAGE,
         caseId: null,
+        caseNumber: null,
         reportId: reportMatch[1],
         view: null
       };
@@ -144,6 +278,7 @@ const PageIdentifier = {
       const result = {
         type: this.pageTypes.SEARCH_PAGE,
         caseId: null,
+        caseNumber: null,
         reportId: null,
         view: null
       };
@@ -165,18 +300,20 @@ const PageIdentifier = {
           const result = {
             type: this.pageTypes.REPORT_BUILDER,
             caseId: null,
+            caseNumber: null,
             reportId: jsonData.attributes?.recordId || null,
             view: null
           };
           console.log('PageIdentifier: Detected REPORT_BUILDER (encoded):', result);
           return result;
         }
-        
+
         // Check for Search Page
         if (jsonData.componentDef === 'forceSearch:searchPageDesktop') {
           const result = {
             type: this.pageTypes.SEARCH_PAGE,
             caseId: null,
+            caseNumber: null,
             reportId: null,
             view: null
           };
@@ -192,6 +329,7 @@ const PageIdentifier = {
     const result = {
       type: this.pageTypes.UNKNOWN,
       caseId: null,
+      caseNumber: null,
       reportId: null,
       view: null
     };
@@ -349,6 +487,11 @@ const PageIdentifier = {
    * @private
    */
   _getChangeSummary(newPageInfo) {
+    // If no previous page info, this is the initial page load
+    if (!this._lastPageInfo) {
+      return 'Initial';
+    }
+
     const changedFields = [];
 
     if (newPageInfo.type !== this._lastPageInfo.type) {
@@ -365,6 +508,29 @@ const PageIdentifier = {
     }
 
     return changedFields.join(', ') || 'Unknown';
+  },
+
+  /**
+   * Cleanup - clear any pending throttle timers
+   * Called on navigation away or extension unload
+   */
+  cleanup() {
+    console.log('[PageIdentifier] Cleaning up...');
+
+    // Clear throttle timer
+    if (this._throttleTimer) {
+      clearTimeout(this._throttleTimer);
+      this._throttleTimer = null;
+      console.log('[PageIdentifier] Throttle timer cleared');
+    }
+
+    // Reset state
+    this._lastPageInfo = null;
+    this._lastDetectedCaseNumber = null; // Reset case number tracking
+    this._pendingCallback = null;
+    this._isProcessing = false;
+
+    console.log('[PageIdentifier] Cleanup complete');
   }
 };
 

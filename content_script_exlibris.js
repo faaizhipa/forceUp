@@ -235,8 +235,17 @@
       }
 
       this.initializationDebounceTimer = setTimeout(async () => {
-        await this.performPageInitialization(pageInfo);
-      }, 100);
+        // CRITICAL: Re-identify page AFTER debounce to avoid stale pageInfo
+        // The pageInfo parameter might be from a previous navigation if user navigated quickly
+        if (typeof PageIdentifier !== 'undefined') {
+          const currentUrl = window.location.href;
+          const freshPageInfo = PageIdentifier.identifyPage(currentUrl);
+          console.log('[ExLibris Extension] Re-identified page after debounce:', freshPageInfo);
+          await this.performPageInitialization(freshPageInfo);
+        } else {
+          await this.performPageInitialization(pageInfo);
+        }
+      }, 10);
     },
 
     /**
@@ -275,11 +284,10 @@
         console.log('[ExLibris Extension] Cleaning up previous page features (URL changed: ' + urlChanged + ')');
         this.cleanup();
 
-        // If URL changed, add a delay to allow DOM to settle
-        if (urlChanged) {
-          console.log('[ExLibris Extension] URL changed, waiting for page to settle...');
-          await new Promise(resolve => setTimeout(resolve, 800));
-        }
+        // NOTE: Removed 800ms delay - waitForElements() handles timing adaptively
+        // The delay was causing race conditions where users could navigate faster than
+        // the delay, resulting in stale data being displayed. waitForElements() polls
+        // until DOM is ready, providing adaptive timing instead of arbitrary delays.
 
         // Initialize features based on page type
         console.log('[ExLibris Extension] Checking page type:', pageInfo.type);
@@ -334,33 +342,28 @@
 
       const resolvedTimezone = this.resolveActiveTimezone(timezoneSetting);
 
-      // DO NOT auto-inject panel on page load
-      // Panel will only be injected when user clicks "Show Panel" button in banner
-      console.log('[ExLibris Extension] Panel injection disabled on page load. Use banner "Show Panel" button to inject panel.');
+      // Note: FlexipagePanelInjector is NOT initialized here on page load
+      // Panel is only injected when user clicks "Show Panel" button in PersistentBanner
+      // This is intentional - panel injection is user-triggered, not automatic
 
-      // Initialize field highlighting
-      const highlightingEnabled = this.settings?.exlibris?.features?.fieldHighlighting !== false && this.settings?.highlightingEnabled !== false;
-      console.log('[ExLibris Extension] FieldHighlighter initialization check:', {
-        highlightingEnabled: highlightingEnabled,
-        moduleLoaded: typeof FieldHighlighter !== 'undefined',
-        featureEnabled: SettingsManager.isFeatureEnabled('fieldHighlighting')
-      });
-      
-      if (highlightingEnabled &&
-          typeof FieldHighlighter !== 'undefined' &&
-          SettingsManager.isFeatureEnabled('fieldHighlighting')) {
-        console.log('[ExLibris Extension] Initializing FieldHighlighter...');
-        FieldHighlighter.init();
-      } else {
-        console.log('[ExLibris Extension] FieldHighlighter NOT initialized - condition failed');
-      }
+      // Note: FieldHighlighter will be initialized AFTER case data extraction completes
+      // This ensures it runs only once with all data loaded
 
       if (typeof handleAnchors === 'function') {
         handleAnchors();
         this.observeCommunicationTab();
       }
 
+      // Initialize MultiTabSync BEFORE fetching case data
+      // This ensures the broadcast channel is ready for coordination across tabs
+      if (typeof MultiTabSync !== 'undefined' &&
+          SettingsManager.isFeatureEnabled('multiTabSync')) {
+        MultiTabSync.init(this.currentCaseId);
+        console.log('[ExLibris Extension] MultiTabSync initialized');
+      }
+
       // Fetch full case data
+      // Order: CacheManager check → CustomerDataManager lookup → CaseDataExtractor
       const caseData = await this.getCaseData(this.currentCaseId);
       if (!caseData) {
         console.warn('[ExLibris Extension] Could not extract case data');
@@ -404,7 +407,7 @@
         FlexipagePanelInjector.setSlot2Message('Prepare tools to populate the reference workspace.');
       }
 
-      // Initialize case comment memory (handles its own initialization via URL monitoring)
+      // Initialize case comment memory AFTER case data is extracted
       if (typeof CaseCommentMemory !== 'undefined' &&
           SettingsManager.isFeatureEnabled('caseCommentMemory')) {
         CaseCommentMemory.init();
@@ -415,15 +418,20 @@
         CharacterCounter.init();
       }
 
-      if (typeof MultiTabSync !== 'undefined' &&
-          SettingsManager.isFeatureEnabled('multiTabSync')) {
-        MultiTabSync.init(this.currentCaseId);
-        console.log('[ExLibris Extension] MultiTabSync initialized');
-      }
-
       // NOTE: CaseTimezoneResolver is now initialized from the banner button
       // after panel injection is complete, not on page load
       console.log('[ExLibris Extension] CaseTimezoneResolver will be initialized when panel is injected via banner');
+
+      // Initialize FieldHighlighter AFTER all other initializations complete
+      // This ensures it runs only once with all data loaded, without needing a MutationObserver
+      const highlightingEnabled = this.settings?.exlibris?.features?.fieldHighlighting !== false && this.settings?.highlightingEnabled !== false;
+      if (highlightingEnabled &&
+          typeof FieldHighlighter !== 'undefined' &&
+          SettingsManager.isFeatureEnabled('fieldHighlighting')) {
+        console.log('[ExLibris Extension] Running FieldHighlighter after case data extraction...');
+        // Call highlightAllFields() directly - no init() to avoid MutationObserver
+        FieldHighlighter.highlightAllFields();
+      }
 
       console.log('[ExLibris Extension] Case page features initialized');
     },
@@ -846,13 +854,17 @@
      */
     async handleNavigationChange(url) {
       Logger?.info('Handling navigation to:', url);
-      
+
       // Teardown existing features
       this.cleanup();
-      
+
       // Re-identify page type
+      // IMPORTANT: Always use current window.location.href instead of passed URL
+      // to avoid race conditions where URL parameter hasn't been updated yet
       if (typeof PageIdentifier !== 'undefined') {
-        const pageInfo = PageIdentifier.identifyPage(url);
+        const currentUrl = window.location.href;
+        console.log('[ExLibris Extension] Navigation detected - using current URL:', currentUrl);
+        const pageInfo = PageIdentifier.identifyPage(currentUrl);
         await this.handlePageChange(pageInfo);
       }
     },
@@ -922,6 +934,19 @@
       if (typeof CaseTimezoneResolver !== 'undefined' && CaseTimezoneResolver.cleanup) {
         CaseTimezoneResolver.cleanup();
       }
+
+      // Cleanup CaseCommentExtractor
+      if (typeof CaseCommentExtractor !== 'undefined' && CaseCommentExtractor.cleanup) {
+        CaseCommentExtractor.cleanup();
+      }
+
+      // NOTE: PersistentBanner is NOT cleaned up here - it persists across all page navigations
+      // It will only be cleaned up in destroy() when the extension fully unloads
+
+      // Cleanup PageIdentifier
+      if (typeof PageIdentifier !== 'undefined' && PageIdentifier.cleanup) {
+        PageIdentifier.cleanup();
+      }
     },
 
     /**
@@ -954,7 +979,10 @@
       if (typeof FlexipagePanelInjector !== 'undefined' && FlexipagePanelInjector.teardown) {
         FlexipagePanelInjector.teardown();
       }
-      
+      if (typeof PersistentBanner !== 'undefined' && PersistentBanner.cleanup) {
+        PersistentBanner.cleanup();
+      }
+
       this.isInitialized = false;
     }
   };

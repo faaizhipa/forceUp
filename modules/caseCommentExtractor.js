@@ -19,6 +19,26 @@ const CaseCommentExtractor = (() => {
     };
 
     /**
+     * Fallback XML escaping function (if DomUtilities unavailable)
+     * SECURITY: Never return unescaped strings!
+     * @param {string} str - String to escape
+     * @returns {string} Escaped string
+     */
+    function escapeXMLFallback(str) {
+        if (typeof str !== 'string') return '';
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;')
+            // Escape control characters (except tab, LF, CR)
+            .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, (char) => {
+                return '&#x' + char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0') + ';';
+            });
+    }
+
+    /**
      * Gets the current case ID from URL using CaseIdentifiers utility
      * @returns {string|null} Case ID or null
      */
@@ -472,7 +492,8 @@ const CaseCommentExtractor = (() => {
         if (!data || !data.comments) return '<error>No data extracted</error>';
 
         const getMeta = (key) => data.metadata?.[key] || '';
-        const escape = typeof DomUtilities !== 'undefined' ? DomUtilities.escapeXML : (str) => str;
+        // SECURITY: Always use escaping function, never pass through unescaped
+        const escape = typeof DomUtilities !== 'undefined' ? DomUtilities.escapeXML : escapeXMLFallback;
         
         let xml = '<case>\n';
         xml += '  <metadata>\n';

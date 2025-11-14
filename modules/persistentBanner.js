@@ -11,14 +11,15 @@ const PersistentBanner = {
     isInitialized: false,
     bannerId: 'exl-persistent-banner',
     elements: {},
-    
+
     // Navigation history queue (max 3 items)
     navigationHistory: [],
     maxHistoryItems: 3,
-    
+
     // Current case tracking (to detect navigation to different case)
+    // NOTE: This is now synced with window.ExLibrisExtension.currentCaseNumber
     currentCaseId: null,
-    
+
     // Current page info
     currentPage: {
         type: 'Unknown',
@@ -42,6 +43,15 @@ const PersistentBanner = {
 
     // Environment menu state
     envMenuVisible: false,
+
+    // Event listener references (for cleanup)
+    caseDataEventHandler: null,
+
+    // Lifecycle state tracking
+    lifecycleState: 'uninitialized', // 'uninitialized' | 'initialized' | 'resetting' | 'refreshing' | 'initiating'
+    trackedCaseNumber: null, // Track current case number
+    stateChangeUnsubscribe: null, // Function to unsubscribe from GlobalCaseState
+    urlMonitorInterval: null, // URL monitoring interval
 
     // Status color mapping (based on caseStatusHighlighter)
     STATUS_COLORS: {
@@ -92,6 +102,17 @@ const PersistentBanner = {
 
         console.log('[PersistentBanner] Initializing...');
         
+        // Initialize global case number if not exists
+        if (typeof window.ExLibrisExtension === 'undefined') {
+            window.ExLibrisExtension = {};
+        }
+        if (!window.ExLibrisExtension.hasOwnProperty('currentCaseNumber')) {
+            window.ExLibrisExtension.currentCaseNumber = null;
+        }
+        
+        // Sync internal state with global
+        this.currentCaseId = window.ExLibrisExtension.currentCaseNumber;
+        
         // Load navigation history from sessionStorage
         this.loadNavigationHistory();
         
@@ -107,42 +128,165 @@ const PersistentBanner = {
         // Listen for CasePageDataExtractor events
         this.setupCaseDataListener();
         
+        // Listen for global case number changes
+        this.setupGlobalCaseNumberListener();
+
+        // Register listener for GlobalCaseState changes
+        if (typeof GlobalCaseState !== 'undefined') {
+            this.stateChangeUnsubscribe = GlobalCaseState.onStateChange('PersistentBanner', (previousState, newState) => {
+                this._handleStateChange(previousState, newState);
+            });
+            console.log('[PersistentBanner] Registered GlobalCaseState listener');
+        }
+
         this.isInitialized = true;
+        this.lifecycleState = 'initialized';
         console.log('[PersistentBanner] Initialized');
+    },
+
+    /**
+     * Handle GlobalCaseState changes - implements reactive lifecycle
+     * @param {Object} previousState - Previous state
+     * @param {Object} newState - New state
+     */
+    _handleStateChange(previousState, newState) {
+        console.log('[PersistentBanner] GlobalCaseState changed:', { previousState, newState });
+
+        // Check if case number changed
+        if (previousState.caseNumber === newState.caseNumber) {
+            console.log('[PersistentBanner] Case number unchanged, ignoring');
+            return;
+        }
+
+        console.log(`[PersistentBanner] Case changed from ${previousState.caseNumber} to ${newState.caseNumber}, starting lifecycle`);
+
+        try {
+            // PHASE 1: Resetting
+            this.lifecycleState = 'resetting';
+            console.log('[PersistentBanner] Lifecycle: RESETTING');
+
+            // Abort URL monitoring temporarily (will restart in initiating phase)
+            if (this.urlMonitorInterval) {
+                clearInterval(this.urlMonitorInterval);
+                this.urlMonitorInterval = null;
+                console.log('[PersistentBanner] Stopped URL monitoring');
+            }
+
+            // Clear current page data
+            this.currentPage = {
+                type: 'Unknown',
+                caseNumber: null,
+                subject: null,
+                status: null,
+                subStatus: null
+            };
+            console.log('[PersistentBanner] Cleared current page data');
+
+            // PHASE 2: Refreshing
+            this.lifecycleState = 'refreshing';
+            console.log('[PersistentBanner] Lifecycle: REFRESHING');
+
+            // Update tracked case number
+            this.trackedCaseNumber = newState.caseNumber;
+            this.currentCaseId = newState.caseId;
+            console.log('[PersistentBanner] Updated tracked case:', {
+                caseNumber: this.trackedCaseNumber,
+                caseId: this.currentCaseId
+            });
+
+            // PHASE 3: Initiating
+            this.lifecycleState = 'initiating';
+            console.log('[PersistentBanner] Lifecycle: INITIATING');
+
+            // Restart URL monitoring
+            this.startUrlMonitoring();
+            console.log('[PersistentBanner] Restarted URL monitoring');
+
+            // Update banner UI to show new case info (will read from GlobalCaseState)
+            this.updateBannerUI();
+            console.log('[PersistentBanner] Updated banner UI');
+
+            this.lifecycleState = 'initialized';
+            console.log('[PersistentBanner] Lifecycle: INITIALIZED (ready)');
+
+        } catch (error) {
+            console.error('[PersistentBanner] Error in lifecycle:', error);
+            this.lifecycleState = 'initialized'; // Reset to initialized on error
+        }
+    },
+
+    /**
+     * Gets current lifecycle state
+     * @returns {string} Current state
+     */
+    getLifecycleState() {
+        return this.lifecycleState;
+    },
+
+    /**
+     * Setup listener for global case number changes
+     */
+    setupGlobalCaseNumberListener() {
+        // Poll for changes to window.ExLibrisExtension.currentCaseNumber
+        setInterval(() => {
+            if (typeof window.ExLibrisExtension !== 'undefined') {
+                const globalCaseNumber = window.ExLibrisExtension.currentCaseNumber;
+                
+                // Check if case number changed
+                if (globalCaseNumber !== this.currentCaseId) {
+                    console.log(`[PersistentBanner] Global case number changed from ${this.currentCaseId} to ${globalCaseNumber}`);
+                    
+                    // Clear old case data if switching cases
+                    if (this.currentCaseId && globalCaseNumber && this.currentCaseId !== globalCaseNumber) {
+                        this.clearCaseData();
+                    } else if (this.currentCaseId && !globalCaseNumber) {
+                        this.clearCaseData();
+                    }
+                    
+                    // Update internal state
+                    this.currentCaseId = globalCaseNumber;
+                    
+                    // Update display
+                    this.updateBannerUI();
+                }
+            }
+        }, 500); // Check every 500ms
+        
+        console.log('[PersistentBanner] Global case number listener started');
     },
 
     /**
      * Setup listener for CasePageDataExtractor events
      */
     setupCaseDataListener() {
-        document.addEventListener('casePageDataExtracted', (event) => {
+        // Remove existing listener if present
+        if (this.caseDataEventHandler) {
+            document.removeEventListener('casePageDataExtracted', this.caseDataEventHandler);
+        }
+
+        // Create and store handler reference
+        this.caseDataEventHandler = (event) => {
             const data = event.detail;
             console.log('[PersistentBanner] Received case page data from CasePageDataExtractor:', data);
 
-            // Validate that the data matches the current URL's case ID
-            const currentUrlCaseId = this.getCurrentCaseIdFromUrl();
+            // Validate that the data matches the global case number
+            const globalCaseNumber = window.ExLibrisExtension?.currentCaseNumber;
             const dataCaseId = data.caseId || data.caseNumber || null;
 
-            if (!currentUrlCaseId) {
-                console.warn('[PersistentBanner] No case ID in current URL, ignoring case data');
+            if (!globalCaseNumber) {
+                console.warn('[PersistentBanner] No global case number set, ignoring case data');
                 return;
             }
 
-            if (dataCaseId && currentUrlCaseId !== dataCaseId) {
-                console.warn(`[PersistentBanner] Data case ID (${dataCaseId}) does not match URL case ID (${currentUrlCaseId}), ignoring stale data`);
+            if (dataCaseId && globalCaseNumber !== dataCaseId) {
+                console.warn(`[PersistentBanner] Data case ID (${dataCaseId}) does not match global case number (${globalCaseNumber}), ignoring stale data`);
                 return;
             }
 
-            console.log('[PersistentBanner] Data validated for case:', currentUrlCaseId);
+            console.log('[PersistentBanner] Data validated for case:', globalCaseNumber);
 
-            // Check if we've navigated to a different case
-            if (this.currentCaseId && currentUrlCaseId && this.currentCaseId !== currentUrlCaseId) {
-                console.log(`[PersistentBanner] Navigated from case ${this.currentCaseId} to ${currentUrlCaseId}, clearing old data...`);
-                this.clearCaseData();
-            }
-
-            // Update current case ID
-            this.currentCaseId = currentUrlCaseId;
+            // Sync internal state with global
+            this.currentCaseId = globalCaseNumber;
 
             // Update customer metadata from extracted data
             // CasePageDataExtractor now enriches data with custID, instID, server from CustomerDataManager
@@ -164,7 +308,10 @@ const PersistentBanner = {
 
             // Update banner UI with new metadata and status
             this.updateBannerUI();
-        });
+        };
+
+        // Attach the event listener
+        document.addEventListener('casePageDataExtracted', this.caseDataEventHandler);
 
         // Also listen to PageIdentifier for view changes within the same case
         if (typeof PageIdentifier !== 'undefined' && typeof PageIdentifier.monitorPageChanges === 'function') {
@@ -175,6 +322,11 @@ const PersistentBanner = {
                 if (pageInfo.type === 'case_page' || pageInfo.type === 'case_comments') {
                     const caseId = pageInfo.caseId;
 
+                    // Sync with global case number
+                    if (typeof window.ExLibrisExtension !== 'undefined') {
+                        window.ExLibrisExtension.currentCaseNumber = caseId;
+                    }
+
                     // If the case ID changed, clear old data
                     if (caseId && this.currentCaseId && caseId !== this.currentCaseId) {
                         console.log(`[PersistentBanner] Case changed from ${this.currentCaseId} to ${caseId}`);
@@ -182,7 +334,10 @@ const PersistentBanner = {
                         this.currentCaseId = caseId;
                     }
                 } else {
-                    // Not a case page, clear case data
+                    // Not a case page, clear case data and global case number
+                    if (typeof window.ExLibrisExtension !== 'undefined') {
+                        window.ExLibrisExtension.currentCaseNumber = null;
+                    }
                     if (this.currentCaseId) {
                         console.log('[PersistentBanner] Left case page, clearing case data');
                         this.clearCaseData();
@@ -272,6 +427,11 @@ const PersistentBanner = {
         // Get the new case ID from URL
         const newCaseId = this.getCurrentCaseIdFromUrl();
 
+        // Update global case number
+        if (typeof window.ExLibrisExtension !== 'undefined') {
+            window.ExLibrisExtension.currentCaseNumber = newCaseId;
+        }
+
         // Check if we navigated to a different case or away from a case
         if (this.currentCaseId && newCaseId !== this.currentCaseId) {
             console.log(`[PersistentBanner] Case changed from ${this.currentCaseId} to ${newCaseId || 'non-case page'}`);
@@ -282,6 +442,9 @@ const PersistentBanner = {
             // Clear case-specific data when navigating away from case pages
             this.clearCaseData();
         }
+
+        // Sync internal state with global
+        this.currentCaseId = newCaseId;
 
         // Reset current page to initial state
         this.currentPage = {
@@ -307,7 +470,7 @@ const PersistentBanner = {
     clearCaseData() {
         console.log('[PersistentBanner] Clearing case-specific data');
         
-        // Clear current case ID
+        // Clear current case ID (internal state only, not global)
         this.currentCaseId = null;
         
         // Clear customer metadata
@@ -383,23 +546,37 @@ const PersistentBanner = {
 
     /**
      * Update current page information
+     * Reads case information from GlobalCaseState as source of truth
      * @param {Object} pageData
      */
     updateCurrentPage(pageData = {}) {
-        // Validate case data matches current URL if this is a case page
-        if (pageData.type === 'Case' && pageData.caseNumber) {
-            const currentUrlCaseId = this.getCurrentCaseIdFromUrl();
+        // ALWAYS read from GlobalCaseState as source of truth
+        let caseNumber = null;
+        let caseId = null;
 
-            // Check if the page data case matches the URL
-            if (currentUrlCaseId && pageData.caseId && currentUrlCaseId !== pageData.caseId) {
-                console.warn(`[PersistentBanner] updateCurrentPage: case ID mismatch (data: ${pageData.caseId}, URL: ${currentUrlCaseId}), ignoring`);
-                return;
+        if (typeof GlobalCaseState !== 'undefined') {
+            caseNumber = GlobalCaseState.getCaseNumber();
+            caseId = GlobalCaseState.getCaseId();
+            console.log('[PersistentBanner] Using GlobalCaseState - Case ID:', caseId, 'Case Number:', caseNumber);
+
+            // If pageData has case info that differs from GlobalCaseState, warn and use GlobalCaseState
+            if (pageData.caseNumber && pageData.caseNumber !== caseNumber) {
+                console.warn(`[PersistentBanner] pageData case number (${pageData.caseNumber}) differs from GlobalCaseState (${caseNumber}), using GlobalCaseState`);
             }
+            if (pageData.caseId && pageData.caseId !== caseId) {
+                console.warn(`[PersistentBanner] pageData case ID (${pageData.caseId}) differs from GlobalCaseState (${caseId}), using GlobalCaseState`);
+            }
+        } else {
+            console.warn('[PersistentBanner] GlobalCaseState not available, using pageData');
+            // Fallback to pageData
+            caseNumber = pageData.caseNumber;
+            caseId = pageData.caseId;
         }
 
         this.currentPage = {
             type: pageData.type || 'Unknown',
-            caseNumber: pageData.caseNumber || null,
+            caseNumber: caseNumber,
+            caseId: caseId,
             subject: pageData.subject || null,
             status: pageData.status || null,
             subStatus: pageData.subStatus || null,
@@ -409,13 +586,12 @@ const PersistentBanner = {
 
         console.log('[PersistentBanner] Updated current page:', this.currentPage);
 
-        // Update current case ID if on a case page
-        if (this.currentPage.type === 'Case') {
-            const caseId = this.getCurrentCaseIdFromUrl();
-            if (caseId && caseId !== this.currentCaseId) {
-                this.currentCaseId = caseId;
-                console.log('[PersistentBanner] Updated current case ID:', this.currentCaseId);
-            }
+        // Update internal tracking
+        this.currentCaseId = caseId;
+
+        // Mark that PersistentBanner has consumed the global state
+        if (typeof GlobalCaseState !== 'undefined' && caseNumber) {
+            GlobalCaseState.markPersistentBannerUsed(caseNumber);
         }
 
         // Update UI
@@ -802,7 +978,17 @@ const PersistentBanner = {
                 } else if (!caseData.accountName) {
                     console.warn('[PersistentBanner] No account name available for timezone detection');
                 }
-                
+
+                // Step 6: Highlight Jira fields now that panel is shown
+                // These fields (Primary_Jira__c and Jira_Status__c) are only visible after panel injection
+                if (typeof FieldHighlighter !== 'undefined' &&
+                    typeof FieldHighlighter.highlightJiraFields === 'function') {
+                    setTimeout(() => {
+                        console.log('[PersistentBanner] Highlighting Jira fields after panel injection');
+                        FieldHighlighter.highlightJiraFields();
+                    }, 1000); // Wait for panel DOM to be fully rendered
+                }
+
                 this.showNotification(
                     `Panel ready for case ${caseData.caseNumber}. Click "Prepare Tools" to continue.`,
                     'success'
@@ -1090,6 +1276,14 @@ const PersistentBanner = {
     updateBannerUI() {
         if (!this.elements.pageType) return;
 
+        // Always use global case number for display
+        const globalCaseNumber = window.ExLibrisExtension?.currentCaseNumber;
+        
+        // Sync internal state
+        if (globalCaseNumber !== this.currentCaseId) {
+            this.currentCaseId = globalCaseNumber;
+        }
+
         // Update page type with friendly display name
         const displayName = this.getPageTypeDisplayName(this.currentPage.type);
         this.elements.pageType.textContent = displayName;
@@ -1098,8 +1292,9 @@ const PersistentBanner = {
         this.elements.pageType.className = 'exl-banner-page-type';
         this.elements.pageType.classList.add(`exl-page-${this.currentPage.type.toLowerCase().replace(/\s+/g, '-')}`);
 
-        // Update metadata
-        this.elements.caseNumber.textContent = this.currentPage.caseNumber || '—';
+        // Update metadata - use global case number if available
+        const displayCaseNumber = globalCaseNumber || this.currentPage.caseNumber || '—';
+        this.elements.caseNumber.textContent = displayCaseNumber;
         this.elements.subject.textContent = this.currentPage.subject || '—';
         this.elements.status.textContent = this.currentPage.status || '—';
         this.elements.subStatus.textContent = this.currentPage.subStatus || '—';
@@ -1163,7 +1358,8 @@ const PersistentBanner = {
         
         // Show/hide metadata section based on page type
         const metadataSection = this.elements.banner.querySelector('.exl-banner-metadata');
-        if (this.currentPage.type === 'Case' && this.currentPage.caseNumber) {
+        // Use global case number to determine if we should show metadata
+        if (this.currentPage.type === 'Case' && globalCaseNumber) {
             metadataSection.style.display = 'flex';
         } else {
             metadataSection.style.display = 'none';
@@ -1363,13 +1559,48 @@ const PersistentBanner = {
     },
 
     /**
-     * Clean up
+     * Clean up - Called only when extension is being unloaded
+     * NOT called during normal navigation/URL changes
      */
     cleanup() {
+        console.log('[PersistentBanner] Starting cleanup (extension unload)...');
+        
+        // Remove event listener
+        if (this.caseDataEventHandler) {
+            document.removeEventListener('casePageDataExtracted', this.caseDataEventHandler);
+            this.caseDataEventHandler = null;
+            console.log('[PersistentBanner] Event listener removed');
+        }
+
+        // Clear global case number ONLY on extension unload
+        if (typeof window.ExLibrisExtension !== 'undefined') {
+            window.ExLibrisExtension.currentCaseNumber = null;
+            console.log('[PersistentBanner] Global case number cleared (extension unload)');
+        }
+
+        // Stop monitoring and remove DOM elements
         this.stopUrlMonitoring();
         this.remove();
+        
+        // Clear internal state
+        this.currentCaseId = null;
+        this.currentPage = {
+            type: 'Unknown',
+            caseNumber: null,
+            subject: null,
+            status: null,
+            subStatus: null
+        };
+        this.customerMetadata = {
+            customerId: null,
+            institutionId: null,
+            server: null,
+            productServiceName: null,
+            institutionCode: null
+        };
+        
         this.isInitialized = false;
-        console.log('[PersistentBanner] Cleaned up');
+        console.log('[PersistentBanner] Cleanup complete (extension unloaded)');
     },
 
     /**

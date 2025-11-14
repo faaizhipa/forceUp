@@ -856,12 +856,20 @@ const FlexipagePanelInjector = {
             }
         });
 
-        this.observer.observe(document.body, {
+        // Observe a smaller subtree instead of entire document.body
+        // Target the Salesforce console container which is more specific
+        const observeTarget = document.querySelector('.oneConsole') ||
+                             document.querySelector('one-record-home-flexipage2') ||
+                             document.querySelector('.flexipageComponent') ||
+                             document.body; // Fallback to body only if no better container found
+
+        this.observer.observe(observeTarget, {
             childList: true,
             subtree: true
         });
 
-        console.log('[EXL] FlexipagePanelInjector: Watching for header...');
+        const targetName = observeTarget.className || observeTarget.tagName.toLowerCase();
+        console.log(`[EXL] FlexipagePanelInjector: Watching for header in ${targetName}...`);
     },
 
     /**

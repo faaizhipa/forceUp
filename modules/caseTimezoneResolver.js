@@ -430,7 +430,10 @@ const CaseTimezoneResolver = {
                 for (const node of mutation.addedNodes) {
                     if (node.nodeType === 1 && node.tagName === 'DIV' && node.getAttribute('name') === 'dialog') {
                         console.log('[CaseTimezoneResolver] Hover panel detected!');
-                        
+
+                        // Stop observer immediately after finding panel
+                        this.stopHoverPanelObserver();
+
                         // Wait for content to load
                         setTimeout(() => {
                             this.extractAddressFromPanel(node);
