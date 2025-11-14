@@ -15,10 +15,11 @@ const SettingsManager = (function() {
         fieldHighlighting: true,
         contextMenu: true,
         multiTabSync: true,
-        caseCommentMemory: true,
+        caseCommentMemory: false,
         characterCounter: true,
-        dynamicMenu: true,
-        persistentBanner: true
+        dynamicMenu: false,
+        persistentBanner: false,
+        highlighterEnabled: true
       },
 
       // UI preferences

@@ -6,7 +6,7 @@
          "48": "icons/ExtLogoV3.png"
       },
       "default_popup": "popup.html",
-      "default_title": "Penang CoE CForce Extension"
+      "default_title": "Penang CoE Salesforce and Docs Extension"
    },
    "background": {
       "service_worker": "background.js"
@@ -67,9 +67,25 @@
             "modules/styles/injected-panel.css",
             "modules/styles/persistent-banner.css"
          ]
+      },
+      {
+         "js": [
+            "modules/settingsManager.js",
+            "modules/highlighter.js",
+            "modules/stickyNotes.js",
+            "modules/bookmarkManager.js",
+            "content_script_highlighter.js"
+         ],
+         "matches": [
+            "https://support.clarivate.com/*",
+            "https://knowledge.exlibrisgroup.com/*",
+            "https://developers.exlibrisgroup.com/*"
+         ],
+         "run_at": "document_idle",
+         "css": [ "modules/styles/highlighter.css" ]
       }
    ],
-   "description": "Change the styles, especially the background color, of elements or ancestor/enclosing elements with specific content.",
+   "description": "Productivity Tools for Clarivate and Ex Libris",
    "icons": {
       "128": "icons/ExtLogoV3.png",
       "16": "icons/ExtLogoV3.png",
@@ -77,10 +93,10 @@
    },
    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwEtsrKbUbSe0JeeMtKca1Ka786YKcryHy5uKYPXm5Zm7QUnr/pn8YU/zGjs0ByOkO5309ro9sRsVKscYpYLfqiiQQGNvS5hnYSUh/z43QrS//ItbDHMmjlkJdryctqLO87pUVdbo97knNZ4fXAYkZNZFjjMG8UergCmOgkSt+9k6aQnSE+r1vmME+v3Tl44Wr8GOkM0TohvH1GdQODSh7tNcVpEtj3GnEmHR9NhABR95+cNLwIv9e3d/hWYpdPOm1gwf5bxWKlgbdtA93rFVALZiLcJ6HfBBElnWrXAl9vBMnqzFy+urtuF9ZJb3Qf64gdBa9IOnF0KVBDLI1DTm+wIDAQAB",
    "manifest_version": 3,
-   "name": "Penang CoE CForce Extension",
+   "name": "Penang CoE Salesforce and Docs Extension",
    "permissions": [ "storage", "tabs", "activeTab", "contextMenus" ],
    "update_url": "https://clients2.google.com/service/update2/crx",
-   "version": "4.0",
+   "version": "7.0",
    "web_accessible_resources": [
       {
          "resources": [

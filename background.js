@@ -175,8 +175,25 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     }
   });
 
-// Create context menus on installation
-chrome.runtime.onInstalled.addListener(() => {
+// ========== EXTENSION UPDATE HANDLING ==========
+
+/**
+ * Handle extension installation and updates
+ */
+chrome.runtime.onInstalled.addListener((details) => {
   console.log('[Background] Extension installed/updated');
   createContextMenus();
+  
+  // Show landing page on update (but not on first install)
+  if (details.reason === 'update') {
+    const previousVersion = details.previousVersion;
+    const currentVersion = chrome.runtime.getManifest().version;
+    
+    console.log(`[Background] Updated from ${previousVersion} to ${currentVersion}`);
+    
+    // Open the landing page
+    chrome.tabs.create({
+      url: chrome.runtime.getURL('updated.html')
+    });
+  }
 });

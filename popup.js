@@ -175,6 +175,7 @@ function populateUI(settings) {
     document.getElementById('featureCharCounter').checked = settings.exlibris.features.characterCounter !== false;
     document.getElementById('featureDynamicMenu').checked = settings.exlibris.features.dynamicMenu !== false;
     document.getElementById('featurePersistentBanner').checked = settings.exlibris.features.persistentBanner !== false;
+    document.getElementById('featureHighlighter').checked = settings.exlibris.features.highlighterEnabled === true;
   }
   
   // UI preferences
@@ -259,7 +260,8 @@ function getSettingsFromUI() {
         caseCommentMemory: document.getElementById('featureCommentMemory').checked,
         characterCounter: document.getElementById('featureCharCounter').checked,
         dynamicMenu: document.getElementById('featureDynamicMenu').checked,
-        persistentBanner: document.getElementById('featurePersistentBanner').checked
+        persistentBanner: document.getElementById('featurePersistentBanner').checked,
+        highlighterEnabled: document.getElementById('featureHighlighter').checked
       },
       ui: {
         buttonLabelStyle: document.getElementById('labelStyleSelect').value,
@@ -365,17 +367,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     // ignore if not available
   }
   
-  // Check if on Salesforce
-  const isSalesforce = activeTab.url.includes("clarivateanalytics.lightning.force.com") || 
-                      activeTab.url.includes("clarivateanalytics--preprod.sandbox.lightning.force.com") || 
-                      activeTab.url.includes("proquestllc.lightning.force.com");
-  
-  if (!isSalesforce) {
-    document.getElementById('notInSFDC').style.display = 'block';
-    document.getElementById('settingsContainer').style.display = 'none';
-    return;
-  }
-  
   // Load and populate settings
   const settings = await loadSettings();
   populateUI(settings);
@@ -464,8 +455,24 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   
   // Export button
-  document.getElementById('exportButton').addEventListener('click', () => {
-    const json = JSON.stringify(currentSettings, null, 2);
+  document.getElementById('exportButton').addEventListener('click', async () => {
+    // Get settings from chrome.storage.sync
+    const syncData = currentSettings;
+    
+    // Get all data from chrome.storage.local (includes highlights, notes, bookmarks)
+    const localData = await new Promise((resolve) => {
+      chrome.storage.local.get(null, (result) => resolve(result));
+    });
+    
+    // Combine both into export package
+    const exportData = {
+      version: '4.0',
+      exportDate: new Date().toISOString(),
+      settings: syncData,
+      data: localData
+    };
+    
+    const json = JSON.stringify(exportData, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -473,7 +480,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     a.download = 'cforce-extension-settings.json';
     a.click();
     URL.revokeObjectURL(url);
-    showSuccess('Settings exported');
+    showSuccess('Settings and data exported');
   });
   
   // Import button
@@ -488,10 +495,26 @@ document.addEventListener("DOMContentLoaded", async () => {
       const reader = new FileReader();
       reader.onload = async (event) => {
         try {
-          const settings = JSON.parse(event.target.result);
-          await saveSettings(settings);
-          populateUI(settings);
-          showSuccess('Settings imported successfully');
+          const importData = JSON.parse(event.target.result);
+          
+          // Handle legacy format (just settings) or new format (settings + data)
+          if (importData.settings && importData.data) {
+            // New format with both settings and data
+            await saveSettings(importData.settings);
+            
+            // Restore all local data (highlights, notes, bookmarks, cache, etc.)
+            await new Promise((resolve) => {
+              chrome.storage.local.set(importData.data, () => resolve());
+            });
+            
+            populateUI(importData.settings);
+            showSuccess('Settings and data imported successfully');
+          } else {
+            // Legacy format (just settings)
+            await saveSettings(importData);
+            populateUI(importData);
+            showSuccess('Settings imported successfully');
+          }
         } catch (error) {
           alert('Error importing settings: Invalid JSON file');
           console.error('Import error:', error);
