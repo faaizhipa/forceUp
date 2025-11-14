@@ -161,6 +161,17 @@
           
           // Set color in highlighter
           Highlighter.setColor(color.id);
+          
+          // If there's a text selection, highlight it with this color
+          let selectionNow = window.getSelection();
+          let selectedTextNow = selectionNow.toString().trim();
+          if (selectionNow && selectedTextNow.length > 0) {
+            Highlighter.setColor(color.id);
+            Highlighter.createHighlight(selectedTextNow);
+            selectionNow = null;
+          } else {
+            Highlighter.setColor(color.id);
+          }
         });
 
         palette.appendChild(chip);

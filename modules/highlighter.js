@@ -30,6 +30,8 @@ const Highlighter = (function() {
   let isInitialized = false;
   let selectionToolbar = null;
   let savedRange = null; // Store the selected range for toolbar highlighting
+  let contentObserver = null; // Watch for dynamic content loading
+  let pendingHighlights = new Set(); // Track highlights that failed to render
 
   /**
    * Initialize highlighter
@@ -40,12 +42,40 @@ const Highlighter = (function() {
     console.log('[Highlighter] Initializing...');
     
     await loadHighlights();
-    renderHighlights();
+    await renderHighlights(); // Wait for initial render
     setupContextMenu();
     setupSelectionToolbar();
+    setupContentObserver(); // Watch for dynamic content
     
     isInitialized = true;
     console.log('[Highlighter] Initialized with', Object.keys(highlights).length, 'highlights');
+  }
+
+  /**
+   * Setup MutationObserver to watch for dynamic content loading
+   * (Critical for Aura/Lightning components that load asynchronously)
+   */
+  function setupContentObserver() {
+    contentObserver = new MutationObserver((mutations) => {
+      // Only retry if we have pending highlights
+      if (pendingHighlights.size === 0) return;
+
+      // Debounce: wait for content to settle
+      clearTimeout(contentObserver.timer);
+      contentObserver.timer = setTimeout(() => {
+        console.log('[Highlighter] Content changed, retrying', pendingHighlights.size, 'pending highlights');
+        retryPendingHighlights();
+      }, 500);
+    });
+
+    // Observe content areas for changes
+    contentObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+
+    console.log('[Highlighter] Content observer active');
   }
 
   /**
@@ -151,6 +181,7 @@ const Highlighter = (function() {
       colorId: currentColor.id,
       timestamp: Date.now(),
       xpath: xpath,
+      containerTag: containerElement.tagName.toLowerCase(),
       startOffset: range.startOffset,
       endOffset: range.endOffset
     };
@@ -189,59 +220,157 @@ const Highlighter = (function() {
   }
 
   /**
-   * Render all highlights on page
+   * Render all highlights on page (async to allow for batch processing)
    */
-  function renderHighlights() {
-    Object.values(highlights).forEach(highlight => {
-      try {
-        // Check if already rendered
-        if (document.querySelector(`[data-highlight-id="${highlight.id}"]`)) {
-          return;
+  async function renderHighlights() {
+    const highlightList = Object.values(highlights);
+    
+    for (const highlight of highlightList) {
+      const success = await renderSingleHighlight(highlight);
+      if (!success) {
+        pendingHighlights.add(highlight.id);
+      } else {
+        pendingHighlights.delete(highlight.id);
+      }
+      
+      // Yield to browser every 10 highlights to avoid blocking
+      if (highlightList.indexOf(highlight) % 10 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+
+    if (pendingHighlights.size > 0) {
+      console.log('[Highlighter] Waiting for content to load for', pendingHighlights.size, 'highlights');
+    } else {
+      console.log('[Highlighter] All highlights rendered successfully');
+    }
+  }
+
+  /**
+   * Retry rendering highlights that failed initially
+   */
+  async function retryPendingHighlights() {
+    const toRetry = Array.from(pendingHighlights);
+    
+    for (const highlightId of toRetry) {
+      const highlight = highlights[highlightId];
+      if (highlight) {
+        const success = await renderSingleHighlight(highlight);
+        if (success) {
+          pendingHighlights.delete(highlightId);
+          console.log('[Highlighter] Successfully rendered pending highlight:', highlightId);
         }
+      } else {
+        // Highlight was deleted, remove from pending
+        pendingHighlights.delete(highlightId);
+      }
+      
+      // Yield to browser between retries
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
 
-        const containerElement = getElementByXPath(highlight.xpath);
-        if (!containerElement) {
-          console.warn('[Highlighter] Container not found for highlight:', highlight.id);
-          return;
-        }
+    if (pendingHighlights.size === 0) {
+      console.log('[Highlighter] All highlights rendered successfully');
+    }
+  }
 
-        // Find the text node containing our highlighted text
-        const textNodes = getTextNodesIn(containerElement);
-        let textFound = false;
+  /**
+   * Render a single highlight (async for better performance)
+   * Returns true if successful, false if content not yet available
+   */
+  async function renderSingleHighlight(highlight) {
+    try {
+      // Check if already rendered
+      if (document.querySelector(`[data-highlight-id="${highlight.id}"]`)) {
+        return true;
+      }
 
-        for (const textNode of textNodes) {
-          const text = textNode.textContent;
-          const index = text.indexOf(highlight.text);
-          
-          if (index !== -1) {
-            // Create range for the found text
-            const range = document.createRange();
-            range.setStart(textNode, index);
-            range.setEnd(textNode, index + highlight.text.length);
+      let containerElement = getElementByXPath(highlight.xpath);
+      
+      // Fallback: If XPath fails (dynamic content), search for text in common containers
+      if (!containerElement) {
+        containerElement = findContainerByText(highlight.text, highlight.containerTag);
+      }
+      
+      if (!containerElement) {
+        return false; // Content not loaded yet
+      }
 
-            // Create and insert highlight span
-            const span = document.createElement('span');
-            span.className = `${HIGHLIGHT_CLASS_PREFIX} exl-hl-color-${highlight.colorId}`;
-            span.dataset.highlightId = highlight.id;
-            span.dataset.colorId = highlight.colorId;
+      // Find the text node containing our highlighted text
+      const textNodes = getTextNodesIn(containerElement);
+      let textFound = false;
 
-            try {
-              range.surroundContents(span);
-              textFound = true;
-              break;
-            } catch (e) {
-              console.warn('[Highlighter] Could not wrap text for highlight:', highlight.id, e);
-            }
+      for (const textNode of textNodes) {
+        const text = textNode.textContent;
+        const index = text.indexOf(highlight.text);
+        
+        if (index !== -1) {
+          // Create range for the found text
+          const range = document.createRange();
+          range.setStart(textNode, index);
+          range.setEnd(textNode, index + highlight.text.length);
+
+          // Create and insert highlight span
+          const span = document.createElement('span');
+          span.className = `${HIGHLIGHT_CLASS_PREFIX} exl-hl-color-${highlight.colorId}`;
+          span.dataset.highlightId = highlight.id;
+          span.dataset.colorId = highlight.colorId;
+
+          try {
+            range.surroundContents(span);
+            textFound = true;
+            break;
+          } catch (e) {
+            console.warn('[Highlighter] Could not wrap text for highlight:', highlight.id, e);
+            return false;
           }
         }
-
-        if (!textFound) {
-          console.warn('[Highlighter] Text not found for highlight:', highlight.id);
-        }
-      } catch (e) {
-        console.warn('[Highlighter] Error rendering highlight:', highlight.id, e);
       }
-    });
+
+      if (!textFound) {
+        return false; // Text not found yet
+      }
+
+      return true; // Successfully rendered
+    } catch (e) {
+      console.warn('[Highlighter] Error rendering highlight:', highlight.id, e);
+      return false;
+    }
+  }
+
+  /**
+   * Find container element by searching for text content (fallback strategy)
+   */
+  function findContainerByText(text, tagName = null) {
+    // Search in article/main content areas first
+    const contentAreas = [
+      'article',
+      '.article-column',
+      '.content',
+      'main',
+      '[role="main"]',
+      '.slds-rich-text-editor__output',
+      '.uiOutputRichText',
+      '.forceOutputRichText'
+    ];
+
+    for (const selector of contentAreas) {
+      const containers = document.querySelectorAll(selector);
+      for (const container of containers) {
+        if (container.textContent.includes(text)) {
+          // If we have a tag name preference, try to find it within this container
+          if (tagName) {
+            const specificElement = Array.from(container.querySelectorAll(tagName))
+              .find(el => el.textContent.includes(text));
+            if (specificElement) return specificElement;
+          }
+          return container;
+        }
+      }
+    }
+
+    // Last resort: search entire body
+    return document.body;
   }
 
   /**
@@ -347,9 +476,15 @@ const Highlighter = (function() {
     document.addEventListener('mouseup', handleTextSelection);
     document.addEventListener('keyup', handleTextSelection);
     
-    // Hide toolbar when clicking outside
+    // Hide toolbar when clicking outside (but not on banner color palette)
     document.addEventListener('mousedown', (e) => {
       if (selectionToolbar && !selectionToolbar.contains(e.target)) {
+        // Don't hide if clicking on banner color palette
+        const clickedElement = e.target;
+        if (clickedElement.closest('.exl-hl-color-chip') || clickedElement.closest('.exl-hl-palette')) {
+          return; // Let the banner color click handler work
+        }
+        
         const selection = window.getSelection();
         if (!selection || selection.toString().trim() === '') {
           hideSelectionToolbar();
@@ -489,10 +624,11 @@ const Highlighter = (function() {
   }
 
   /**
-   * Get XPath for an element
+   * Get XPath for an element (ignoring dynamic Aura attributes)
    */
   function getXPath(element) {
-    if (element.id) {
+    if (element.id && !element.id.includes(':') && !element.id.match(/^\d/)) {
+      // Use ID if it's stable (not Aura-generated IDs with colons or starting with numbers)
       return `//*[@id="${element.id}"]`;
     }
     
@@ -500,18 +636,57 @@ const Highlighter = (function() {
       return '/html/body';
     }
 
+    // Build path using stable attributes (classes, not data-aura-* attributes)
     let index = 0;
     const siblings = element.parentNode.childNodes;
     
     for (let i = 0; i < siblings.length; i++) {
       const sibling = siblings[i];
       if (sibling === element) {
+        // Try to use stable class names if available
+        const stableClasses = getStableClasses(element);
+        if (stableClasses.length > 0) {
+          const classSelector = stableClasses.map(c => `contains(@class, "${c}")`).join(' and ');
+          return getXPath(element.parentNode) + '/' + element.tagName.toLowerCase() + 
+                 '[' + classSelector + '][' + (index + 1) + ']';
+        }
         return getXPath(element.parentNode) + '/' + element.tagName.toLowerCase() + '[' + (index + 1) + ']';
       }
       if (sibling.nodeType === 1 && sibling.tagName === element.tagName) {
-        index++;
+        // Only count siblings with matching stable classes
+        const siblingClasses = getStableClasses(sibling);
+        const elementClasses = getStableClasses(element);
+        if (siblingClasses.length === 0 || elementClasses.length === 0 || 
+            arraysOverlap(siblingClasses, elementClasses)) {
+          index++;
+        }
       }
     }
+  }
+
+  /**
+   * Get stable class names (exclude Aura/LWC dynamic classes)
+   */
+  function getStableClasses(element) {
+    if (!element.className || typeof element.className !== 'string') return [];
+    
+    const classes = element.className.split(/\s+/).filter(c => {
+      // Exclude dynamic/generated classes
+      return c && 
+             !c.startsWith('lwc-') && 
+             !c.match(/^data-/) &&
+             !c.match(/^\d/) &&
+             !c.includes(':');
+    });
+    
+    return classes.slice(0, 2); // Use first 2 stable classes for specificity
+  }
+
+  /**
+   * Check if two arrays have any common elements
+   */
+  function arraysOverlap(arr1, arr2) {
+    return arr1.some(item => arr2.includes(item));
   }
 
   /**
@@ -559,6 +734,13 @@ const Highlighter = (function() {
    * Cleanup
    */
   function cleanup() {
+    // Disconnect content observer
+    if (contentObserver) {
+      contentObserver.disconnect();
+      contentObserver = null;
+      console.log('[Highlighter] Content observer disconnected');
+    }
+
     // Remove all highlight spans
     document.querySelectorAll(`.${HIGHLIGHT_CLASS_PREFIX}`).forEach(span => {
       const parent = span.parentNode;
@@ -577,6 +759,7 @@ const Highlighter = (function() {
     document.removeEventListener('keyup', handleTextSelection);
 
     highlights = {};
+    pendingHighlights.clear();
     isInitialized = false;
     console.log('[Highlighter] Cleaned up');
   }
