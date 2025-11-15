@@ -130,6 +130,131 @@
   box-shadow: 0 0 0 2px oklch(0.45 0.15 270);
 }
 
+/* ========== LAYER DROPDOWN ========== */
+.exl-hl-layer-container {
+  position: relative;
+  display: inline-block;
+}
+
+.exl-hl-layer-btn {
+  padding: 0.5rem 0.875rem;
+  font-size: 0.875rem;
+}
+
+.exl-hl-layer-dropdown {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  background: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  min-width: 14rem;
+  max-height: 20rem;
+  overflow-y: auto;
+  z-index: 1000002;
+  animation: exl-hl-dropdown-slide-in 150ms ease-out;
+}
+
+@keyframes exl-hl-dropdown-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.exl-hl-layer-item {
+  padding: 0.625rem 1rem;
+  color: oklch(0.35 0 0);
+  font-size: 0.875rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: background-color 100ms ease-out;
+  position: relative;
+}
+
+.exl-hl-layer-item:hover {
+  background-color: oklch(0.97 0 0);
+}
+
+.exl-hl-layer-item:active {
+  background-color: oklch(0.95 0 0);
+}
+
+.exl-hl-new-layer {
+  font-weight: 500;
+  color: oklch(0.45 0.15 270);
+  border-bottom: 1px solid oklch(0.90 0 0);
+}
+
+.exl-hl-new-layer:hover {
+  background-color: oklch(0.98 0.02 270);
+}
+
+.exl-hl-layer-icon {
+  font-size: 1rem;
+}
+
+.exl-hl-layer-separator {
+  height: 1px;
+  background: oklch(0.90 0 0);
+  margin: 0.25rem 0;
+}
+
+.exl-hl-layer-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exl-hl-active-layer {
+  background-color: oklch(0.98 0.02 270);
+  font-weight: 500;
+}
+
+.exl-hl-layer-checkmark {
+  color: oklch(0.45 0.15 270);
+  font-weight: 600;
+  font-size: 1rem;
+  margin-right: 0.25rem;
+}
+
+.exl-hl-layer-context {
+  position: fixed;
+  background: white;
+  border-radius: 0.375rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  min-width: 9rem;
+  z-index: 1000003;
+  overflow: hidden;
+}
+
+.exl-hl-layer-context-item {
+  padding: 0.625rem 1rem;
+  color: oklch(0.35 0 0);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 100ms ease-out;
+}
+
+.exl-hl-layer-context-item:hover {
+  background-color: oklch(0.97 0 0);
+}
+
+.exl-hl-layer-delete {
+  color: oklch(0.50 0.15 25);
+}
+
+.exl-hl-layer-delete:hover {
+  background-color: oklch(0.98 0.05 25);
+}
+
 /* ========== HIGHLIGHT STYLES ========== */
 .exl-hl-highlight {
   cursor: pointer;

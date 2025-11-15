@@ -79,10 +79,11 @@ const Highlighter = (function() {
   }
 
   /**
-   * Get storage key for current URL
+   * Get storage key for current URL and active layer
    */
   function getStorageKey() {
-    return STORAGE_PREFIX + window.location.href;
+    const layerId = typeof LayerManager !== 'undefined' ? LayerManager.getActiveLayerId() : 'default';
+    return STORAGE_PREFIX + layerId + '_' + window.location.href;
   }
 
   /**
@@ -725,9 +726,37 @@ const Highlighter = (function() {
     if (data[key]) {
       highlights = data[key];
       await saveHighlights();
-      renderHighlights();
+      await renderHighlights();
       console.log('[Highlighter] Imported', Object.keys(highlights).length, 'highlights');
     }
+  }
+
+  /**
+   * Switch to a different layer (clear current highlights and load new layer)
+   */
+  async function switchLayer() {
+    console.log('[Highlighter] Switching layer...');
+    
+    // Clear all current highlight spans from DOM
+    document.querySelectorAll(`.${HIGHLIGHT_CLASS_PREFIX}`).forEach(span => {
+      const parent = span.parentNode;
+      if (parent) {
+        while (span.firstChild) {
+          parent.insertBefore(span.firstChild, span);
+        }
+        parent.removeChild(span);
+        parent.normalize();
+      }
+    });
+    
+    // Clear pending highlights for previous layer
+    pendingHighlights.clear();
+    
+    // Load highlights for new active layer
+    await loadHighlights();
+    await renderHighlights();
+    
+    console.log('[Highlighter] Switched layer, loaded', Object.keys(highlights).length, 'highlights');
   }
 
   /**
@@ -773,6 +802,7 @@ const Highlighter = (function() {
     getColors,
     getAllHighlights,
     importHighlights,
+    switchLayer,
     cleanup
   };
 })();

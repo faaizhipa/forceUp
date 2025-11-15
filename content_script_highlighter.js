@@ -88,6 +88,10 @@
       const palette = this.createColorPalette();
       rightSide.appendChild(palette);
 
+      // Layer dropdown button
+      const layerBtn = this.createLayerDropdown();
+      rightSide.appendChild(layerBtn);
+
       // Add Note button
       const noteBtn = document.createElement('button');
       noteBtn.className = 'exl-hl-btn';
@@ -178,6 +182,189 @@
       });
 
       return palette;
+    },
+
+    /**
+     * Create layer dropdown
+     */
+    createLayerDropdown() {
+      const container = document.createElement('div');
+      container.className = 'exl-hl-layer-container';
+
+      const button = document.createElement('button');
+      button.className = 'exl-hl-btn exl-hl-layer-btn';
+      button.title = 'Manage layers';
+      
+      // Update button text with active layer name
+      const updateButtonText = () => {
+        const activeLayer = LayerManager.getActiveLayer();
+        button.innerHTML = `📚 ${activeLayer ? activeLayer.name : 'Layers'}`;
+      };
+      updateButtonText();
+
+      // Create dropdown menu
+      const dropdown = document.createElement('div');
+      dropdown.className = 'exl-hl-layer-dropdown';
+      dropdown.style.display = 'none';
+
+      // Function to render layer list
+      const renderLayerList = () => {
+        dropdown.innerHTML = '';
+        
+        const layers = LayerManager.getAllLayers();
+        const activeLayerId = LayerManager.getActiveLayerId();
+
+        // New Layer button
+        const newLayerBtn = document.createElement('div');
+        newLayerBtn.className = 'exl-hl-layer-item exl-hl-new-layer';
+        newLayerBtn.innerHTML = '<span class="exl-hl-layer-icon">➕</span> New Layer';
+        newLayerBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const layerName = prompt('Enter layer name:');
+          if (layerName && layerName.trim()) {
+            await LayerManager.createLayer(layerName.trim());
+            renderLayerList();
+          }
+        });
+        dropdown.appendChild(newLayerBtn);
+
+        // Separator
+        const separator = document.createElement('div');
+        separator.className = 'exl-hl-layer-separator';
+        dropdown.appendChild(separator);
+
+        // Layer list
+        layers.forEach(layer => {
+          const item = document.createElement('div');
+          item.className = 'exl-hl-layer-item';
+          if (layer.id === activeLayerId) {
+            item.classList.add('exl-hl-active-layer');
+          }
+
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'exl-hl-layer-name';
+          nameSpan.textContent = layer.name;
+          
+          // Active checkmark
+          if (layer.id === activeLayerId) {
+            const checkmark = document.createElement('span');
+            checkmark.className = 'exl-hl-layer-checkmark';
+            checkmark.textContent = '✓';
+            item.appendChild(checkmark);
+          }
+          
+          item.appendChild(nameSpan);
+
+          // Click to switch layer
+          item.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (layer.id !== activeLayerId) {
+              await LayerManager.setActiveLayer(layer.id);
+              
+              // Switch both highlighter and sticky notes
+              await Promise.all([
+                Highlighter.switchLayer(),
+                StickyNotes.switchLayer()
+              ]);
+              
+              updateButtonText();
+              renderLayerList();
+            }
+            dropdown.style.display = 'none';
+          });
+
+          // Right-click context menu for rename/delete
+          item.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const contextMenu = document.createElement('div');
+            contextMenu.className = 'exl-hl-layer-context';
+            contextMenu.style.position = 'fixed';
+            contextMenu.style.left = e.clientX + 'px';
+            contextMenu.style.top = e.clientY + 'px';
+
+            // Rename option
+            const renameOption = document.createElement('div');
+            renameOption.className = 'exl-hl-layer-context-item';
+            renameOption.textContent = '✏️ Rename';
+            renameOption.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              const newName = prompt('Enter new name:', layer.name);
+              if (newName && newName.trim() && newName.trim() !== layer.name) {
+                await LayerManager.renameLayer(layer.id, newName.trim());
+                updateButtonText();
+                renderLayerList();
+              }
+              document.body.removeChild(contextMenu);
+            });
+            contextMenu.appendChild(renameOption);
+
+            // Delete option (if not last layer)
+            if (LayerManager.getLayerCount() > 1) {
+              const deleteOption = document.createElement('div');
+              deleteOption.className = 'exl-hl-layer-context-item exl-hl-layer-delete';
+              deleteOption.textContent = '🗑️ Delete';
+              deleteOption.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (confirm(`Delete layer "${layer.name}"? This will remove all highlights and notes in this layer.`)) {
+                  const wasActive = layer.id === activeLayerId;
+                  await LayerManager.deleteLayer(layer.id);
+                  
+                  if (wasActive) {
+                    // Refresh both highlighter and notes
+                    await Promise.all([
+                      Highlighter.switchLayer(),
+                      StickyNotes.switchLayer()
+                    ]);
+                    updateButtonText();
+                  }
+                  renderLayerList();
+                }
+                document.body.removeChild(contextMenu);
+              });
+              contextMenu.appendChild(deleteOption);
+            }
+
+            document.body.appendChild(contextMenu);
+
+            // Close context menu on click outside
+            const closeContextMenu = (e) => {
+              if (!contextMenu.contains(e.target)) {
+                if (document.body.contains(contextMenu)) {
+                  document.body.removeChild(contextMenu);
+                }
+                document.removeEventListener('click', closeContextMenu);
+              }
+            };
+            setTimeout(() => document.addEventListener('click', closeContextMenu), 0);
+          });
+
+          dropdown.appendChild(item);
+        });
+      };
+
+      // Toggle dropdown
+      button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isVisible = dropdown.style.display !== 'none';
+        dropdown.style.display = isVisible ? 'none' : 'block';
+        if (!isVisible) {
+          renderLayerList();
+        }
+      });
+
+      // Close dropdown when clicking outside
+      document.addEventListener('click', (e) => {
+        if (!container.contains(e.target)) {
+          dropdown.style.display = 'none';
+        }
+      });
+
+      container.appendChild(button);
+      container.appendChild(dropdown);
+
+      return container;
     },
 
     /**

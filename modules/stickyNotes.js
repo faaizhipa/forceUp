@@ -39,10 +39,13 @@ const StickyNotes = (function() {
   }
 
   /**
-   * Get storage key for current URL
+   * Get storage key for current URL and active layer
    */
   function getStorageKey() {
-    return STORAGE_PREFIX + window.location.href;
+    const layerId = typeof LayerManager !== 'undefined' 
+      ? LayerManager.getActiveLayerId() 
+      : 'default';
+    return STORAGE_PREFIX + layerId + '_' + window.location.href;
   }
 
   /**
@@ -370,13 +373,36 @@ const StickyNotes = (function() {
     console.log('[StickyNotes] Cleaned up');
   }
 
+  /**
+   * Switch to a different layer
+   * Clears current notes from DOM and loads the new layer's notes
+   */
+  async function switchLayer() {
+    console.log('[StickyNotes] Switching layer...');
+    
+    // Clear all note elements from DOM
+    document.querySelectorAll('.exl-hl-note').forEach(note => note.remove());
+    
+    // Reset drag state
+    draggedNote = null;
+    
+    // Load notes for new layer
+    await loadNotes();
+    
+    // Render new layer's notes
+    renderNotes();
+    
+    console.log('[StickyNotes] Layer switched, loaded', Object.keys(notes).length, 'notes');
+  }
+
   return {
     init,
     createNote,
     deleteNote,
     getAllNotes,
     importNotes,
-    cleanup
+    cleanup,
+    switchLayer
   };
 })();
 
