@@ -43,6 +43,12 @@ const PersistentBanner = {
     // Environment menu state
     envMenuVisible: false,
 
+    // Injection observer for DOM watching
+    injectionObserver: null,
+
+    // Case data event listener reference (for cleanup)
+    caseDataListener: null,
+
     // Status color mapping (based on caseStatusHighlighter)
     STATUS_COLORS: {
         // Red statuses - 2 shades darker from rgb(178, 15, 66)
@@ -85,15 +91,24 @@ const PersistentBanner = {
      * Initialize the persistent banner
      */
     async init() {
-        if (this.isInitialized) {
-            console.log('[PersistentBanner] Already initialized');
-            return;
-        }
-
         // Check if feature is enabled in settings
         const isEnabled = await this.isFeatureEnabled();
         if (!isEnabled) {
             console.log('[PersistentBanner] Feature is disabled in settings');
+            if (this.isInitialized) {
+                this.hide();
+            }
+            return;
+        }
+
+        // If already initialized, just ensure banner is injected and visible
+        if (this.isInitialized) {
+            console.log('[PersistentBanner] Already initialized, ensuring banner is injected');
+            if (!this.isInjected()) {
+                this.observeForInjection();
+            } else {
+                this.show();
+            }
             return;
         }
 
@@ -117,8 +132,64 @@ const PersistentBanner = {
         // Listen for settings changes
         this.setupSettingsListener();
         
+        // Check if we're already on a case page and data might be available
+        this.checkForExistingCaseData();
+        
         this.isInitialized = true;
         console.log('[PersistentBanner] Initialized');
+    },
+
+    /**
+     * Check for existing case data from CasePageDataExtractor or ExLibrisExtension
+     */
+    checkForExistingCaseData() {
+        // Check if CasePageDataExtractor has already extracted data
+        if (typeof CasePageDataExtractor !== 'undefined' && CasePageDataExtractor.getLastExtractedData) {
+            const existingData = CasePageDataExtractor.getLastExtractedData();
+            if (existingData) {
+                console.log('[PersistentBanner] Found existing case data from CasePageDataExtractor');
+                // Simulate the event to update banner
+                const event = new CustomEvent('casePageDataExtracted', {
+                    detail: existingData,
+                    bubbles: true,
+                    composed: true
+                });
+                if (this.caseDataListener) {
+                    this.caseDataListener({ detail: existingData });
+                }
+                return;
+            }
+        }
+        
+        // Check if ExLibrisExtension has case data
+        if (typeof window.ExLibrisExtension !== 'undefined' && 
+            window.ExLibrisExtension.caseToolkit && 
+            window.ExLibrisExtension.caseToolkit.caseData) {
+            const caseData = window.ExLibrisExtension.caseToolkit.caseData;
+            console.log('[PersistentBanner] Found existing case data from ExLibrisExtension');
+            
+            // Update banner with existing data
+            this.updateCurrentPage({
+                type: 'Case',
+                caseNumber: caseData.caseNumber || null,
+                subject: caseData.subject || null,
+                status: caseData.status || null,
+                subStatus: caseData.subStatus || null
+            });
+            
+            // Update customer metadata if available
+            if (caseData.custID || caseData.instID || caseData.server) {
+                this.customerMetadata = {
+                    customerId: caseData.custID || null,
+                    institutionId: caseData.instID || null,
+                    server: caseData.server || null,
+                    productServiceName: caseData.productServiceName || null,
+                    institutionCode: caseData.institutionCode || caseData.exLibrisAccountNumber || null
+                };
+            }
+            
+            this.updateBannerUI();
+        }
     },
 
     /**
@@ -207,12 +278,23 @@ const PersistentBanner = {
      * Setup listener for CasePageDataExtractor events
      */
     setupCaseDataListener() {
-        document.addEventListener('casePageDataExtracted', (event) => {
+        // Remove any existing listener to prevent duplicates
+        if (this.caseDataListener) {
+            document.removeEventListener('casePageDataExtracted', this.caseDataListener);
+        }
+        
+        // Create new listener function that updates banner with complete case data
+        this.caseDataListener = (event) => {
             const data = event.detail;
             console.log('[PersistentBanner] Received case page data from CasePageDataExtractor:', data);
             
-            // Extract case ID from the data
-            const newCaseId = data.caseNumber || null;
+            // Extract case ID from the data (use caseNumber, caseId, or extract from URL)
+            let newCaseId = data.caseNumber || data.caseId || null;
+            if (!newCaseId) {
+                // Try to extract from URL as fallback
+                const urlMatch = window.location.href.match(/\/lightning\/r\/Case\/([a-zA-Z0-9]{15,18})/);
+                newCaseId = urlMatch ? urlMatch[1] : null;
+            }
             
             // Check if we've navigated to a different case
             if (this.currentCaseId && newCaseId && this.currentCaseId !== newCaseId) {
@@ -223,27 +305,34 @@ const PersistentBanner = {
             // Update current case ID
             this.currentCaseId = newCaseId;
             
+            // Update current page with complete case data
+            this.updateCurrentPage({
+                type: 'Case',
+                caseNumber: data.caseNumber || null,
+                subject: data.subject || null,
+                status: data.status || data.pageStatus || null,
+                subStatus: data.subStatus || null
+            });
+            
             // Update customer metadata from extracted data
             // CasePageDataExtractor now enriches data with custID, instID, server from CustomerDataManager
             this.customerMetadata = {
                 customerId: data.custID || null,  // 4-digit customer ID
                 institutionId: data.instID || null,  // 4-digit institution ID
                 server: data.server || null,  // Server code (ap02, na05, etc.)
-                productServiceName: data.platformService || null,  // Platform/Service with fallback
-                institutionCode: data.exLibrisAccountNumber || null  // Institution code (61USC_INST, etc.)
+                productServiceName: data.platformService || data.productServiceName || null,  // Platform/Service with fallback
+                institutionCode: data.exLibrisAccountNumber || data.institutionCode || null  // Institution code (61USC_INST, etc.)
             };
             
             console.log('[PersistentBanner] Updated customer metadata:', this.customerMetadata);
+            console.log('[PersistentBanner] Updated current page with complete case data - showing final state');
             
-            // Update current page status from direct page data (for gradient coloring)
-            if (data.pageStatus) {
-                this.currentPage.status = data.pageStatus;
-                console.log('[PersistentBanner] Updated status from page data:', data.pageStatus);
-            }
-            
-            // Update banner UI with new metadata and status
+            // Update banner UI with all new data (final state after data extraction)
             this.updateBannerUI();
-        });
+        };
+        
+        // Register the listener
+        document.addEventListener('casePageDataExtracted', this.caseDataListener);
         
         console.log('[PersistentBanner] CasePageDataExtractor listener registered');
     },
@@ -309,21 +398,41 @@ const PersistentBanner = {
     handleUrlChange(newUrl) {
         console.log('[PersistentBanner] Handling URL change, resetting current page data');
         
-        // Clear case-specific data when navigating away
-        this.clearCaseData();
+        // Extract case ID from URL to detect if we're navigating to a different case
+        const urlMatch = newUrl.match(/\/lightning\/r\/Case\/([a-zA-Z0-9]{15,18})/);
+        const newCaseIdFromUrl = urlMatch ? urlMatch[1] : null;
         
-        // Reset current page to initial state
-        this.currentPage = {
-            type: 'Unknown',
-            caseNumber: null,
-            subject: null,
-            status: null,
-            subStatus: null,
-            url: newUrl,
-            timestamp: new Date().toISOString()
-        };
+        // Only clear case data if we're navigating to a different case or non-case page
+        if (newCaseIdFromUrl !== this.currentCaseId) {
+            console.log(`[PersistentBanner] Case ID changed from ${this.currentCaseId} to ${newCaseIdFromUrl}, clearing case data`);
+            this.clearCaseData();
+            this.currentCaseId = null; // Will be set when new case data arrives
+        }
         
-        // Update UI to show loading/unknown state
+        // Reset current page to initial state (but preserve type if it's the same case)
+        if (!newCaseIdFromUrl || newCaseIdFromUrl !== this.currentCaseId) {
+            this.currentPage = {
+                type: 'Unknown',
+                caseNumber: null,
+                subject: null,
+                status: null,
+                subStatus: null,
+                url: newUrl,
+                timestamp: new Date().toISOString()
+            };
+        } else {
+            // Same case, just update URL
+            this.currentPage.url = newUrl;
+            this.currentPage.timestamp = new Date().toISOString();
+        }
+        
+        // Ensure banner is still injected and visible after navigation
+        if (this.isInitialized && !this.isInjected()) {
+            console.log('[PersistentBanner] Banner not injected after navigation, re-injecting...');
+            this.observeForInjection();
+        }
+        
+        // Update UI to show current state
         this.updateBannerUI();
         
         // The content script will call updateCurrentPage with proper data after page analysis
@@ -415,29 +524,34 @@ const PersistentBanner = {
      * @param {Object} pageData
      */
     updateCurrentPage(pageData = {}) {
-        this.currentPage = {
-            type: pageData.type || 'Unknown',
-            caseNumber: pageData.caseNumber || null,
-            subject: pageData.subject || null,
-            status: pageData.status || null,
-            subStatus: pageData.subStatus || null,
+        // Only update fields that are provided (don't overwrite with null if data exists)
+        const updatedPage = {
+            type: pageData.type || this.currentPage.type || 'Unknown',
+            caseNumber: pageData.caseNumber !== undefined ? (pageData.caseNumber || null) : (this.currentPage.caseNumber || null),
+            subject: pageData.subject !== undefined ? (pageData.subject || null) : (this.currentPage.subject || null),
+            status: pageData.status !== undefined ? (pageData.status || null) : (this.currentPage.status || null),
+            subStatus: pageData.subStatus !== undefined ? (pageData.subStatus || null) : (this.currentPage.subStatus || null),
             url: window.location.href,
             timestamp: new Date().toISOString()
         };
+        
+        this.currentPage = updatedPage;
 
         console.log('[PersistentBanner] Updated current page:', this.currentPage);
         
-        // Update UI
+        // Update UI immediately
         this.updateBannerUI();
         
-        // Add to navigation history
-        this.addToNavigationHistory({
-            type: this.currentPage.type,
-            caseNumber: this.currentPage.caseNumber,
-            subject: this.currentPage.subject,
-            url: this.currentPage.url,
-            timestamp: this.currentPage.timestamp
-        });
+        // Add to navigation history only if we have meaningful data (not just nulls)
+        if (this.currentPage.caseNumber || this.currentPage.type !== 'Unknown') {
+            this.addToNavigationHistory({
+                type: this.currentPage.type,
+                caseNumber: this.currentPage.caseNumber,
+                subject: this.currentPage.subject,
+                url: this.currentPage.url,
+                timestamp: this.currentPage.timestamp
+            });
+        }
     },
 
     /**
@@ -1097,15 +1211,31 @@ const PersistentBanner = {
      * Update banner UI with current page data
      */
     updateBannerUI() {
-        if (!this.elements.pageType) return;
+        if (!this.elements.pageType) {
+            console.warn('[PersistentBanner] Cannot update UI - elements not cached');
+            return;
+        }
 
         // Update page type with friendly display name
-        const displayName = this.getPageTypeDisplayName(this.currentPage.type);
+        // Handle both internal types (case_page) and display names (Case)
+        let displayName = this.currentPage.type;
+        if (this.currentPage.type && this.currentPage.type.includes('_')) {
+            // Internal type format (case_page), convert to display name
+            displayName = this.getPageTypeDisplayName(this.currentPage.type);
+        } else if (this.currentPage.type && this.currentPage.type === 'Case') {
+            // Already a display name, use as-is
+            displayName = 'Case';
+        } else {
+            // Fallback to display name conversion
+            displayName = this.getPageTypeDisplayName(this.currentPage.type) || this.currentPage.type || 'Unknown';
+        }
+        
         this.elements.pageType.textContent = displayName;
         
         // Update page type styling based on type
         this.elements.pageType.className = 'exl-banner-page-type';
-        this.elements.pageType.classList.add(`exl-page-${this.currentPage.type.toLowerCase().replace(/\s+/g, '-')}`);
+        const typeClass = (this.currentPage.type || 'unknown').toLowerCase().replace(/\s+/g, '-').replace(/_/g, '-');
+        this.elements.pageType.classList.add(`exl-page-${typeClass}`);
 
         // Update metadata
         this.elements.caseNumber.textContent = this.currentPage.caseNumber || '—';
@@ -1275,6 +1405,12 @@ const PersistentBanner = {
      * Observe DOM for injection point
      */
     observeForInjection() {
+        // Disconnect any existing observer
+        if (this.injectionObserver) {
+            this.injectionObserver.disconnect();
+            this.injectionObserver = null;
+        }
+
         const tryInject = () => {
             // Try multiple injection strategies
             const injectionPoint = this.findInjectionPoint();
@@ -1292,19 +1428,27 @@ const PersistentBanner = {
         }
 
         // Set up observer for delayed injection
-        const observer = new MutationObserver(() => {
+        this.injectionObserver = new MutationObserver(() => {
             if (tryInject()) {
-                observer.disconnect();
+                if (this.injectionObserver) {
+                    this.injectionObserver.disconnect();
+                    this.injectionObserver = null;
+                }
             }
         });
 
-        observer.observe(document.body, {
+        this.injectionObserver.observe(document.body, {
             childList: true,
             subtree: true
         });
 
         // Cleanup after 10 seconds
-        setTimeout(() => observer.disconnect(), 10000);
+        setTimeout(() => {
+            if (this.injectionObserver) {
+                this.injectionObserver.disconnect();
+                this.injectionObserver = null;
+            }
+        }, 10000);
     },
 
     /**
@@ -1375,6 +1519,18 @@ const PersistentBanner = {
      * Clean up
      */
     cleanup() {
+        // Disconnect injection observer
+        if (this.injectionObserver) {
+            this.injectionObserver.disconnect();
+            this.injectionObserver = null;
+        }
+        
+        // Remove event listener
+        if (this.caseDataListener) {
+            document.removeEventListener('casePageDataExtracted', this.caseDataListener);
+            this.caseDataListener = null;
+        }
+        
         this.stopUrlMonitoring();
         this.remove();
         this.isInitialized = false;

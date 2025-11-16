@@ -149,25 +149,42 @@ const CacheManager = (function() {
    */
   function extractSignatureFields() {
     const getFieldValue = (matchers) => {
-      const selectors = matchers
-        .map((matcher) => `records-record-layout-item[field-label*="${matcher}"] .test-id__field-value, records-record-layout-item[field-label*="${matcher}"] lightning-formatted-text`)
-        .join(',');
+      try {
+        const selectors = matchers
+          .map((matcher) => `records-record-layout-item[field-label*="${matcher}"] .test-id__field-value, records-record-layout-item[field-label*="${matcher}"] lightning-formatted-text`)
+          .join(',');
 
-      const node = document.querySelector(selectors);
-      if (!node) {
+        const node = document.querySelector(selectors);
+        if (!node) {
+          return '';
+        }
+
+        const value = (node.textContent || '').trim();
+        return value;
+      } catch (error) {
+        console.warn('[CacheManager] Error extracting field value:', error);
         return '';
       }
-
-      return (node.textContent || '').trim();
     };
 
-    return {
-      status: getFieldValue(['Status']),
-      subStatus: getFieldValue(['Sub Status', 'Sub-Status']),
-      category: getFieldValue(['Category']),
-      subCategory: getFieldValue(['Sub-Category', 'Sub Category']),
-      analysisNote: getFieldValue(['Analysis Note'])
-    };
+    try {
+      return {
+        status: getFieldValue(['Status']),
+        subStatus: getFieldValue(['Sub Status', 'Sub-Status']),
+        category: getFieldValue(['Category']),
+        subCategory: getFieldValue(['Sub-Category', 'Sub Category']),
+        analysisNote: getFieldValue(['Analysis Note'])
+      };
+    } catch (error) {
+      console.warn('[CacheManager] Error extracting signature fields:', error);
+      return {
+        status: '',
+        subStatus: '',
+        category: '',
+        subCategory: '',
+        analysisNote: ''
+      };
+    }
   }
 
   /**
@@ -175,15 +192,22 @@ const CacheManager = (function() {
    * @returns {string}
    */
   function buildSignature() {
-    const fields = extractSignatureFields();
+    try {
+      const fields = extractSignatureFields();
 
-    return [
-      fields.status,
-      fields.subStatus,
-      fields.category,
-      fields.subCategory,
-      fields.analysisNote
-    ].map((value) => (value || '').toLowerCase()).join('|');
+      const signature = [
+        fields.status,
+        fields.subStatus,
+        fields.category,
+        fields.subCategory,
+        fields.analysisNote
+      ].map((value) => (value || '').toLowerCase()).join('|');
+      
+      return signature;
+    } catch (error) {
+      console.warn('[CacheManager] Error building signature:', error);
+      return '';
+    }
   }
 
   // ========== PUBLIC API ==========
@@ -235,29 +259,50 @@ const CacheManager = (function() {
         await this.init();
       }
 
-      if (!caseId) return null;
+      if (!caseId) {
+        console.log('[CacheManager] No caseId provided');
+        return null;
+      }
 
       // Check memory cache
       const cached = memoryCache.get(caseId);
       if (!cached) {
-        console.log(`[CacheManager] Cache miss for case ${caseId}`);
+        console.log(`[CacheManager] Cache miss for case ${caseId} (not in memory cache)`);
         return null;
       }
 
-      // Get current last modified date from DOM
+      // Get current signature from DOM
       const currentSignature = buildSignature();
 
+      // If signature extraction failed (empty string), we have two options:
+      // 1. If we have a cached signature, assume cache is stale (safer)
+      // 2. If we don't have a cached signature, use cached data (fallback for first-time cache)
       if (!currentSignature) {
-        console.warn('[CacheManager] Could not resolve status signature, using cached data as fallback');
-        return cached.data;
+        if (cached.signature) {
+          // We had a signature before but can't extract now - assume cache is stale
+          console.warn(`[CacheManager] Cannot extract signature for case ${caseId}, assuming cache is stale`);
+          return null;
+        } else {
+          // No signature in cache and can't extract - use cached data as fallback
+          console.warn(`[CacheManager] Cannot extract signature for case ${caseId}, using cached data as fallback`);
+          return cached.data;
+        }
       }
 
+      // Compare signatures
       if (cached.signature && cached.signature === currentSignature) {
-        console.log(`[CacheManager] Cache hit for case ${caseId} (signature: ${currentSignature})`);
+        console.log(`[CacheManager] Cache hit for case ${caseId} (signature match: ${currentSignature.substring(0, 50)}...)`);
         return cached.data;
       }
 
-      console.log(`[CacheManager] Cache invalid for case ${caseId} (signature mismatch)`);
+      // Signature mismatch - cache is stale
+      if (cached.signature) {
+        console.log(`[CacheManager] Cache invalid for case ${caseId} (signature mismatch)`);
+        console.log(`[CacheManager]   Cached: ${cached.signature.substring(0, 50)}...`);
+        console.log(`[CacheManager]   Current: ${currentSignature.substring(0, 50)}...`);
+      } else {
+        console.log(`[CacheManager] Cache invalid for case ${caseId} (no cached signature, current: ${currentSignature.substring(0, 50)}...)`);
+      }
       return null;
     },
 

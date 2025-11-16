@@ -53,6 +53,7 @@ async function saveSettings(settings) {
 
 /**
  * Gets default settings
+ * NOTE: exlibris defaults must match SettingsManager.DEFAULT_SETTINGS exactly
  */
 function getDefaultSettings() {
   return {
@@ -62,10 +63,11 @@ function getDefaultSettings() {
         fieldHighlighting: true,
         contextMenu: true,
         multiTabSync: true,
-        caseCommentMemory: true,
+        caseCommentMemory: false,  // Matches SettingsManager default
         characterCounter: true,
-        dynamicMenu: true,
-        persistentBanner: true
+        dynamicMenu: false,  // Matches SettingsManager default
+        persistentBanner: false,  // Matches SettingsManager default
+        highlighterEnabled: true
       },
       ui: {
         buttonLabelStyle: 'casual',
@@ -167,6 +169,8 @@ function populateUI(settings) {
   document.getElementById('selectionDropdown').value = settings.savedSelection || 'EndNote';
   
   // Ex Libris features
+  // Use explicit boolean checks to match SettingsManager.isFeatureEnabled() logic
+  // SettingsManager.isFeatureEnabled() returns true if value !== false
   if (settings.exlibris?.features) {
     document.getElementById('featureHighlighting').checked = settings.exlibris.features.fieldHighlighting !== false;
     document.getElementById('featureContextMenu').checked = settings.exlibris.features.contextMenu !== false;
@@ -176,6 +180,17 @@ function populateUI(settings) {
     document.getElementById('featureDynamicMenu').checked = settings.exlibris.features.dynamicMenu !== false;
     document.getElementById('featurePersistentBanner').checked = settings.exlibris.features.persistentBanner !== false;
     document.getElementById('featureHighlighter').checked = settings.exlibris.features.highlighterEnabled === true;
+  } else {
+    // If exlibris.features doesn't exist, use defaults from SettingsManager
+    const defaults = getDefaultSettings();
+    document.getElementById('featureHighlighting').checked = defaults.exlibris.features.fieldHighlighting !== false;
+    document.getElementById('featureContextMenu').checked = defaults.exlibris.features.contextMenu !== false;
+    document.getElementById('featureMultiTab').checked = defaults.exlibris.features.multiTabSync !== false;
+    document.getElementById('featureCommentMemory').checked = defaults.exlibris.features.caseCommentMemory !== false;
+    document.getElementById('featureCharCounter').checked = defaults.exlibris.features.characterCounter !== false;
+    document.getElementById('featureDynamicMenu').checked = defaults.exlibris.features.dynamicMenu !== false;
+    document.getElementById('featurePersistentBanner').checked = defaults.exlibris.features.persistentBanner !== false;
+    document.getElementById('featureHighlighter').checked = defaults.exlibris.features.highlighterEnabled === true;
   }
   
   // UI preferences
