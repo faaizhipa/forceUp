@@ -104,18 +104,28 @@
         console.warn('[ExLibris Extension] ContextMenuHandler not loaded or disabled');
       }
 
-      // Initialize KeyboardShortcuts
+      // Initialize KeyboardShortcuts (check if shortcuts are enabled)
       if (typeof KeyboardShortcuts !== 'undefined') {
-        KeyboardShortcuts.init(this.settings);
-        console.log('[ExLibris Extension] KeyboardShortcuts initialized');
+        // Check shortcuts.enabled via getValue since it's nested under shortcuts, not features
+        const shortcutsEnabled = SettingsManager.getValue('exlibris.shortcuts.enabled') !== false;
+        if (shortcutsEnabled) {
+          KeyboardShortcuts.init(this.settings);
+          console.log('[ExLibris Extension] KeyboardShortcuts initialized');
+        } else {
+          console.log('[ExLibris Extension] KeyboardShortcuts disabled in settings');
+        }
       } else {
         console.warn('[ExLibris Extension] KeyboardShortcuts not loaded');
       }
 
-      // Initialize PersistentBanner
+      // Initialize PersistentBanner (check if feature is enabled)
       if (typeof PersistentBanner !== 'undefined') {
-        PersistentBanner.init();
-        console.log('[ExLibris Extension] PersistentBanner initialized');
+        if (SettingsManager.isFeatureEnabled('persistentBanner')) {
+          PersistentBanner.init();
+          console.log('[ExLibris Extension] PersistentBanner initialized');
+        } else {
+          console.log('[ExLibris Extension] PersistentBanner disabled in settings');
+        }
       } else {
         console.warn('[ExLibris Extension] PersistentBanner not loaded');
       }
@@ -257,23 +267,41 @@
         this.currentPage = pageInfo;
         this.currentCaseId = pageInfo.caseId;
 
-        // Update persistent banner with initial info
-        if (typeof PersistentBanner !== 'undefined') {
+        // Clear any existing features (but preserve PersistentBanner if enabled)
+        console.log('[ExLibris Extension] Cleaning up previous page features (URL changed: ' + urlChanged + ')');
+        this.cleanup();
+
+        // Ensure PersistentBanner is initialized and visible if feature is enabled
+        if (typeof PersistentBanner !== 'undefined' && SettingsManager.isFeatureEnabled('persistentBanner')) {
+          // Check if banner is already initialized and injected
+          if (!PersistentBanner.isInitialized || !PersistentBanner.isInjected()) {
+            console.log('[ExLibris Extension] Re-initializing PersistentBanner after navigation');
+            await PersistentBanner.init();
+          }
+          
+          // Update persistent banner with initial page type only
+          // Case data will be updated when extracted (via initializeCasePageFeatures or CasePageDataExtractor event)
           // Convert internal page type to friendly display name
           const displayType = PersistentBanner.getPageTypeDisplayName(pageInfo.type);
           
-          PersistentBanner.updateCurrentPage({
-            type: displayType,
-            caseNumber: null, // Will be updated when case data is extracted
-            subject: null,
-            status: null,
-            subStatus: null
-          });
+          // Only update type, preserve existing case data if available (don't overwrite with nulls)
+          if (PersistentBanner.currentPage && PersistentBanner.currentPage.caseNumber) {
+            // Keep existing case data, just update type
+            PersistentBanner.currentPage.type = displayType;
+            PersistentBanner.currentPage.url = window.location.href;
+            PersistentBanner.currentPage.timestamp = new Date().toISOString();
+            PersistentBanner.updateBannerUI();
+          } else {
+            // No existing data, set initial state
+            PersistentBanner.updateCurrentPage({
+              type: displayType,
+              caseNumber: null, // Will be updated when case data is extracted
+              subject: null,
+              status: null,
+              subStatus: null
+            });
+          }
         }
-
-        // Clear any existing features
-        console.log('[ExLibris Extension] Cleaning up previous page features (URL changed: ' + urlChanged + ')');
-        this.cleanup();
 
         // If URL changed, add a delay to allow DOM to settle
         if (urlChanged) {
@@ -314,9 +342,11 @@
       const timezoneSetting = this.settings?.exlibris?.ui?.timezone || this.settings.timezone || null;
       const menuLocations = this.settings?.exlibris?.ui?.menuLocations || this.settings.menuLocations;
 
+      // caseToolkit.caseData is now just a reference for convenience
+      // Actual caching is handled by CacheManager
       this.caseToolkit = {
         metadata: null,
-        caseData: null,
+        caseData: null, // Will be set from CacheManager or fresh extraction
         menuConfig: {
           buttonStyle,
           timezone: timezoneSetting,
@@ -360,7 +390,7 @@
         this.observeCommunicationTab();
       }
 
-      // Fetch full case data
+      // Fetch full case data (uses CacheManager internally)
       const caseData = await this.getCaseData(this.currentCaseId);
       if (!caseData) {
         console.warn('[ExLibris Extension] Could not extract case data');
@@ -372,18 +402,35 @@
         return;
       }
 
+      // Store in caseToolkit for convenience (not a separate cache, just a reference)
       this.caseToolkit.metadata = initialMetadata;
       this.caseToolkit.caseData = caseData;
 
-      // Update persistent banner with case data
+      // Update persistent banner with complete case data
+      // This ensures banner shows correct data even if CasePageDataExtractor event hasn't fired yet
       if (typeof PersistentBanner !== 'undefined') {
         PersistentBanner.updateCurrentPage({
           type: 'Case',
-          caseNumber: caseData.caseNumber,
-          subject: caseData.subject,
-          status: caseData.status,
-          subStatus: caseData.subStatus
+          caseNumber: caseData.caseNumber || null,
+          subject: caseData.subject || null,
+          status: caseData.status || null,
+          subStatus: caseData.subStatus || null
         });
+        
+        // Also update customer metadata if available in caseData
+        if (caseData.custID || caseData.instID || caseData.server) {
+          PersistentBanner.customerMetadata = {
+            customerId: caseData.custID || null,
+            institutionId: caseData.instID || null,
+            server: caseData.server || null,
+            productServiceName: caseData.productServiceName || null,
+            institutionCode: caseData.institutionCode || caseData.exLibrisAccountNumber || null
+          };
+          console.log('[ExLibris Extension] Updated PersistentBanner customer metadata from caseData');
+        }
+        
+        // Force UI update to show final state
+        PersistentBanner.updateBannerUI();
       }
 
       if (typeof FlexipagePanelInjector !== 'undefined') {
@@ -587,12 +634,15 @@
         return null;
       }
 
-      console.log('[ExLibris Extension] Extracting case data...');
+      console.log('[ExLibris Extension] Extracting fresh case data...');
       const caseData = await CaseDataExtractor.getData();
 
-      // Cache it in CacheManager
+      // Cache it in CacheManager (single source of truth for caching)
       if (typeof CacheManager !== 'undefined' && caseData) {
         await CacheManager.set(caseId, caseData);
+        console.log('[ExLibris Extension] Case data cached in CacheManager');
+      } else if (!caseData) {
+        console.warn('[ExLibris Extension] No case data extracted, cannot cache');
       }
 
       return caseData;
@@ -918,6 +968,17 @@
         FlexipagePanelInjector.teardown();
       }
 
+      // Don't cleanup PersistentBanner - it should persist across navigation
+      // Only hide it if feature is disabled, but don't remove it completely
+      if (typeof PersistentBanner !== 'undefined') {
+        if (!SettingsManager.isFeatureEnabled('persistentBanner')) {
+          PersistentBanner.hide();
+        } else {
+          // Ensure it's visible if feature is enabled
+          PersistentBanner.show();
+        }
+      }
+
       // Cleanup CaseTimezoneResolver
       if (typeof CaseTimezoneResolver !== 'undefined' && CaseTimezoneResolver.cleanup) {
         CaseTimezoneResolver.cleanup();
@@ -953,6 +1014,9 @@
       }
       if (typeof FlexipagePanelInjector !== 'undefined' && FlexipagePanelInjector.teardown) {
         FlexipagePanelInjector.teardown();
+      }
+      if (typeof PersistentBanner !== 'undefined' && PersistentBanner.cleanup) {
+        PersistentBanner.cleanup();
       }
       
       this.isInitialized = false;

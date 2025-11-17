@@ -1,8 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <title>Penang CoE CForce Extension Popup</title>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <style>
     * {
@@ -22,7 +23,7 @@
       padding: 20px;
       color: white;
       overflow-y: auto;
-      max-height: 600px;
+      height: min-content;
     }
 
     h1 {
@@ -211,6 +212,15 @@
       padding: 16px;
       text-align: center;
       font-size: 13px;
+      display: none;
+    }
+
+    .timezone-label-spacing {
+      margin-top: 12px;
+    }
+
+    .info-text-spacing {
+      margin-top: 8px;
     }
 
   </style>
@@ -227,7 +237,7 @@
     <button class="tab" data-tab="about">About</button>
   </div>
 
-  <div id="notInSFDC" class="notInSFDC" style="display: none;">
+  <div id="notInSFDC" class="notInSFDC">
     ⚠️ Please open this extension on a Salesforce page to configure settings.
   </div>
 
@@ -375,6 +385,14 @@
             <input type="checkbox" id="featureDynamicMenu" checked>
             <label for="featureDynamicMenu">Dynamic Buttons</label>
           </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="featurePersistentBanner" checked>
+            <label for="featurePersistentBanner">Persistent Banner (Page Info & History)</label>
+          </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="featureHighlighter">
+            <label for="featureHighlighter">Text Highlighter & Sticky Notes (Support Sites)</label>
+          </div>
         </div>
       </div>
 
@@ -387,7 +405,7 @@
           <option value="abbreviated">Abbreviated (LV, BO)</option>
         </select>
 
-        <label for="timezoneSelect" style="margin-top: 12px;">Timezone</label>
+        <label for="timezoneSelect" class="timezone-label-spacing">Timezone</label>
         <select id="timezoneSelect" title="Timezone Selection">
           <option value="auto">Auto-detect</option>
           <option value="America/New_York">Eastern Time (ET)</option>
@@ -453,7 +471,7 @@
           <code>Escape</code> - Close preview modal<br>
           <code>Ctrl+Shift+R</code> - Open restore menu<br>
         </div>
-        <p class="info-text" style="margin-top: 8px;">Select text in a textarea and press the shortcut</p>
+        <p class="info-text info-text-spacing">Select text in a textarea and press the shortcut</p>
       </div>
 
       <button id="saveShortcutsButton">Save Shortcuts Settings</button>

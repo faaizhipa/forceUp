@@ -1,0 +1,768 @@
+/**
+ * Highlighter & Sticky Notes Stylesheet
+ * Uses unique prefix: exl-hl-* to avoid conflicts with host site CSS
+ * Inspired by persistentBanner.js styling for consistency
+ */
+
+/* ========== STICKY BANNER ========== */
+.exl-hl-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3rem;
+  background: linear-gradient(135deg, oklch(0.45 0.15 270) 0%, oklch(0.40 0.13 270) 100%);
+  color: oklch(0.99 0 0);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  z-index: 999999;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.875rem;
+  animation: exl-hl-banner-slide-down 200ms ease-out;
+}
+
+@keyframes exl-hl-banner-slide-down {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.exl-hl-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.exl-hl-banner-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.exl-hl-banner-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* ========== BUTTONS ========== */
+.exl-hl-btn {
+  background: oklch(0.99 0 0);
+  color: oklch(0.45 0.15 270);
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  transition: all 150ms ease-out;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.exl-hl-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  filter: brightness(0.97);
+}
+
+.exl-hl-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.exl-hl-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.exl-hl-btn-secondary {
+  background: rgba(255, 255, 255, 0.2);
+  color: oklch(0.99 0 0);
+}
+
+.exl-hl-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* ========== COLOR PALETTE ========== */
+.exl-hl-palette {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.exl-hl-color-chip {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.25rem;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 100ms ease-out;
+  position: relative;
+}
+
+.exl-hl-color-chip:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.exl-hl-color-chip:active {
+  transform: scale(0.95);
+}
+
+.exl-hl-color-chip.exl-hl-selected {
+  border-color: oklch(0.99 0 0);
+  transform: scale(1.05);
+  box-shadow: 0 0 0 2px oklch(0.45 0.15 270);
+}
+
+/* ========== LAYER DROPDOWN ========== */
+.exl-hl-layer-container {
+  position: relative;
+  display: inline-block;
+}
+
+.exl-hl-layer-btn {
+  padding: 0.5rem 0.875rem;
+  font-size: 0.875rem;
+}
+
+.exl-hl-layer-dropdown {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  background: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  min-width: 14rem;
+  max-height: 20rem;
+  overflow-y: auto;
+  z-index: 1000002;
+  animation: exl-hl-dropdown-slide-in 150ms ease-out;
+}
+
+@keyframes exl-hl-dropdown-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.exl-hl-layer-item {
+  padding: 0.625rem 1rem;
+  color: oklch(0.35 0 0);
+  font-size: 0.875rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: background-color 100ms ease-out;
+  position: relative;
+}
+
+.exl-hl-layer-item:hover {
+  background-color: oklch(0.97 0 0);
+}
+
+.exl-hl-layer-item:active {
+  background-color: oklch(0.95 0 0);
+}
+
+.exl-hl-new-layer {
+  font-weight: 500;
+  color: oklch(0.45 0.15 270);
+  border-bottom: 1px solid oklch(0.90 0 0);
+}
+
+.exl-hl-new-layer:hover {
+  background-color: oklch(0.98 0.02 270);
+}
+
+.exl-hl-layer-icon {
+  font-size: 1rem;
+}
+
+.exl-hl-layer-separator {
+  height: 1px;
+  background: oklch(0.90 0 0);
+  margin: 0.25rem 0;
+}
+
+.exl-hl-layer-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exl-hl-active-layer {
+  background-color: oklch(0.98 0.02 270);
+  font-weight: 500;
+}
+
+.exl-hl-layer-checkmark {
+  color: oklch(0.45 0.15 270);
+  font-weight: 600;
+  font-size: 1rem;
+  margin-right: 0.25rem;
+}
+
+.exl-hl-layer-context {
+  position: fixed;
+  background: white;
+  border-radius: 0.375rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  min-width: 9rem;
+  z-index: 1000003;
+  overflow: hidden;
+}
+
+.exl-hl-layer-context-item {
+  padding: 0.625rem 1rem;
+  color: oklch(0.35 0 0);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 100ms ease-out;
+}
+
+.exl-hl-layer-context-item:hover {
+  background-color: oklch(0.97 0 0);
+}
+
+.exl-hl-layer-delete {
+  color: oklch(0.50 0.15 25);
+}
+
+.exl-hl-layer-delete:hover {
+  background-color: oklch(0.98 0.05 25);
+}
+
+/* ========== HIGHLIGHT STYLES ========== */
+.exl-hl-highlight {
+  cursor: pointer;
+  transition: opacity 150ms ease-out;
+}
+
+.exl-hl-highlight:hover {
+  opacity: 0.8;
+}
+
+/* Individual highlight colors */
+.exl-hl-color-1 { background-color: rgb(191, 229, 255); } /* Sky Blue */
+.exl-hl-color-2 { background-color: rgb(166, 217, 255); } /* Light Blue */
+.exl-hl-color-3 { background-color: rgb(168, 224, 165); } /* Mint Green */
+.exl-hl-color-4 { background-color: rgb(255, 238, 163); } /* Light Yellow */
+.exl-hl-color-5 { background-color: rgb(255, 228, 168); } /* Soft Yellow */
+.exl-hl-color-6 { background-color: rgb(255, 212, 168); } /* Peach */
+.exl-hl-color-7 { background-color: rgb(255, 199, 194); } /* Coral */
+.exl-hl-color-8 { background-color: rgb(255, 199, 216); } /* Pink */
+.exl-hl-color-9 { background-color: rgb(238, 199, 255); } /* Lavender */
+.exl-hl-color-10 { background-color: rgb(212, 207, 255); } /* Periwinkle */
+.exl-hl-color-11 { background-color: rgb(204, 207, 216); } /* Light Gray */
+
+/* ========== SELECTION TOOLBAR ========== */
+.exl-hl-selection-toolbar {
+  position: absolute;
+  background: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.1);
+  padding: 0.5rem;
+  z-index: 1000001;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+  pointer-events: all;
+}
+
+.exl-hl-selection-palette {
+  display: flex;
+  gap: 0.375rem;
+  align-items: center;
+}
+
+.exl-hl-selection-color-chip {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.25rem;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 100ms ease-out;
+  position: relative;
+}
+
+.exl-hl-selection-color-chip:hover {
+  transform: scale(1.15);
+  border-color: rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.exl-hl-selection-color-chip:active {
+  transform: scale(1.0);
+}
+
+.exl-hl-selection-close {
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.6);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 100ms ease-out;
+  font-family: Inter, sans-serif;
+  padding: 0;
+  margin-left: 0.25rem;
+}
+
+.exl-hl-selection-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.8);
+}
+
+.exl-hl-selection-close:active {
+  transform: scale(0.95);
+}
+
+/* ========== STICKY NOTES ========== */
+.exl-hl-note {
+  position: fixed;
+  width: 16rem;
+  background: rgb(254, 252, 232); /* Default: Light Yellow */
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 999998;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  transition: box-shadow 150ms ease-out, transform 150ms ease-out;
+}
+
+.exl-hl-note:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.exl-hl-note.exl-hl-dragging {
+  transform: scale(1.05);
+  cursor: grabbing;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+}
+
+.exl-hl-note-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem;
+  cursor: grab;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.exl-hl-note-header:active {
+  cursor: grabbing;
+}
+
+.exl-hl-note-colors {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.exl-hl-note-color-chip {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+.exl-hl-note-color-chip:hover {
+  transform: scale(1.15);
+}
+
+.exl-hl-note-color-chip.exl-hl-selected {
+  border-color: oklch(0.45 0.15 270);
+}
+
+.exl-hl-note-delete {
+  background: transparent;
+  border: none;
+  color: oklch(0.35 0.01 240);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem;
+  transition: color 100ms ease-out;
+}
+
+.exl-hl-note-delete:hover {
+  color: oklch(0.50 0.20 25); /* Destructive red */
+}
+
+.exl-hl-note-textarea {
+  width: 100%;
+  height: 12rem;
+  border: none;
+  background: transparent;
+  padding: 0.75rem;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: oklch(0.25 0.01 240);
+  resize: none;
+  outline: none;
+}
+
+.exl-hl-note-textarea::placeholder {
+  color: oklch(0.65 0.01 240);
+}
+
+/* Note color variations */
+.exl-hl-note.exl-hl-note-yellow { background: rgb(254, 252, 232); }
+.exl-hl-note.exl-hl-note-blue { background: rgb(239, 246, 255); }
+.exl-hl-note.exl-hl-note-pink { background: rgb(253, 242, 248); }
+.exl-hl-note.exl-hl-note-green { background: rgb(240, 253, 244); }
+.exl-hl-note.exl-hl-note-purple { background: rgb(245, 243, 255); }
+.exl-hl-note.exl-hl-note-peach { background: rgb(254, 240, 236); }
+
+/* ========== TOAST NOTIFICATIONS ========== */
+.exl-hl-toast {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  background: oklch(0.25 0.01 240);
+  color: oklch(0.99 0 0);
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  z-index: 1000000;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.875rem;
+  animation: exl-hl-toast-slide-up 200ms ease-out;
+}
+
+@keyframes exl-hl-toast-slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ========== COLLECTIONS PANEL ========== */
+.exl-hl-collections-panel {
+  position: fixed;
+  top: 3rem;
+  right: 0;
+  width: 24rem;
+  max-width: 90vw;
+  height: calc(100vh - 3rem);
+  background: oklch(0.99 0 0);
+  box-shadow: -4px 0 12px rgba(0, 0, 0, 0.15);
+  z-index: 999997;
+  transform: translateX(100%);
+  transition: transform 250ms ease-out;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+
+.exl-hl-collections-panel.exl-hl-open {
+  transform: translateX(0);
+}
+
+.exl-hl-panel-header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid oklch(0.85 0.01 240);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.exl-hl-panel-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: oklch(0.25 0.01 240);
+  margin: 0;
+}
+
+.exl-hl-panel-close {
+  background: transparent;
+  border: none;
+  color: oklch(0.65 0.01 240);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem;
+  transition: color 100ms ease-out;
+}
+
+.exl-hl-panel-close:hover {
+  color: oklch(0.25 0.01 240);
+}
+
+.exl-hl-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.5rem;
+}
+
+.exl-hl-collection {
+  margin-bottom: 1rem;
+  border: 1px solid oklch(0.85 0.01 240);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.exl-hl-collection-header {
+  padding: 0.75rem 1rem;
+  background: oklch(0.97 0.005 240);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background 100ms ease-out;
+}
+
+.exl-hl-collection-header:hover {
+  background: oklch(0.95 0.005 240);
+}
+
+.exl-hl-collection-name {
+  font-weight: 500;
+  color: oklch(0.25 0.01 240);
+  font-size: 0.9375rem;
+}
+
+.exl-hl-collection-count {
+  background: oklch(0.45 0.15 270);
+  color: oklch(0.99 0 0);
+  padding: 0.125rem 0.5rem;
+  border-radius: 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.exl-hl-bookmark-list {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 200ms ease-out;
+}
+
+.exl-hl-collection.exl-hl-expanded .exl-hl-bookmark-list {
+  max-height: 1000px;
+}
+
+.exl-hl-bookmark {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid oklch(0.85 0.01 240);
+  cursor: pointer;
+  transition: background 100ms ease-out;
+}
+
+.exl-hl-bookmark:hover {
+  background: oklch(0.97 0.005 240);
+}
+
+.exl-hl-bookmark-title {
+  font-weight: 500;
+  color: oklch(0.25 0.01 240);
+  font-size: 0.875rem;
+  margin-bottom: 0.25rem;
+}
+
+.exl-hl-bookmark-desc {
+  font-size: 0.8125rem;
+  color: oklch(0.65 0.01 240);
+  line-height: 1.4;
+}
+
+.exl-hl-bookmark-url {
+  font-size: 0.75rem;
+  color: oklch(0.55 0.01 240);
+  margin-top: 0.25rem;
+  font-family: 'Courier New', monospace;
+  word-break: break-all;
+}
+
+/* ========== MODAL/DIALOG ========== */
+.exl-hl-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: exl-hl-fade-in 150ms ease-out;
+}
+
+@keyframes exl-hl-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.exl-hl-modal {
+  background: oklch(0.99 0 0);
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  width: 90%;
+  max-width: 28rem;
+  max-height: 90vh;
+  overflow: hidden;
+  animation: exl-hl-modal-slide-up 200ms ease-out;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+@keyframes exl-hl-modal-slide-up {
+  from {
+    transform: translateY(2rem);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.exl-hl-modal-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid oklch(0.85 0.01 240);
+}
+
+.exl-hl-modal-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: oklch(0.25 0.01 240);
+  margin: 0;
+}
+
+.exl-hl-modal-body {
+  padding: 1.5rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.exl-hl-modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid oklch(0.85 0.01 240);
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.exl-hl-form-group {
+  margin-bottom: 1.25rem;
+}
+
+.exl-hl-form-group:last-child {
+  margin-bottom: 0;
+}
+
+.exl-hl-label {
+  display: block;
+  font-weight: 500;
+  color: oklch(0.25 0.01 240);
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+}
+
+.exl-hl-input,
+.exl-hl-select,
+.exl-hl-textarea-input {
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid oklch(0.85 0.01 240);
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: oklch(0.25 0.01 240);
+  transition: border-color 100ms ease-out;
+}
+
+.exl-hl-input:focus,
+.exl-hl-select:focus,
+.exl-hl-textarea-input:focus {
+  outline: none;
+  border-color: oklch(0.45 0.15 270);
+  box-shadow: 0 0 0 3px rgba(103, 126, 234, 0.1);
+}
+
+.exl-hl-textarea-input {
+  resize: vertical;
+  min-height: 4rem;
+}
+
+.exl-hl-char-counter {
+  font-size: 0.75rem;
+  color: oklch(0.65 0.01 240);
+  text-align: right;
+  margin-top: 0.25rem;
+}
+
+/* ========== MOBILE RESPONSIVE ========== */
+@media (max-width: 640px) {
+  .exl-hl-banner {
+    padding: 0 0.75rem;
+  }
+  
+  .exl-hl-banner-title {
+    font-size: 1rem;
+  }
+  
+  .exl-hl-palette {
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+  
+  .exl-hl-color-chip {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+  
+  .exl-hl-btn {
+    padding: 0.5rem;
+    font-size: 0;
+  }
+  
+  .exl-hl-btn::before {
+    font-size: 1rem;
+  }
+  
+  .exl-hl-note {
+    width: 14rem;
+  }
+  
+  .exl-hl-collections-panel {
+    width: 100%;
+  }
+}
