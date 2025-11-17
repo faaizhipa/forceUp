@@ -14,20 +14,23 @@ const ConfigurationWarningBanner = (function() {
   const BANNER_ID = 'cforce-config-warning-banner';
   const BANNER_STYLES = `
     #${BANNER_ID} {
-      position: fixed;
-      top: 0;
+      position: fixed !important;
+      top: 0 !important;
       left: 0;
       right: 0;
-      z-index: 999999;
+      width: 100%;
+      z-index: 9998;
       background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
-      color: white;
-      padding: 16px 24px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      color: #ffffff;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      font-family: 'Salesforce Sans', Arial, sans-serif;
+      font-size: 11px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+      height: 3rem;
+      overflow: hidden;
       display: flex;
       align-items: center;
-      gap: 16px;
-      animation: slideDown 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      animation: slideDown 0.3s ease-out;
     }
 
     @keyframes slideDown {
@@ -41,110 +44,102 @@ const ConfigurationWarningBanner = (function() {
       }
     }
 
+    #${BANNER_ID}-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 12px;
+      max-width: 100%;
+      height: 100%;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+
     #${BANNER_ID}-icon {
       flex-shrink: 0;
-      width: 32px;
-      height: 32px;
+      width: 20px;
+      height: 20px;
       display: flex;
       align-items: center;
       justify-content: center;
       background: rgba(255, 255, 255, 0.2);
       border-radius: 50%;
-      font-size: 20px;
+      font-size: 14px;
     }
 
     #${BANNER_ID}-content {
       flex: 1;
       min-width: 0;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      padding: 0 8px;
+      border-right: 1px solid rgba(255, 255, 255, 0.1);
     }
 
     #${BANNER_ID}-title {
-      font-size: 15px;
+      font-size: 11px;
       font-weight: 600;
-      margin: 0 0 4px 0;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      margin: 0;
+      white-space: nowrap;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      color: rgba(255, 255, 255, 0.9);
     }
 
     #${BANNER_ID}-message {
-      font-size: 13px;
-      line-height: 1.5;
+      font-size: 11px;
+      line-height: 1.2;
       margin: 0;
-      opacity: 0.95;
+      color: #ffffff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     #${BANNER_ID}-defaults {
-      font-size: 12px;
-      margin: 8px 0 0 0;
-      padding: 8px 12px;
-      background: rgba(0, 0, 0, 0.15);
-      border-radius: 6px;
-      border-left: 3px solid rgba(255, 255, 255, 0.5);
-    }
-
-    #${BANNER_ID}-defaults-title {
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-
-    #${BANNER_ID}-defaults-list {
-      list-style: none;
-      padding: 0;
-      margin: 4px 0 0 0;
-    }
-
-    #${BANNER_ID}-defaults-list li {
-      padding: 2px 0;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    #${BANNER_ID}-defaults-list li::before {
-      content: "•";
-      font-size: 16px;
-      opacity: 0.7;
+      display: none;
     }
 
     #${BANNER_ID}-actions {
       flex-shrink: 0;
       display: flex;
-      gap: 12px;
+      gap: 6px;
       align-items: center;
+      padding: 0 8px;
     }
 
     #${BANNER_ID}-btn-configure,
     #${BANNER_ID}-btn-dismiss {
-      padding: 10px 20px;
-      border: none;
-      border-radius: 6px;
-      font-size: 13px;
-      font-weight: 600;
+      background-color: rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 3px;
+      padding: 4px 12px;
+      font-size: 11px;
+      font-weight: 500;
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
       white-space: nowrap;
+      height: 26px;
+      line-height: 1;
     }
 
     #${BANNER_ID}-btn-configure {
-      background: white;
+      background-color: #ffffff;
       color: #ee5a6f;
+      border: none;
     }
 
     #${BANNER_ID}-btn-configure:hover {
-      background: #f8f8f8;
-      transform: translateY(-1px);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    }
-
-    #${BANNER_ID}-btn-dismiss {
-      background: rgba(255, 255, 255, 0.15);
-      color: white;
-      border: 1px solid rgba(255, 255, 255, 0.3);
+      background-color: #f8f8f8;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
     }
 
     #${BANNER_ID}-btn-dismiss:hover {
-      background: rgba(255, 255, 255, 0.25);
+      background-color: rgba(255, 255, 255, 0.3);
     }
 
     #${BANNER_ID}-btn-configure:active,
@@ -152,20 +147,33 @@ const ConfigurationWarningBanner = (function() {
       transform: translateY(0);
     }
 
+    /* Scrollbar styling */
+    #${BANNER_ID}-container::-webkit-scrollbar {
+      height: 4px;
+    }
+
+    #${BANNER_ID}-container::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.2);
+    }
+
+    #${BANNER_ID}-container::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 2px;
+    }
+
+    #${BANNER_ID}-container::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.5);
+    }
+
     @media (max-width: 768px) {
-      #${BANNER_ID} {
+      #${BANNER_ID}-content {
         flex-direction: column;
-        text-align: center;
+        align-items: flex-start;
+        gap: 2px;
       }
 
-      #${BANNER_ID}-actions {
-        width: 100%;
-        flex-direction: column;
-      }
-
-      #${BANNER_ID}-btn-configure,
-      #${BANNER_ID}-btn-dismiss {
-        width: 100%;
+      #${BANNER_ID}-message {
+        font-size: 10px;
       }
     }
   `;
@@ -205,20 +213,16 @@ const ConfigurationWarningBanner = (function() {
 
     return `
       <div id="${BANNER_ID}">
-        <div id="${BANNER_ID}-icon">⚠️</div>
-        <div id="${BANNER_ID}-content">
-          <div id="${BANNER_ID}-title">
-            Configuration Required
+        <div id="${BANNER_ID}-container">
+          <div id="${BANNER_ID}-icon">⚠️</div>
+          <div id="${BANNER_ID}-content">
+            <span id="${BANNER_ID}-title">Configuration Required</span>
+            <span id="${BANNER_ID}-message">Using default values for shift timing, team settings, and IRT expectations. Configure preferences for accurate case highlighting.</span>
           </div>
-          <div id="${BANNER_ID}-message">
-            The extension is using default values for shift timing, team settings, and IRT expectations. 
-            Please configure your preferences to ensure accurate case highlighting and timezone handling.
+          <div id="${BANNER_ID}-actions">
+            <button id="${BANNER_ID}-btn-configure">Configure</button>
+            <button id="${BANNER_ID}-btn-dismiss">Dismiss</button>
           </div>
-          ${defaultsList}
-        </div>
-        <div id="${BANNER_ID}-actions">
-          <button id="${BANNER_ID}-btn-configure">Configure Now</button>
-          <button id="${BANNER_ID}-btn-dismiss">Use Defaults</button>
         </div>
       </div>
     `;

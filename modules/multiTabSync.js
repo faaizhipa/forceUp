@@ -27,111 +27,145 @@ const MultiTabSync = (function() {
    * @returns {HTMLElement}
    */
   function createWarningBanner() {
-    const banner = document.createElement('div');
-    banner.id = 'exlibris-multitab-warning';
-    banner.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
-      color: white;
-      padding: 12px 20px;
-      z-index: 999999;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 14px;
-      animation: slideDown 0.3s ease-out;
-    `;
-
-    const message = document.createElement('div');
-    message.style.cssText = `
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex: 1;
-    `;
-
-    const icon = document.createElement('span');
-    icon.textContent = '⚠️';
-    icon.style.fontSize = '20px';
-
-    const text = document.createElement('span');
-    text.innerHTML = `
-      <strong>Warning:</strong> This case is open in another tab. 
-      Editing in multiple tabs may cause data loss.
-    `;
-
-    message.appendChild(icon);
-    message.appendChild(text);
-
-    const actions = document.createElement('div');
-    actions.style.cssText = `
-      display: flex;
-      gap: 12px;
-      align-items: center;
-    `;
-
-    const switchButton = document.createElement('button');
-    switchButton.textContent = 'Switch to Other Tab';
-    switchButton.style.cssText = `
-      background: rgba(255, 255, 255, 0.2);
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      color: white;
-      padding: 6px 12px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 500;
-      transition: background 0.2s;
-    `;
-    switchButton.onmouseover = () => {
-      switchButton.style.background = 'rgba(255, 255, 255, 0.3)';
-    };
-    switchButton.onmouseout = () => {
-      switchButton.style.background = 'rgba(255, 255, 255, 0.2)';
-    };
-    switchButton.onclick = () => {
-      requestTabSwitch();
-    };
-
-    const dismissButton = document.createElement('button');
-    dismissButton.textContent = '✕';
-    dismissButton.title = 'Dismiss (warning will reappear if other tab is still active)';
-    dismissButton.style.cssText = `
-      background: transparent;
-      border: none;
-      color: white;
-      padding: 4px 8px;
-      cursor: pointer;
-      font-size: 18px;
-      opacity: 0.7;
-      transition: opacity 0.2s;
-    `;
-    dismissButton.onmouseover = () => {
-      dismissButton.style.opacity = '1';
-    };
-    dismissButton.onmouseout = () => {
-      dismissButton.style.opacity = '0.7';
-    };
-    dismissButton.onclick = () => {
-      hideWarningBanner();
-    };
-
-    actions.appendChild(switchButton);
-    actions.appendChild(dismissButton);
-
-    banner.appendChild(message);
-    banner.appendChild(actions);
-
-    // Add animation keyframes
-    if (!document.getElementById('exlibris-banner-animations')) {
+    // Add styles if not already added
+    if (!document.getElementById('exlibris-multitab-banner-styles')) {
       const style = document.createElement('style');
-      style.id = 'exlibris-banner-animations';
+      style.id = 'exlibris-multitab-banner-styles';
       style.textContent = `
+        #exlibris-multitab-warning {
+          position: fixed !important;
+          top: 0 !important;
+          left: 0;
+          right: 0;
+          width: 100%;
+          z-index: 9998;
+          background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+          color: #ffffff;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+          font-family: 'Salesforce Sans', Arial, sans-serif;
+          font-size: 11px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+          height: 3rem;
+          overflow: hidden;
+          display: flex;
+          align-items: center;
+          animation: slideDown 0.3s ease-out;
+        }
+
+        #exlibris-multitab-warning-container {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 0 12px;
+          max-width: 100%;
+          height: 100%;
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          overflow-y: hidden;
+        }
+
+        #exlibris-multitab-warning-icon {
+          flex-shrink: 0;
+          width: 20px;
+          height: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 50%;
+          font-size: 14px;
+        }
+
+        #exlibris-multitab-warning-message {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-direction: row;
+          align-items: center;
+          gap: 8px;
+          padding: 0 8px;
+          border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        #exlibris-multitab-warning-text {
+          font-size: 11px;
+          line-height: 1.2;
+          color: #ffffff;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        #exlibris-multitab-warning-text strong {
+          font-weight: 600;
+          margin-right: 4px;
+        }
+
+        #exlibris-multitab-warning-actions {
+          flex-shrink: 0;
+          display: flex;
+          gap: 6px;
+          align-items: center;
+          padding: 0 8px;
+        }
+
+        #exlibris-multitab-warning-switch,
+        #exlibris-multitab-warning-dismiss {
+          background-color: rgba(255, 255, 255, 0.2);
+          color: #ffffff;
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          border-radius: 3px;
+          padding: 4px 12px;
+          font-size: 11px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          white-space: nowrap;
+          height: 26px;
+          line-height: 1;
+        }
+
+        #exlibris-multitab-warning-switch:hover {
+          background-color: rgba(255, 255, 255, 0.3);
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+
+        #exlibris-multitab-warning-dismiss {
+          background-color: transparent;
+          border: none;
+          padding: 4px 8px;
+          font-size: 16px;
+          opacity: 0.7;
+          width: 26px;
+        }
+
+        #exlibris-multitab-warning-dismiss:hover {
+          opacity: 1;
+          background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        #exlibris-multitab-warning-switch:active,
+        #exlibris-multitab-warning-dismiss:active {
+          transform: translateY(0);
+        }
+
+        #exlibris-multitab-warning-container::-webkit-scrollbar {
+          height: 4px;
+        }
+
+        #exlibris-multitab-warning-container::-webkit-scrollbar-track {
+          background: rgba(0, 0, 0, 0.2);
+        }
+
+        #exlibris-multitab-warning-container::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.3);
+          border-radius: 2px;
+        }
+
+        #exlibris-multitab-warning-container::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.5);
+        }
+
         @keyframes slideDown {
           from {
             transform: translateY(-100%);
@@ -145,6 +179,51 @@ const MultiTabSync = (function() {
       `;
       document.head.appendChild(style);
     }
+
+    const banner = document.createElement('div');
+    banner.id = 'exlibris-multitab-warning';
+
+    const container = document.createElement('div');
+    container.id = 'exlibris-multitab-warning-container';
+
+    const icon = document.createElement('div');
+    icon.id = 'exlibris-multitab-warning-icon';
+    icon.textContent = '⚠️';
+
+    const message = document.createElement('div');
+    message.id = 'exlibris-multitab-warning-message';
+
+    const text = document.createElement('span');
+    text.id = 'exlibris-multitab-warning-text';
+    text.innerHTML = '<strong>Warning:</strong> This case is open in another tab. Editing in multiple tabs may cause data loss.';
+
+    message.appendChild(text);
+
+    const actions = document.createElement('div');
+    actions.id = 'exlibris-multitab-warning-actions';
+
+    const switchButton = document.createElement('button');
+    switchButton.id = 'exlibris-multitab-warning-switch';
+    switchButton.textContent = 'Switch Tab';
+    switchButton.onclick = () => {
+      requestTabSwitch();
+    };
+
+    const dismissButton = document.createElement('button');
+    dismissButton.id = 'exlibris-multitab-warning-dismiss';
+    dismissButton.textContent = '✕';
+    dismissButton.title = 'Dismiss (warning will reappear if other tab is still active)';
+    dismissButton.onclick = () => {
+      hideWarningBanner();
+    };
+
+    actions.appendChild(switchButton);
+    actions.appendChild(dismissButton);
+
+    container.appendChild(icon);
+    container.appendChild(message);
+    container.appendChild(actions);
+    banner.appendChild(container);
 
     return banner;
   }

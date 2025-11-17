@@ -59,6 +59,7 @@
             "modules/persistentBanner.js",
             "modules/implementationStatus.js",
             "modules/flexipagePanelInjector.js",
+            "modules/debugHelper.js",
             "content_script_exlibris.js"
          ],
          "matches": [ "https://proquestllc.lightning.force.com/*", "https://clarivate23-dev-ed.develop.my.salesforce-setup.com/*" ],

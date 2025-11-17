@@ -1,0 +1,38 @@
+{
+  "name": "penang-coe-salesforce-extension",
+  "version": "7.0.0",
+  "description": "Productivity Tools for Clarivate and Ex Libris - Chrome Extension",
+  "private": true,
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:debug": "node --inspect-brk node_modules/.bin/jest --runInBand",
+    "test:coverage": "jest --coverage",
+    "test:integration": "jest tests/integration",
+    "test:verbose": "jest --verbose"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "jest-puppeteer": "^10.1.1",
+    "puppeteer": "^21.5.0"
+  },
+  "jest": {
+    "preset": "jest-puppeteer",
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
+    "testTimeout": 30000,
+    "setupFilesAfterEnv": [
+      "<rootDir>/tests/setup.js"
+    ],
+    "collectCoverageFrom": [
+      "modules/**/*.js",
+      "content_script*.js",
+      "background.js",
+      "popup.js",
+      "!**/node_modules/**",
+      "!**/tests/**"
+    ]
+  }
+}
+

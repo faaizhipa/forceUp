@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Test artifacts
+coverage/
+*.log
+test-results/
+.puppeteer_cache/
+
+# Chrome debug profiles
+chrome-test-profile/
+chrome-debug-profile/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts (if any)
+dist/
+build/
+

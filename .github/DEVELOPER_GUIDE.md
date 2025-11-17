@@ -322,11 +322,19 @@ chrome.runtime.sendMessage({ message: 'test' }, console.log);
 
 ---
 
+## Testing and Debugging
+
+For comprehensive testing and debugging instructions, see:
+- **TESTING.md** - Complete testing guide, MCP setup, and debugging utilities
+- **Debug Helper** - Use `ExLibrisDebug` in browser console for debugging
+- **Automated Tests** - Run `npm test` for integration tests
+
 ## Resources
 
 - **Manifest V3 Migration Guide:** https://developer.chrome.com/docs/extensions/mv3/
 - **Chrome Extension APIs:** https://developer.chrome.com/docs/extensions/reference/
 - **Salesforce Lightning Design System:** https://www.lightningdesignsystem.com/
+- **Testing Guide:** See `TESTING.md` in project root
 
 ---
 
