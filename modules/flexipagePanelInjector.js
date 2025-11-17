@@ -56,8 +56,10 @@ const FlexipagePanelInjector = {
         console.log('[EXL] FlexipagePanelInjector: Panel injected successfully');
         
         // Force UI refresh to prevent panel from hiding behind other elements
+        const visibleCasePage = this.findVisibleCasePage();
+        this.forceUIRefresh(visibleCasePage);
         this.forceUIRefresh(panel);
-        
+
         // NOTE: CaseTimezoneResolver is now initialized from the banner button
         // after panel injection is complete, not here
         
@@ -144,6 +146,43 @@ const FlexipagePanelInjector = {
             }
         }
 
+        return null;
+    },
+
+    /**
+     * Find the visible case page container
+     * Useful for forcing UI refresh on the entire case page
+     * @returns {Element|null}
+     */
+    findVisibleCasePage() {
+        // Primary strategy: Find one-record-home-flexipage2
+        const flexipages = document.querySelectorAll('one-record-home-flexipage2');
+        for (const flexipage of flexipages) {
+            if (this.isElementVisible(flexipage)) {
+                console.log('[EXL] FlexipagePanelInjector: Found visible one-record-home-flexipage2');
+                return flexipage;
+            }
+        }
+
+        // Secondary strategy: Find records-highlights2 and get its parent
+        const highlights = document.querySelectorAll('records-highlights2');
+        for (const highlight of highlights) {
+            if (this.isElementVisible(highlight)) {
+                console.log('[EXL] FlexipagePanelInjector: Found visible records-highlights2');
+                return highlight.closest('one-record-home-flexipage2') || highlight;
+            }
+        }
+
+        // Fallback: Find any visible forceRecordLayout container
+        const recordLayouts = document.querySelectorAll('[data-aura-class="forceRecordLayout"]');
+        for (const layout of recordLayouts) {
+            if (this.isElementVisible(layout)) {
+                console.log('[EXL] FlexipagePanelInjector: Found visible forceRecordLayout');
+                return layout;
+            }
+        }
+
+        console.warn('[EXL] FlexipagePanelInjector: No visible case page found');
         return null;
     },
 

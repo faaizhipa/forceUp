@@ -18,6 +18,12 @@ const PersistentBanner = {
     
     // Current case tracking (to detect navigation to different case)
     currentCaseId: null,
+    currentCaseNumber: null,
+
+    // Case number validation state
+    caseNumberValidationTimer: null,
+    caseNumberValidationAttempts: 0,
+    MAX_CASE_VALIDATION_ATTEMPTS: 6,
     
     // Current page info
     currentPage: {
@@ -63,9 +69,12 @@ const PersistentBanner = {
         'Pending Internal Response': { base: 'rgb(60, 29, 107)', category: 'purple' },
         'Pending AM Response': { base: 'rgb(60, 29, 107)', category: 'purple' },
         'Pending QA Review': { base: 'rgb(60, 29, 107)', category: 'purple' },
+        'Pending': { base: 'rgb(60, 29, 107)', category: 'purple' },
         
         // Green statuses - 2 shades darker from rgb(0, 100, 0)
         'Solution Delivered to Customer': { base: 'rgb(0, 60, 0)', category: 'green' },
+        'Closed': { base: 'rgb(0, 60, 0)', category: 'green' },
+        'Awaiting Customer Confirmation': { base: 'rgb(0, 60, 0)', category: 'green' },
         
         // Blue statuses - 2 shades darker from rgb(13, 83, 173)
         'Closed': { base: 'rgb(8, 50, 104)', category: 'blue' },
@@ -80,6 +89,11 @@ const PersistentBanner = {
     // Default banner gradient (for non-case pages)
     DEFAULT_GRADIENT: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
 
+    // DOM selectors for case navigation elements
+    SELECTORS: {
+        RECORD_LAYOUT_BROKER: 'one-record-home-flexipage2',
+        CONTEXT_BAR_TABS: '.slds-context-bar__item'
+    },
 
     /**
      * Initialize the persistent banner
@@ -119,17 +133,28 @@ const PersistentBanner = {
             const data = event.detail;
             console.log('[PersistentBanner] Received case page data from CasePageDataExtractor:', data);
             
-            // Extract case ID from the data
-            const newCaseId = data.caseNumber || null;
-            
-            // Check if we've navigated to a different case
-            if (this.currentCaseId && newCaseId && this.currentCaseId !== newCaseId) {
-                console.log(`[PersistentBanner] Navigated from case ${this.currentCaseId} to ${newCaseId}, clearing old data...`);
+            const newCaseNumber = data.caseNumber || null;
+            const newCaseId = data.caseId || null;
+
+            // CRITICAL: Verify extracted data matches the currently visible case number
+            const visibleCase = this.getVisibleCaseNumberFromDom();
+            if (visibleCase && visibleCase.caseNumber && newCaseNumber && visibleCase.caseNumber !== newCaseNumber) {
+                console.warn(`[PersistentBanner] MISMATCH: Extracted case number ${newCaseNumber} does NOT match visible case ${visibleCase.caseNumber}. Ignoring stale data.`);
+                // Schedule revalidation to pick up the correct visible case
+                this.scheduleCaseNumberRevalidation('data-mismatch-detected', 500);
+                return;
+            }
+
+            if (this.currentCaseNumber && newCaseNumber && this.currentCaseNumber !== newCaseNumber) {
+                console.log(`[PersistentBanner] Navigated from case ${this.currentCaseNumber} to ${newCaseNumber}, clearing old data...`);
                 this.clearCaseData();
             }
-            
-            // Update current case ID
-            this.currentCaseId = newCaseId;
+
+            if (newCaseId) {
+                this.currentCaseId = newCaseId;
+            }
+
+            this.currentCaseNumber = newCaseNumber;
             
             // Update customer metadata from extracted data
             // CasePageDataExtractor now enriches data with custID, instID, server from CustomerDataManager
@@ -138,7 +163,7 @@ const PersistentBanner = {
                 institutionId: data.instID || null,  // 4-digit institution ID
                 server: data.server || null,  // Server code (ap02, na05, etc.)
                 productServiceName: data.platformService || null,  // Platform/Service with fallback
-                institutionCode: data.exLibrisAccountNumber || null  // Institution code (61USC_INST, etc.)
+                institutionCode: data.institutionCode || data.exLibrisAccountNumber || null  // Use proper institution code from customer list, fallback to case field
             };
             
             console.log('[PersistentBanner] Updated customer metadata:', this.customerMetadata);
@@ -149,8 +174,14 @@ const PersistentBanner = {
                 console.log('[PersistentBanner] Updated status from page data:', data.pageStatus);
             }
             
-            // Update banner UI with new metadata and status
-            this.updateBannerUI();
+            const pageType = this.isCasePageType(this.currentPage.type) ? this.currentPage.type : 'Case';
+            this.updateCurrentPage({
+                type: pageType,
+                caseNumber: newCaseNumber,
+                subject: data.subject,
+                status: data.status || data.pageStatus || null,
+                subStatus: data.subStatus || null
+            });
         });
         
         console.log('[PersistentBanner] CasePageDataExtractor listener registered');
@@ -188,9 +219,10 @@ const PersistentBanner = {
         
         // Use NavigationObserver for immediate URL change detection
         if (typeof NavigationObserver !== 'undefined') {
+            console.log('[PersistentBanner] Setting up URL monitoring with NavigationObserver');
             NavigationObserver.onRouteChange((newUrl) => {
-                if (newUrl !== this.lastKnownUrl) {
-                    console.log('[PersistentBanner] URL changed:', newUrl);
+                if (newUrl.toLowerCase() !== this.lastKnownUrl.toLowerCase()) {
+                    console.log('[PersistentBanner] URL changed:', newUrl, 'from ' + this.lastKnownUrl);
                     this.lastKnownUrl = newUrl;
                     this.handleUrlChange(newUrl);
                 }
@@ -199,6 +231,42 @@ const PersistentBanner = {
         } else {
             console.warn('[PersistentBanner] NavigationObserver not available');
         }
+
+        // Setup click listeners for case navigation elements
+        this.setupCaseNavigationListeners();
+    },
+
+    /**
+     * Setup click listeners for case navigation elements
+     */
+    setupCaseNavigationListeners() {
+        // Safety check: ensure SELECTORS is defined
+        if (!this.SELECTORS) {
+            console.warn('[PersistentBanner] SELECTORS not available, skipping navigation listeners setup');
+            return;
+        }
+
+        const listeners = [
+            { selector: this.SELECTORS.RECORD_LAYOUT_BROKER, label: 'Case tabs' },
+            { selector: this.SELECTORS.CONTEXT_BAR_TABS, label: 'Case main view' }
+        ];
+
+        listeners.forEach(({ selector, label }) => {
+            try {
+                const element = document.querySelector(selector);
+                if (element) {
+                    element.addEventListener('click', (event) => {
+                        console.log(`[PersistentBanner] ${label} clicked:`, event);
+                        // Add any specific handling logic here if needed
+                    });
+                    console.log(`[PersistentBanner] Click listener added for ${label}`);
+                } else {
+                    console.log(`[PersistentBanner] Element not found for ${label} (${selector})`);
+                }
+            } catch (error) {
+                console.warn(`[PersistentBanner] Error setting up listener for ${label}:`, error);
+            }
+        });
     },
 
     /**
@@ -246,6 +314,8 @@ const PersistentBanner = {
         
         // Clear current case ID
         this.currentCaseId = null;
+        this.currentCaseNumber = null;
+        this.resetCaseNumberValidationState();
         
         // Clear customer metadata
         this.customerMetadata = {
@@ -323,15 +393,51 @@ const PersistentBanner = {
      * @param {Object} pageData
      */
     updateCurrentPage(pageData = {}) {
+        const resolvedType = pageData.type || this.currentPage.type || 'Unknown';
+        const hasCaseNumber = Object.prototype.hasOwnProperty.call(pageData, 'caseNumber');
+        const hasSubject = Object.prototype.hasOwnProperty.call(pageData, 'subject');
+        const hasStatus = Object.prototype.hasOwnProperty.call(pageData, 'status');
+        const hasSubStatus = Object.prototype.hasOwnProperty.call(pageData, 'subStatus');
+
+        let incomingCaseNumber = hasCaseNumber ? pageData.caseNumber : this.currentPage.caseNumber;
+        if (typeof incomingCaseNumber === 'string') {
+            incomingCaseNumber = incomingCaseNumber.trim();
+        }
+        let resolvedCaseNumber = incomingCaseNumber || null;
+
+        const resolvedSubject = hasSubject ? pageData.subject : this.currentPage.subject;
+        const resolvedStatus = hasStatus ? pageData.status : this.currentPage.status;
+        const resolvedSubStatus = hasSubStatus ? pageData.subStatus : this.currentPage.subStatus;
+
+        const isCasePage = this.isCasePageType(resolvedType);
+        let needsRevalidation = false;
+
+        if (isCasePage) {
+            const visibleCase = this.getVisibleCaseNumberFromDom();
+            if (visibleCase && visibleCase.caseNumber) {
+                if (resolvedCaseNumber && resolvedCaseNumber !== visibleCase.caseNumber) {
+                    console.log(`[PersistentBanner] Case number mismatch (data: ${resolvedCaseNumber}, visible: ${visibleCase.caseNumber}). Using visible value.`);
+                }
+                resolvedCaseNumber = visibleCase.caseNumber;
+                this.resetCaseNumberValidationState();
+            } else {
+                needsRevalidation = true;
+            }
+        } else {
+            this.resetCaseNumberValidationState();
+        }
+
         this.currentPage = {
-            type: pageData.type || 'Unknown',
-            caseNumber: pageData.caseNumber || null,
-            subject: pageData.subject || null,
-            status: pageData.status || null,
-            subStatus: pageData.subStatus || null,
+            type: resolvedType,
+            caseNumber: resolvedCaseNumber || null,
+            subject: resolvedSubject || null,
+            status: resolvedStatus || null,
+            subStatus: resolvedSubStatus || null,
             url: window.location.href,
             timestamp: new Date().toISOString()
         };
+
+        this.currentCaseNumber = this.currentPage.caseNumber;
 
         console.log('[PersistentBanner] Updated current page:', this.currentPage);
         
@@ -346,6 +452,10 @@ const PersistentBanner = {
             url: this.currentPage.url,
             timestamp: this.currentPage.timestamp
         });
+
+        if (isCasePage && needsRevalidation) {
+            this.scheduleCaseNumberRevalidation('updateCurrentPage');
+        }
     },
 
     /**
@@ -720,10 +830,30 @@ const PersistentBanner = {
                     console.warn('[PersistentBanner] No account name available for timezone detection');
                 }
                 
-                this.showNotification(
-                    `Panel ready for case ${caseData.caseNumber}. Click "Prepare Tools" to continue.`,
-                    'success'
-                );
+                // Step 6: Automatically trigger handlePrepareTools to scroll and load complete data
+                this.showNotification('Preparing tools and loading complete case data...', 'info');
+                
+                if (typeof FlexipagePanelInjector.handlePrepareTools === 'function') {
+                    // Wait a moment for panel to fully render before triggering preparation
+                    setTimeout(async () => {
+                        try {
+                            await FlexipagePanelInjector.handlePrepareTools();
+                            this.showNotification(
+                                `Panel ready with complete data for case ${caseData.caseNumber}.`,
+                                'success'
+                            );
+                        } catch (error) {
+                            console.error('[PersistentBanner] Error during handlePrepareTools:', error);
+                            this.showNotification('Tool preparation encountered an error.', 'warning');
+                        }
+                    }, 1500); // 1.5 second delay to ensure CaseTimezoneResolver completes first
+                } else {
+                    console.warn('[PersistentBanner] handlePrepareTools not available on FlexipagePanelInjector');
+                    this.showNotification(
+                        `Panel ready for case ${caseData.caseNumber}. Click "Prepare Tools" to continue.`,
+                        'success'
+                    );
+                }
             } else {
                 this.showNotification('Could not inject panel. Make sure you are on a Case record page.', 'warning');
             }
@@ -735,7 +865,7 @@ const PersistentBanner = {
 
     /**
      * Handle case detail extractor action
-     * Shows a menu to choose between XML and TSV formats
+     * Shows a menu to choose between XML and TSV format
      */
     async handleCaseDetailExtractor() {
         // Check if we're on a case page
@@ -948,6 +1078,300 @@ const PersistentBanner = {
     },
 
     /**
+     * Determine if a page type represents a case detail view
+     * @param {string} pageType
+     * @returns {boolean}
+     */
+    isCasePageType(pageType) {
+        if (!pageType) return false;
+        const normalized = pageType.toString().toLowerCase();
+        if (normalized.includes('list')) return false;
+        return normalized.includes('case');
+    },
+
+    /**
+     * Checks if an element is visible in the current viewport
+     * @param {Element} element
+     * @returns {boolean}
+     */
+    isElementVisible(element) {
+        if (!element) return false;
+
+        let current = element;
+        while (current && current !== document.body) {
+            const style = window.getComputedStyle(current);
+            if (style.display === 'none' || style.visibility === 'hidden') {
+                return false;
+            }
+            current = current.parentElement;
+        }
+
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+    },
+
+    /**
+     * Get case number from the active Salesforce Lightning console tab
+     * @returns {{caseNumber: string, source: string, rawText: string}|null}
+     */
+    getActiveLightningConsoleTabCaseNumber() {
+        // Find all console tab items (li elements with specific classes)
+        const tabSelectors = [
+            'li.tabItem.slds-context-bar__item',
+            'li.oneConsoleTabItem',
+            'li[role="presentation"].slds-context-bar__item',
+            '.workspace__tabBar li[role="presentation"]'
+        ];
+
+        let activeTabs = [];
+
+        for (const selector of tabSelectors) {
+            const tabs = document.querySelectorAll(selector);
+            if (!tabs.length) continue;
+
+            for (const tab of tabs) {
+                // Check if this tab is marked as active
+                const isActive = tab.classList.contains('slds-is-active') || 
+                               tab.classList.contains('active') ||
+                               tab.getAttribute('aria-selected') === 'true';
+
+                if (isActive && this.isElementVisible(tab)) {
+                    activeTabs.push(tab);
+                }
+            }
+
+            if (activeTabs.length > 0) {
+                break; // Found active tabs with this selector
+            }
+        }
+
+        if (activeTabs.length === 0) {
+            return null;
+        }
+
+        // Get the last active tab (most recent/current)
+        const activeTab = activeTabs[activeTabs.length - 1];
+
+        // Try to extract case number from the tab's link text
+        const tabLink = activeTab.querySelector('a');
+        if (tabLink) {
+            const tabText = (tabLink.textContent || '').trim();
+            const caseNumber = this.extractCaseNumberFromText(tabText);
+            if (caseNumber) {
+                console.log('[PersistentBanner] Found case number from active console tab:', caseNumber);
+                return { caseNumber, source: 'lightning-console-tab', rawText: tabText };
+            }
+        }
+
+        // Fallback: check title attribute
+        const titleAttr = activeTab.getAttribute('title');
+        if (titleAttr) {
+            const caseNumber = this.extractCaseNumberFromText(titleAttr);
+            if (caseNumber) {
+                console.log('[PersistentBanner] Found case number from active tab title:', caseNumber);
+                return { caseNumber, source: 'lightning-console-tab-title', rawText: titleAttr };
+            }
+        }
+
+        return null;
+    },
+
+    /**
+     * Attempt to read the current visible case number from the DOM
+     * @returns {{caseNumber: string, source: string, rawText: string}|null}
+     */
+    getVisibleCaseNumberFromDom() {
+        // Priority 1: Check RecordCaseNumberField (most reliable source)
+        // In case of nested case views, we want the CLOSEST one to the active content
+        const caseNumberFieldSelectors = [
+            'lightning-formatted-text[data-field-id="RecordCaseNumberField"]',
+            'flexipage-field lightning-formatted-text[data-field-id="RecordCaseNumberField"]',
+            'record_flexipage-record-field lightning-formatted-text[data-field-id="RecordCaseNumberField"]'
+        ];
+
+        let closestElement = null;
+        let closestDistance = Infinity;
+
+        for (const selector of caseNumberFieldSelectors) {
+            const elements = document.querySelectorAll(selector);
+            for (const element of elements) {
+                if (!this.isElementVisible(element)) {
+                    continue;
+                }
+
+                const text = (element.textContent || '').trim();
+                if (!text) continue;
+
+                const caseNumber = this.extractCaseNumberFromText(text);
+                if (!caseNumber) continue;
+
+                // Calculate "distance" from viewport top (closer to top = more likely to be the active case)
+                const rect = element.getBoundingClientRect();
+                const distance = Math.abs(rect.top);
+
+                // Prefer elements closer to the viewport top
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    closestElement = { caseNumber, source: 'RecordCaseNumberField', rawText: text, distance };
+                }
+            }
+        }
+
+        if (closestElement) {
+            console.log('[PersistentBanner] Found case number from RecordCaseNumberField (closest to viewport):', closestElement.caseNumber, 'distance:', closestElement.distance);
+            return closestElement;
+        }
+
+        // Priority 2: Check active Lightning console tab
+        const consoleTabCase = this.getActiveLightningConsoleTabCaseNumber();
+        if (consoleTabCase) {
+            return consoleTabCase;
+        }
+
+        // Priority 3: Check standard page selectors (also use proximity logic for nested views)
+        const selectors = [
+            'slot[name="primaryField"] lightning-formatted-text',
+            'records-formula-output[slot="primaryField"] lightning-formatted-text',
+            '.slds-page-header__title lightning-formatted-text',
+            '.slds-page-header__title span',
+            'lightning-formatted-text[data-output-element-id="output-field"][slot="output"]',
+            'h1.slds-page-header__title',
+            'nav[role="navigation"] a',
+            '.breadcrumb a',
+            '.slds-breadcrumb__item a'
+        ];
+
+        let closestPageElement = null;
+        let closestPageDistance = Infinity;
+
+        for (const selector of selectors) {
+            const nodes = document.querySelectorAll(selector);
+            if (!nodes.length) continue;
+
+            for (const node of nodes) {
+                if (!this.isElementVisible(node)) {
+                    continue;
+                }
+
+                const text = (node.textContent || '').trim();
+                if (!text) continue;
+
+                const caseNumber = this.extractCaseNumberFromText(text);
+                if (!caseNumber) continue;
+
+                // Use proximity to viewport for nested case scenarios
+                const rect = node.getBoundingClientRect();
+                const distance = Math.abs(rect.top);
+
+                if (distance < closestPageDistance) {
+                    closestPageDistance = distance;
+                    closestPageElement = { caseNumber, source: selector, rawText: text, distance };
+                }
+            }
+        }
+
+        if (closestPageElement) {
+            console.log('[PersistentBanner] Found case number from page selector (closest):', closestPageElement.source, closestPageElement.caseNumber);
+            return closestPageElement;
+        }
+
+        // Priority 4: Check document title as final fallback
+        const titleText = (document.title || '').trim();
+        const titleMatch = this.extractCaseNumberFromText(titleText);
+        if (titleMatch) {
+            return { caseNumber: titleMatch, source: 'document.title', rawText: titleText };
+        }
+
+        return null;
+    },
+
+    /**
+     * Extract the first 6+ digit sequence from text
+     * @param {string} text
+     * @returns {string|null}
+     */
+    extractCaseNumberFromText(text) {
+        if (!text) return null;
+        const match = text.match(/\b(\d{6,})\b/);
+        return match ? match[1] : null;
+    },
+
+    /**
+     * Schedule a revalidation of the visible case number
+     * @param {string} reason
+     * @param {number} [delay=250]
+     */
+    scheduleCaseNumberRevalidation(reason, delay = 250) {
+        if (!this.isCasePageType(this.currentPage.type)) {
+            this.resetCaseNumberValidationState();
+            return;
+        }
+
+        if (this.caseNumberValidationTimer) {
+            clearTimeout(this.caseNumberValidationTimer);
+            this.caseNumberValidationTimer = null;
+        }
+
+        if (!reason || reason.indexOf('retry') === -1) {
+            this.caseNumberValidationAttempts = 0;
+        }
+
+        if (this.caseNumberValidationAttempts >= this.MAX_CASE_VALIDATION_ATTEMPTS) {
+            console.warn(`[PersistentBanner] Case number validation aborted after ${this.caseNumberValidationAttempts} attempts (${reason})`);
+            return;
+        }
+
+        this.caseNumberValidationTimer = setTimeout(() => {
+            this.caseNumberValidationTimer = null;
+            this.revalidateCaseNumber(reason);
+        }, delay);
+    },
+
+    /**
+     * Revalidate the banner's case number against the visible DOM
+     * @param {string} reason
+     */
+    revalidateCaseNumber(reason) {
+        if (!this.isCasePageType(this.currentPage.type)) {
+            this.resetCaseNumberValidationState();
+            return;
+        }
+
+        this.caseNumberValidationAttempts += 1;
+
+        const visibleCase = this.getVisibleCaseNumberFromDom();
+        if (visibleCase && visibleCase.caseNumber) {
+            if (this.currentPage.caseNumber !== visibleCase.caseNumber) {
+                console.log(`[PersistentBanner] Case number revalidated (${reason}): ${this.currentPage.caseNumber || '—'} -> ${visibleCase.caseNumber}`);
+                this.currentPage.caseNumber = visibleCase.caseNumber;
+                this.currentCaseNumber = visibleCase.caseNumber;
+                this.updateBannerUI();
+            }
+
+            this.resetCaseNumberValidationState();
+            return;
+        }
+
+        if (this.caseNumberValidationAttempts < this.MAX_CASE_VALIDATION_ATTEMPTS) {
+            this.scheduleCaseNumberRevalidation(`${reason}-retry`, 250);
+        } else {
+            console.warn(`[PersistentBanner] Could not verify visible case number after ${this.caseNumberValidationAttempts} attempts (${reason})`);
+            this.resetCaseNumberValidationState();
+        }
+    },
+
+    /**
+     * Reset case number validation timers and counters
+     */
+    resetCaseNumberValidationState() {
+        if (this.caseNumberValidationTimer) {
+            clearTimeout(this.caseNumberValidationTimer);
+            this.caseNumberValidationTimer = null;
+        }
+        this.caseNumberValidationAttempts = 0;
+    },
+
+    /**
      * Show a notification message
      * @param {string} message
      * @param {string} type - 'success', 'error', 'warning', 'info'
@@ -1088,6 +1512,11 @@ const PersistentBanner = {
         
         // Update banner background based on case status
         this.updateBannerBackground();
+        
+        // Schedule post-render validation to ensure displayed case number matches visible DOM
+        if (this.isCasePageType(this.currentPage.type) && this.currentPage.caseNumber) {
+            this.scheduleCaseNumberRevalidation('post-ui-update', 300);
+        }
     },
 
     /**
@@ -1285,6 +1714,9 @@ const PersistentBanner = {
     cleanup() {
         this.stopUrlMonitoring();
         this.remove();
+        this.resetCaseNumberValidationState();
+        this.currentCaseId = null;
+        this.currentCaseNumber = null;
         this.isInitialized = false;
         console.log('[PersistentBanner] Cleaned up');
     },

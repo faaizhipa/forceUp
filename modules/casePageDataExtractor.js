@@ -178,6 +178,8 @@ const CasePageDataExtractor = {
         data.custID = customerInfo.custID;
         data.instID = customerInfo.instID;
         data.server = customerInfo.server;
+        // Override the case page institution code with the proper one from customer list
+        data.institutionCode = customerInfo.institutionCode;
         console.log('[CaseDataExtractor] Found customer by institution code:', customerInfo.name);
         console.log('[CaseDataExtractor] Using server from customer record:', customerInfo.server);
         console.log('[CaseDataExtractor] Applied customer data - custID:', customerInfo.custID, 'instID:', customerInfo.instID, 'server:', customerInfo.server);

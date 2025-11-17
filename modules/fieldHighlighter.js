@@ -163,10 +163,8 @@ const FieldHighlighter = {
     this.highlightField(this.fieldSelectors.description);
     this.highlightField(this.fieldSelectors.status);
 
-    // Highlight Jira section fields
+    // Highlight Root Cause field
     this.highlightField(this.fieldSelectors.rootCause);
-    this.highlightField(this.fieldSelectors.primaryJira);
-    this.highlightField(this.fieldSelectors.jiraStatus);
   },
 
   /**
@@ -178,8 +176,6 @@ const FieldHighlighter = {
     this.removeHighlight(this.fieldSelectors.description);
     this.removeHighlight(this.fieldSelectors.status);
     this.removeHighlight(this.fieldSelectors.rootCause);
-    this.removeHighlight(this.fieldSelectors.primaryJira);
-    this.removeHighlight(this.fieldSelectors.jiraStatus);
   },
 
   /**

@@ -217,6 +217,10 @@ const URLBuilder = {
 
     const selectedLabels = labels[labelStyle] || labels.casual;
 
+    if (caseData.institutionCode.length === 4) {
+      caseData.institutionCode += '_INST';
+    }
+
     const buttonGroups = {
       production: [
         {

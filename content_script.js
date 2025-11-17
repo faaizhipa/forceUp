@@ -991,9 +991,9 @@ function scholarOneStatusColors(statusText) {
     return "rgb(191, 39, 75)";
   } else if (statusText === "Waiting" || statusText === "Updated") {
     return "rgb(247, 114, 56)";
-  } else if (statusText === "Escalated" || statusText === "On Hold" || statusText === "Pending Approval" || statusText === "Pending QA Review") {
+  } else if (statusText === "Escalated" || statusText === "On Hold" || statusText === "Pending Approval" || statusText === "Pending QA Review" || statusText === "Pending Internal Response" || statusText === "Pending AM Response" || statusText === "Pending") {
     return "rgb(140, 77, 253)";
-  } else if (statusText === "Released" || statusText === "Passed QA" || statusText === "Closed") {
+  } else if (statusText === "Released" || statusText === "Passed QA" || statusText === "Closed" || statusText === "Awaiting Customer Confirmation") {
     return "rgb(45, 200, 64)";
   } else if (statusText === "Ready for QA" || statusText === "Ready for DBA" || statusText === "Ready for Data Architect") {
     return "rgb(251, 178, 22)";
@@ -1096,21 +1096,21 @@ function handleStatus() {
           if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
             thirdAncestor.style.overflow = 'visible';
           }
-        } else if (cellText === "Assigned to Resolver Group" || cellText === "Pending Internal Response" || cellText === "Pending AM Response" || cellText === "Pending QA Review") {
+        } else if (cellText === "Assigned to Resolver Group" || cellText === "Pending Internal Response" || cellText === "Pending AM Response" || cellText === "Pending QA Review" || cellText === "Pending Approval" || cellText === "On Hold") {
           cell.setAttribute("style", generateStyle("rgb(140, 77, 253)"));
           // Style the 3rd ancestor div element
           const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
           if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
             thirdAncestor.style.overflow = 'visible';
           }
-        } else if (cellText === "Solution Delivered to Customer") {
+        } else if (cellText === "Solution Delivered to Customer" || cellText === "Closed" || cellText === "Awaiting Customer Confirmation") {
           cell.setAttribute("style", generateStyle("rgb(45, 200, 64)"));
           // Style the 3rd ancestor div element
           const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
           if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
             thirdAncestor.style.overflow = 'visible';
           }
-        } else if (cellText === "Closed" || cellText === "Pending Customer Response") {
+        } else if (cellText === "Closed" || cellText === "Pending Customer Response" || cellText === "Pending") {
           cell.setAttribute("style", generateStyle("rgb(103, 103, 103)"));
           // Style the 3rd ancestor div element
           const thirdAncestor = cell.parentElement?.parentElement?.parentElement;

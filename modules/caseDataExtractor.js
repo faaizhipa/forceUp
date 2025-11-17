@@ -29,6 +29,9 @@ const CaseDataExtractor = {
       jiraId: this.getJiraId(),
       lastModifiedDate: this.getLastModifiedDate(),
       // Derived fields (populated in processData)
+      customerCode: null,
+      edition: null,
+      portalCustomDomain: null,
       institutionCode: null,
       server: null,
       serverRegion: null,
@@ -283,6 +286,16 @@ const CaseDataExtractor = {
       const originalCode = rawData.exLibrisAccountNumber.trim();
       let formattedCode = originalCode;
 
+      // Try to find customer record by institution code, with account name as fallback
+      if (typeof CustomerDataManager !== 'undefined') {
+        customerRecord = await this.getCustomerData(formattedCode, rawData.accountName);
+        if (customerRecord) {
+          console.log(`[CaseDataExtractor] Found customer by institution code: ${customerRecord.name || formattedCode}`);
+        }
+      } 
+
+      // Apply formatting rules to institution code
+
       if (/FLVC/i.test(formattedCode)) {
         formattedCode = formattedCode.replace(/FLVC/gi, 'FALSC');
       }
@@ -291,19 +304,23 @@ const CaseDataExtractor = {
         formattedCode = formattedCode.replace(/-/g, '_');
       }
 
+      if (/01MA_DM/i.test(formattedCode)) {
+        formattedCode = formattedCode.replace(/01MA_DM/, '01MA_DM_INST');
+      }
+
       if (!formattedCode.includes('_')) {
         formattedCode = `${formattedCode}_INST`;
       }
 
-      processed.institutionCode = formattedCode;
-      
-      // Try to find customer record by institution code, with account name as fallback
-      if (typeof CustomerDataManager !== 'undefined') {
-        customerRecord = await this.getCustomerData(formattedCode, rawData.accountName);
-        if (customerRecord) {
-          console.log(`[CaseDataExtractor] Found customer by institution code: ${customerRecord.name || formattedCode}`);
-        }
+      if (customerRecord) {
+        processed.customerName = customerRecord.name;
+      } else if (formattedCode !== originalCode) {
+        processed.institutionCode = formattedCode;
+      } else {
+        processed.customerCode = originalCode;
+        console.warn(`[CaseDataExtractor] Setting customerCode instead of institutionCode: ${originalCode}`);
       }
+
     }
     
     // Step 2: If no institutionCode but we have accountName, search by name
