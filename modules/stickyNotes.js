@@ -31,11 +31,44 @@ const StickyNotes = (function() {
     
     console.log('[StickyNotes] Initializing...');
     
+    // Wait for DOM to be ready before loading and rendering
+    const domReady = await waitForDOMReady();
+    if (!domReady) {
+      console.warn('[StickyNotes] DOM not ready after timeout, proceeding anyway');
+    }
+    
     await loadNotes();
     renderNotes();
     
     isInitialized = true;
     console.log('[StickyNotes] Initialized with', Object.keys(notes).length, 'notes');
+  }
+
+  /**
+   * Wait for DOM to be ready before rendering notes
+   * Checks for key content elements and waits up to maxWait milliseconds
+   * @param {number} maxWait - Maximum time to wait in milliseconds (default: 5000)
+   * @returns {Promise<boolean>} - True if DOM is ready, false if timeout
+   */
+  async function waitForDOMReady(maxWait = 5000) {
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < maxWait) {
+      // Check for key content elements that indicate page is ready
+      const hasContent = document.querySelector('article, main, [role="main"], .content, .slds-rich-text-editor__output, .uiOutputRichText, .forceOutputRichText');
+      if (hasContent && document.body) {
+        // Additional check: ensure body has some content
+        if (document.body.children.length > 0) {
+          console.log('[StickyNotes] DOM is ready');
+          return true;
+        }
+      }
+      // Wait 200ms before next check
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    
+    console.warn('[StickyNotes] DOM readiness timeout after', maxWait, 'ms');
+    return false; // Timeout
   }
 
   /**
@@ -395,6 +428,37 @@ const StickyNotes = (function() {
     console.log('[StickyNotes] Layer switched, loaded', Object.keys(notes).length, 'notes');
   }
 
+  /**
+   * Reload notes for new URL (called when URL changes in SPA)
+   * Clears existing notes from DOM and loads notes for new URL
+   */
+  async function reloadForNewUrl() {
+    console.log('[StickyNotes] Reloading notes for new URL:', window.location.href);
+    
+    // Clear all note elements from DOM
+    document.querySelectorAll('.exl-hl-note').forEach(note => note.remove());
+    
+    // Reset drag state
+    draggedNote = null;
+    
+    // Clear current notes object
+    notes = {};
+    
+    // Wait for DOM to be ready before loading and rendering
+    const domReady = await waitForDOMReady();
+    if (!domReady) {
+      console.warn('[StickyNotes] DOM not ready after timeout, proceeding anyway');
+    }
+    
+    // Load notes for new URL
+    await loadNotes();
+    
+    // Render notes
+    renderNotes();
+    
+    console.log('[StickyNotes] Reloaded', Object.keys(notes).length, 'notes for new URL');
+  }
+
   return {
     init,
     createNote,
@@ -402,7 +466,8 @@ const StickyNotes = (function() {
     getAllNotes,
     importNotes,
     cleanup,
-    switchLayer
+    switchLayer,
+    reloadForNewUrl
   };
 })();
 

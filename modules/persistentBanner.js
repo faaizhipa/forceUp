@@ -540,6 +540,20 @@ const PersistentBanner = {
     handleUrlChange(newUrl) {
         console.log('[PersistentBanner] Handling URL change, resetting current page data');
         
+        // Detect case ID change and clear cache for old case ID
+        const oldCaseId = this.currentCaseId;
+        const newCaseId = this.getCaseIdFromUrl();
+        
+        if (oldCaseId && newCaseId && oldCaseId !== newCaseId) {
+            console.log(`[PersistentBanner] Case ID changed from ${oldCaseId} to ${newCaseId}, clearing cache for old case`);
+            // Clear cache for the old case ID to prevent stale data
+            if (typeof CacheManager !== 'undefined' && typeof CacheManager.clear === 'function') {
+                CacheManager.clear(oldCaseId).catch(err => {
+                    console.warn(`[PersistentBanner] Error clearing cache for case ${oldCaseId}:`, err);
+                });
+            }
+        }
+        
         // Clear case-specific data when navigating away
         this.clearCaseData();
         
@@ -650,19 +664,32 @@ const PersistentBanner = {
      * Validates page context before updating
      * @param {Object} pageData
      */
-    updateCurrentPage(pageData = {}) {
+    async updateCurrentPage(pageData = {}) {
         // Validate if this is case data
         if (pageData.caseNumber || pageData.caseId) {
             // Get case ID from URL if not provided
             const caseId = pageData.caseId || this.getCaseIdFromUrl();
             
             if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
-                const validation = PageContextValidator.validatePageContextBeforeDisplay(caseId, pageData.caseNumber);
+                let validation = PageContextValidator.validatePageContextBeforeDisplay(caseId, pageData.caseNumber);
+                
+                // Handle async validation (when waiting for title update)
+                if (validation instanceof Promise) {
+                    validation = await validation;
+                }
                 
                 if (!validation.valid) {
-                    console.warn(`[PersistentBanner] Cannot update page: ${validation.reason}`);
-                    this.clearCaseData();
-                    return;
+                    // Only clear if case ID mismatches (case number mismatch might be stale cache)
+                    // If case ID matches but case number doesn't, allow update - fresh extraction will provide correct data
+                    if (validation.currentContext && caseId !== validation.currentContext.caseId) {
+                        console.warn(`[PersistentBanner] Cannot update page: ${validation.reason} (case ID mismatch)`);
+                        this.clearCaseData();
+                        return;
+                    } else {
+                        // Case number mismatch but case ID matches - likely stale cache, allow update
+                        // Fresh extraction will provide correct data
+                        console.warn(`[PersistentBanner] Case number mismatch (likely stale cache): ${validation.reason}. Allowing update - extraction will provide correct data.`);
+                    }
                 }
             }
         }
@@ -916,11 +943,11 @@ const PersistentBanner = {
             const caseId = this.getCaseIdFromUrl();
             
             // Handle non-case pages
-            if (!caseId) {
+                if (!caseId) {
                 if (typeof PageIdentifier !== 'undefined') {
                     const pageInfo = PageIdentifier.identifyPage(window.location.href);
                     const displayType = this.getPageTypeDisplayName(pageInfo.type);
-                    this.updateCurrentPage({
+                    await this.updateCurrentPage({
                         type: displayType,
                         caseNumber: null,
                         subject: null,
@@ -991,7 +1018,7 @@ const PersistentBanner = {
                 const caseData = await window.ExLibrisExtension.getCaseData(caseId, { forceRefresh: true });
                 
                 if (caseData) {
-                    this.updateCurrentPage({
+                    await this.updateCurrentPage({
                         type: 'Case',
                         caseNumber: caseData.caseNumber,
                         subject: caseData.subject,
@@ -1024,7 +1051,7 @@ const PersistentBanner = {
                 const freshData = await CaseDataExtractor.getData();
                 
                 if (freshData) {
-                    this.updateCurrentPage({
+                    await this.updateCurrentPage({
                         type: 'Case',
                         caseNumber: freshData.caseNumber,
                         subject: freshData.subject,

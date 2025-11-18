@@ -394,6 +394,16 @@ const CacheManager = (function() {
       const signatureToCompare = cachedSignature || cached.signature;
       
       if (currentSignature && signatureToCompare === currentSignature) {
+        // ALWAYS validate case number matches, even if signature matches
+        // This prevents returning stale cached data from a different case with same signature
+        if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.getCurrentCaseContext === 'function') {
+          const context = PageContextValidator.getCurrentCaseContext();
+          if (context && cached.data.caseNumber && context.caseNumber !== cached.data.caseNumber) {
+            console.warn(`[CacheManager] Signature matches but case number mismatch: ${cached.data.caseNumber} !== ${context.caseNumber}. Invalidating cache.`);
+            memoryCache.delete(caseId); // Clear stale cache
+            return null; // Force fresh extraction
+          }
+        }
         console.log(`[CacheManager] Cache hit for case ${caseId} (signature match)`);
         return cached.data;
       }

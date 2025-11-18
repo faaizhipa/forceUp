@@ -41,6 +41,12 @@ const Highlighter = (function() {
     
     console.log('[Highlighter] Initializing...');
     
+    // Wait for DOM to be ready before loading and rendering
+    const domReady = await waitForDOMReady();
+    if (!domReady) {
+      console.warn('[Highlighter] DOM not ready after timeout, proceeding anyway');
+    }
+    
     await loadHighlights();
     await renderHighlights(); // Wait for initial render
     setupContextMenu();
@@ -49,6 +55,33 @@ const Highlighter = (function() {
     
     isInitialized = true;
     console.log('[Highlighter] Initialized with', Object.keys(highlights).length, 'highlights');
+  }
+
+  /**
+   * Wait for DOM to be ready before rendering highlights
+   * Checks for key content elements and waits up to maxWait milliseconds
+   * @param {number} maxWait - Maximum time to wait in milliseconds (default: 5000)
+   * @returns {Promise<boolean>} - True if DOM is ready, false if timeout
+   */
+  async function waitForDOMReady(maxWait = 5000) {
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < maxWait) {
+      // Check for key content elements that indicate page is ready
+      const hasContent = document.querySelector('article, main, [role="main"], .content, .slds-rich-text-editor__output, .uiOutputRichText, .forceOutputRichText');
+      if (hasContent && document.body) {
+        // Additional check: ensure body has some content
+        if (document.body.children.length > 0) {
+          console.log('[Highlighter] DOM is ready');
+          return true;
+        }
+      }
+      // Wait 200ms before next check
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    
+    console.warn('[Highlighter] DOM readiness timeout after', maxWait, 'ms');
+    return false; // Timeout
   }
 
   /**
@@ -760,6 +793,46 @@ const Highlighter = (function() {
   }
 
   /**
+   * Reload highlights for new URL (called when URL changes in SPA)
+   * Clears existing highlights from DOM and loads highlights for new URL
+   */
+  async function reloadForNewUrl() {
+    console.log('[Highlighter] Reloading highlights for new URL:', window.location.href);
+    
+    // Clear all current highlight spans from DOM
+    document.querySelectorAll(`.${HIGHLIGHT_CLASS_PREFIX}`).forEach(span => {
+      const parent = span.parentNode;
+      if (parent) {
+        while (span.firstChild) {
+          parent.insertBefore(span.firstChild, span);
+        }
+        parent.removeChild(span);
+        parent.normalize();
+      }
+    });
+    
+    // Clear pending highlights
+    pendingHighlights.clear();
+    
+    // Clear current highlights object
+    highlights = {};
+    
+    // Wait for DOM to be ready before loading and rendering
+    const domReady = await waitForDOMReady();
+    if (!domReady) {
+      console.warn('[Highlighter] DOM not ready after timeout, proceeding anyway');
+    }
+    
+    // Load highlights for new URL
+    await loadHighlights();
+    
+    // Render highlights
+    await renderHighlights();
+    
+    console.log('[Highlighter] Reloaded', Object.keys(highlights).length, 'highlights for new URL');
+  }
+
+  /**
    * Cleanup
    */
   function cleanup() {
@@ -803,6 +876,7 @@ const Highlighter = (function() {
     getAllHighlights,
     importHighlights,
     switchLayer,
+    reloadForNewUrl,
     cleanup
   };
 })();

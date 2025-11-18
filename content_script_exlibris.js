@@ -275,7 +275,7 @@
           // Convert internal page type to friendly display name
           const displayType = PersistentBanner.getPageTypeDisplayName(pageInfo.type);
           
-          PersistentBanner.updateCurrentPage({
+          await PersistentBanner.updateCurrentPage({
             type: displayType,
             caseNumber: null, // Will be updated when case data is extracted
             subject: null,
@@ -390,7 +390,7 @@
 
       // Update persistent banner with case data
       if (typeof PersistentBanner !== 'undefined') {
-        PersistentBanner.updateCurrentPage({
+        await PersistentBanner.updateCurrentPage({
           type: 'Case',
           caseNumber: caseData.caseNumber,
           subject: caseData.subject,

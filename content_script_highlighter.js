@@ -76,6 +76,8 @@
     isInitialized: false,
     currentColor: null,
     bannerElement: null,
+    currentUrl: null,
+    urlCheckInterval: null,
 
     /**
      * Initialize controller
@@ -118,6 +120,9 @@
         // Create UI
         this.createBanner();
         this.setupListeners();
+
+        // Track current URL for SPA navigation detection
+        this.currentUrl = window.location.href;
 
         this.isInitialized = true;
         console.log('[HighlighterController] Initialized successfully');
@@ -758,11 +763,12 @@
     },
 
     /**
-     * Setup settings listener
+     * Setup settings listener and URL change detection
      * Follows best practices: dependency checks, error handling
      */
     setupListeners() {
       try {
+        // Storage change listener for feature toggle
         chrome.storage.onChanged.addListener((changes, areaName) => {
           try {
             if (areaName === 'sync' && changes.exlibris) {
@@ -790,9 +796,75 @@
             console.error('[HighlighterController] Error in storage change listener:', error);
           }
         });
+
+        // URL change detection for SPA navigation
+        this.setupUrlChangeDetection();
       } catch (error) {
         // Error handling (best practice: log with context)
         console.error('[HighlighterController] Error setting up listeners:', error);
+      }
+    },
+
+    /**
+     * Setup URL change detection for SPA navigation
+     * Uses NavigationObserver if available, otherwise falls back to polling
+     */
+    setupUrlChangeDetection() {
+      // Try to use NavigationObserver if available
+      if (typeof NavigationObserver !== 'undefined' && NavigationObserver.registerCallback) {
+        NavigationObserver.registerCallback((context) => {
+          this.handleUrlChange(window.location.href);
+        });
+        console.log('[HighlighterController] Using NavigationObserver for URL change detection');
+        return;
+      }
+
+      // Fallback: Poll for URL changes (for SPAs that don't trigger NavigationObserver)
+      // Check every 500ms for URL changes
+      this.urlCheckInterval = setInterval(() => {
+        const newUrl = window.location.href;
+        if (newUrl !== this.currentUrl) {
+          this.handleUrlChange(newUrl);
+        }
+      }, 500);
+
+      // Also listen to popstate for back/forward navigation
+      window.addEventListener('popstate', () => {
+        setTimeout(() => {
+          const newUrl = window.location.href;
+          if (newUrl !== this.currentUrl) {
+            this.handleUrlChange(newUrl);
+          }
+        }, 100);
+      });
+
+      console.log('[HighlighterController] Using polling for URL change detection');
+    },
+
+    /**
+     * Handle URL change - reload highlights and notes for new URL
+     * @param {string} newUrl - The new URL
+     */
+    async handleUrlChange(newUrl) {
+      if (!this.isInitialized) {
+        return;
+      }
+
+      console.log('[HighlighterController] URL changed from', this.currentUrl, 'to', newUrl);
+      this.currentUrl = newUrl;
+
+      try {
+        // Reload highlights for new URL
+        if (typeof Highlighter !== 'undefined' && Highlighter.reloadForNewUrl) {
+          await Highlighter.reloadForNewUrl();
+        }
+
+        // Reload notes for new URL
+        if (typeof StickyNotes !== 'undefined' && StickyNotes.reloadForNewUrl) {
+          await StickyNotes.reloadForNewUrl();
+        }
+      } catch (error) {
+        console.error('[HighlighterController] Error reloading data for new URL:', error);
       }
     },
 
@@ -805,6 +877,12 @@
       if (!this.isInitialized) return;
 
       try {
+        // Clear URL check interval if it exists
+        if (this.urlCheckInterval) {
+          clearInterval(this.urlCheckInterval);
+          this.urlCheckInterval = null;
+        }
+
         // Remove banner from DOM (check existence first - best practice)
         if (this.bannerElement) {
           this.bannerElement.remove();
@@ -826,6 +904,7 @@
           BookmarkManager.cleanup();
         }
 
+        this.currentUrl = null;
         this.isInitialized = false;
         console.log('[HighlighterController] Cleaned up');
         

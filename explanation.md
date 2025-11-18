@@ -146,11 +146,11 @@ For detailed information on specific aspects of the codebase:
 
 ### Additional Documentation
 
-- `ARCHITECTURE.md` — diagrams and deep architecture details.
-- `FEATURE_SUMMARY.md` — feature list and quick steps.
-- `IMPLEMENTATION_GUIDE.md` — per-feature guidance and future enhancements.
-- `COMPLETE_FLOW_DOCUMENTATION.md` — end-to-end flows and observer lifecycle.
-- `DEBUG_INSTRUCTIONS.md` — manual test steps and DOM checks.
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — diagrams and deep architecture details.
+- **[FEATURE_SUMMARY.md](FEATURE_SUMMARY.md)** — feature list and quick steps.
+- **[IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md)** — per-feature guidance and future enhancements.
+- **[COMPLETE_FLOW_DOCUMENTATION.md](COMPLETE_FLOW_DOCUMENTATION.md)** — end-to-end flows and observer lifecycle.
+- **[DEBUG_INSTRUCTIONS.md](DEBUG_INSTRUCTIONS.md)** — manual test steps and DOM checks.
 
 ### Documentation Gaps (and pointers)
 
