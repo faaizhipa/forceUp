@@ -23,31 +23,69 @@ const PageIdentifier = {
   _isProcessing: false,
 
   /**
+   * Gets current case context with validation (delegates to PageContextValidator)
+   * @returns {Object|null} { caseId: string, caseNumber: string, caseTitle: string } or null
+   */
+  getCurrentCaseContext() {
+    if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.getCurrentCaseContext === 'function') {
+      return PageContextValidator.getCurrentCaseContext();
+    }
+    // Fallback if PageContextValidator not available
+    return null;
+  },
+
+  /**
+   * Normalizes tab label to standard format
+   * @param {string} label - Tab label to normalize
+   * @returns {string} Normalized tab label
+   */
+  normalizeTabLabel(label) {
+    const normalized = (label || '').toLowerCase().trim();
+    const mappings = {
+      'details': 'details',
+      'detail': 'details',
+      'communication': 'communication',
+      'communications': 'communication',
+      'related': 'related',
+      'files': 'files',
+      'file': 'files',
+      'attachments': 'files',
+      'attachment': 'files',
+      'history': 'history',
+      'reporting fields': 'reporting_fields',
+      'reporting': 'reporting_fields'
+    };
+    return mappings[normalized] || normalized;
+  },
+
+  /**
    * Detects the active tab view on a case page
+   * Uses best practice: data-label + slds-is-active (most reliable)
    * @returns {string|null} 'details', 'communication', 'files', or null if not detectable
    */
   detectCasePageView() {
     try {
-      // Check for active tab in Lightning interface
-      const activeTab = document.querySelector('a[role="tab"][aria-selected="true"]');
-      if (activeTab) {
-        const tabText = activeTab.textContent?.trim().toLowerCase();
-        
-        if (tabText?.includes('detail')) {
-          return 'details';
-        } else if (tabText?.includes('communication')) {
-          return 'communication';
-        } else if (tabText?.includes('file') || tabText?.includes('attachment')) {
-          return 'files';
-        } else if (tabText?.includes('related')) {
-          return 'related';
+      // Strategy 1: data-label + slds-is-active (BEST - most reliable)
+      const activeTab = document.querySelector('.slds-tabs_default__item.slds-is-active');
+      if (activeTab && activeTab.dataset.label) {
+        return this.normalizeTabLabel(activeTab.dataset.label);
+      }
+
+      // Strategy 2: aria-selected + title or data-label
+      const activeByAria = document.querySelector('a[role="tab"][aria-selected="true"]');
+      if (activeByAria) {
+        // Try data-label first
+        if (activeByAria.closest('li')?.dataset.label) {
+          return this.normalizeTabLabel(activeByAria.closest('li').dataset.label);
         }
-        
-        // Return the actual tab text if it doesn't match known patterns
-        return tabText || null;
+        // Fallback to title or text content
+        const label = activeByAria.title || activeByAria.textContent?.trim();
+        if (label) {
+          return this.normalizeTabLabel(label);
+        }
       }
       
-      // Fallback: check for specific components that indicate the view
+      // Strategy 3: Component-based detection (fallback)
       if (document.querySelector('records-lwc-detail-panel') || 
           document.querySelector('force-record-layout-item')) {
         return 'details';
@@ -66,8 +104,8 @@ const PageIdentifier = {
   },
 
   /**
-   * Identifies the current page type
-   * @returns {Object} { type: string, caseId: string|null, reportId: string|null, view: string|null }
+   * Identifies the current page type with title + URL validation
+   * @returns {Object} { type: string, caseId: string|null, caseNumber: string|null, reportId: string|null, view: string|null }
    */
   identifyPage() {
     const url = window.location.href;
@@ -78,28 +116,47 @@ const PageIdentifier = {
     // Case Page (Details, Communication, or Files Tab)
     const casePageMatch = url.match(/\/lightning\/r\/Case\/([^\/]+)\/view(?:\?|$)/);
     if (casePageMatch) {
+      const caseId = casePageMatch[1];
+      
+      // Get case context with title + URL validation
+      const context = this.getCurrentCaseContext();
+      
+      // Validate case ID matches context (if context available)
+      if (context && context.caseId !== caseId) {
+        console.warn(`[PageIdentifier] Case ID mismatch: URL=${caseId}, Context=${context.caseId}`);
+      }
+      
       const view = this.detectCasePageView();
       const result = {
         type: this.pageTypes.CASE_PAGE,
-        caseId: casePageMatch[1],
+        caseId: context?.caseId || caseId, // Use validated case ID from context if available
+        caseNumber: context?.caseNumber || null, // Add case number from context
         reportId: null,
         view: view
       };
-      console.log('PageIdentifier: Detected CASE_PAGE:', result);
-      return result;
+      
+      // Validate page info before returning
+      const validatedResult = this.validatePageInfo(result);
+      console.log('PageIdentifier: Detected CASE_PAGE:', validatedResult);
+      return validatedResult;
     }
 
     // Case Comments "View All" Page
     const caseCommentsMatch = url.match(/\/lightning\/r\/Case\/([^\/]+)\/related\/CaseComments\/view(?:\?|$)/);
     if (caseCommentsMatch) {
+      const caseId = caseCommentsMatch[1];
+      const context = this.getCurrentCaseContext();
+      
       const result = {
         type: this.pageTypes.CASE_COMMENTS,
-        caseId: caseCommentsMatch[1],
+        caseId: context?.caseId || caseId,
+        caseNumber: context?.caseNumber || null,
         reportId: null,
         view: 'case_comments'
       };
-      console.log('PageIdentifier: Detected CASE_COMMENTS:', result);
-      return result;
+      const validatedResult = this.validatePageInfo(result);
+      console.log('PageIdentifier: Detected CASE_COMMENTS:', validatedResult);
+      return validatedResult;
     }
 
     // Cases List Page
@@ -192,11 +249,48 @@ const PageIdentifier = {
     const result = {
       type: this.pageTypes.UNKNOWN,
       caseId: null,
+      caseNumber: null,
       reportId: null,
       view: null
     };
     console.log('PageIdentifier: Detected UNKNOWN page type:', result);
     return result;
+  },
+
+  /**
+   * Validates page info before returning
+   * Ensures case ID and case number match current context
+   * @param {Object} pageInfo - Page info to validate
+   * @returns {Object} Validated page info
+   */
+  validatePageInfo(pageInfo) {
+    if (pageInfo.type === this.pageTypes.CASE_PAGE || pageInfo.type === this.pageTypes.CASE_COMMENTS) {
+      if (pageInfo.caseId) {
+        const context = this.getCurrentCaseContext();
+        
+        if (context) {
+          // Validate case ID matches
+          if (pageInfo.caseId !== context.caseId) {
+            console.warn(`[PageIdentifier] Case ID mismatch in page info, correcting`);
+            return {
+              ...pageInfo,
+              caseId: context.caseId, // Use validated case ID
+              caseNumber: context.caseNumber
+            };
+          }
+          
+          // Add case number if missing
+          if (!pageInfo.caseNumber && context.caseNumber) {
+            return {
+              ...pageInfo,
+              caseNumber: context.caseNumber
+            };
+          }
+        }
+      }
+    }
+    
+    return pageInfo;
   },
 
   /**

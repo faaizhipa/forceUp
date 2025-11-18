@@ -198,6 +198,101 @@
       overflow-y: auto;
     }
 
+    .messages-settings-panel {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .setting-subgroup {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .setting-subgroup h3 {
+      font-size: 12px;
+      margin: 0 0 8px 0;
+      padding: 0;
+      border: none;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .messages-list {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .message-item {
+      background: rgba(0, 0, 0, 0.2);
+      padding: 8px;
+      border-radius: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .message-item.custom-message {
+      border-left: 3px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .message-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+    }
+
+    .message-toggle input[type="checkbox"] {
+      width: auto;
+    }
+
+    .message-text {
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 11px;
+    }
+
+    .message-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .message-textarea {
+      width: 100%;
+      padding: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      font-size: 11px;
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      resize: vertical;
+      min-height: 50px;
+      font-family: Arial, sans-serif;
+    }
+
+    .message-textarea::placeholder {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .button-small {
+      padding: 4px 8px;
+      font-size: 11px;
+      width: auto;
+      margin: 0;
+    }
+
+    .button-small.delete-message-btn {
+      background: rgba(220, 53, 69, 0.8);
+      color: white;
+    }
+
+    .button-small.delete-message-btn:hover {
+      background: rgba(220, 53, 69, 1);
+    }
+
     .shortcuts-list code {
       background: rgba(255, 255, 255, 0.2);
       padding: 2px 6px;
@@ -255,6 +350,11 @@
           <option value="LifeScienceHDS">Life Science (HDS)</option>
           <option value="LifeSciencePS">Life Science (Product Specialist)</option>
           <option value="AccountSupport">Account Support</option>
+          <option value="Esploro">Esploro</option>
+          <option value="Alma">Alma</option>
+          <option value="Pivot-RP">Pivot-RP</option>
+          <option value="RefWorks">RefWorks</option>
+          <option value="InCites">InCites</option>
         </select>
         <p class="info-text">Used for email highlighting in case emails</p>
         <button id="saveTeamButton">Save Team Setting</button>
@@ -362,36 +462,40 @@
         <h2>✨ Features</h2>
         <div class="checkbox-group">
           <div class="checkbox-item">
-            <input type="checkbox" id="featureHighlighting" checked>
+            <input type="checkbox" id="featureHighlighting">
             <label for="featureHighlighting">Field Highlighting</label>
           </div>
           <div class="checkbox-item">
-            <input type="checkbox" id="featureContextMenu" checked>
+            <input type="checkbox" id="featureContextMenu">
             <label for="featureContextMenu">Context Menu Formatting</label>
           </div>
           <div class="checkbox-item">
-            <input type="checkbox" id="featureMultiTab" checked>
+            <input type="checkbox" id="featureMultiTab">
             <label for="featureMultiTab">Multi-Tab Warning</label>
           </div>
           <div class="checkbox-item">
-            <input type="checkbox" id="featureCommentMemory" checked>
+            <input type="checkbox" id="featureCommentMemory">
             <label for="featureCommentMemory">Auto-Save Comments</label>
           </div>
           <div class="checkbox-item">
-            <input type="checkbox" id="featureCharCounter" checked>
+            <input type="checkbox" id="featureCharCounter">
             <label for="featureCharCounter">Character Counter</label>
           </div>
           <div class="checkbox-item">
-            <input type="checkbox" id="featureDynamicMenu" checked>
+            <input type="checkbox" id="featureDynamicMenu">
             <label for="featureDynamicMenu">Dynamic Buttons</label>
           </div>
           <div class="checkbox-item">
-            <input type="checkbox" id="featurePersistentBanner" checked>
+            <input type="checkbox" id="featurePersistentBanner">
             <label for="featurePersistentBanner">Persistent Banner (Page Info & History)</label>
           </div>
           <div class="checkbox-item">
             <input type="checkbox" id="featureHighlighter">
             <label for="featureHighlighter">Text Highlighter & Sticky Notes (Support Sites)</label>
+          </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="featureBannerMessages">
+            <label for="featureBannerMessages">Banner Rotating Messages</label>
           </div>
         </div>
       </div>
@@ -428,6 +532,48 @@
           <div class="checkbox-item">
             <input type="checkbox" id="menuHeaderDetails" checked>
             <label for="menuHeaderDetails">Header Details Section</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <h2>📢 Banner Messages</h2>
+        
+        <!-- Master Toggle -->
+        <div class="checkbox-item">
+          <input type="checkbox" id="bannerMessagesEnabled" checked>
+          <label for="bannerMessagesEnabled">Enable rotating messages on non-case pages</label>
+        </div>
+        
+        <!-- Rotation Settings (shown when enabled) -->
+        <div id="bannerMessagesSettings" class="messages-settings-panel">
+          <label for="messageRotationInterval">Rotation Interval (seconds)</label>
+          <input type="number" id="messageRotationInterval" min="3" max="60" value="5">
+          
+          <label>
+            <input type="checkbox" id="messageAutoRotate" checked>
+            Auto-rotate messages
+          </label>
+          
+          <!-- Default Messages (Toggle Only) -->
+          <div class="setting-subgroup">
+            <h3>Default Messages (Extension Features)</h3>
+            <label>
+              <input type="checkbox" id="defaultMessagesEnabled" checked>
+              Enable default messages
+            </label>
+            <div id="defaultMessagesList" class="messages-list">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+          
+          <!-- Custom Messages (Editable) -->
+          <div class="setting-subgroup">
+            <h3>Custom Messages</h3>
+            <button id="addCustomMessageBtn" class="button-secondary">+ Add Message</button>
+            <div id="customMessagesList" class="messages-list">
+              <!-- Populated dynamically -->
+            </div>
           </div>
         </div>
       </div>

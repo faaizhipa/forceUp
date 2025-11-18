@@ -35,8 +35,20 @@ async function loadSettings() {
 
 /**
  * Saves settings to storage
+ * Ensures all feature values are explicit booleans
  */
 async function saveSettings(settings) {
+  // Normalize feature values to explicit booleans before saving
+  if (settings.exlibris?.features) {
+    for (const featureName in settings.exlibris.features) {
+      const value = settings.exlibris.features[featureName];
+      // Ensure it's a boolean (not undefined, null, or other type)
+      if (typeof value !== 'boolean') {
+        settings.exlibris.features[featureName] = Boolean(value);
+      }
+    }
+  }
+  
   return new Promise((resolve, reject) => {
     chrome.storage.sync.set(settings, () => {
       if (chrome.runtime.lastError) {
@@ -53,6 +65,7 @@ async function saveSettings(settings) {
 
 /**
  * Gets default settings
+ * Must match SettingsManager.DEFAULT_SETTINGS exactly
  */
 function getDefaultSettings() {
   return {
@@ -65,7 +78,9 @@ function getDefaultSettings() {
         caseCommentMemory: true,
         characterCounter: true,
         dynamicMenu: true,
-        persistentBanner: true
+        persistentBanner: true,
+        highlighterEnabled: true,
+        bannerMessages: true
       },
       ui: {
         buttonLabelStyle: 'casual',
@@ -77,6 +92,27 @@ function getDefaultSettings() {
       },
       shortcuts: {
         enabled: true
+      },
+      persistentBanner: {
+        messages: {
+          enabled: true,
+          defaultMessages: {
+            enabled: true,
+            items: [
+              { id: 'default_1', text: 'Field Highlighting', enabled: true },
+              { id: 'default_2', text: 'Context Menu Formatting', enabled: true },
+              { id: 'default_3', text: 'Multi-Tab Warning', enabled: true },
+              { id: 'default_4', text: 'Auto-Save Comments', enabled: true },
+              { id: 'default_5', text: 'Character Counter', enabled: true },
+              { id: 'default_6', text: 'Dynamic Buttons', enabled: true },
+              { id: 'default_7', text: 'Persistent Banner', enabled: true },
+              { id: 'default_8', text: 'Text Highlighter & Sticky Notes', enabled: true }
+            ]
+          },
+          customMessages: [],
+          rotationInterval: 5000,
+          autoRotate: true
+        }
       }
     },
     userPreferences: {
@@ -135,6 +171,44 @@ function mergeWithDefaults(settings) {
       shortcuts: { ...defaults.exlibris.shortcuts, ...(settings.exlibris.shortcuts || {}) }
     };
     
+    // Migrate undefined/null feature values to explicit booleans (matching SettingsManager)
+    if (merged.exlibris.features) {
+      const defaultFeatures = defaults.exlibris.features;
+      for (const featureName in defaultFeatures) {
+        const currentValue = merged.exlibris.features[featureName];
+        // If value is undefined or null, use default
+        if (currentValue === undefined || currentValue === null) {
+          merged.exlibris.features[featureName] = defaultFeatures[featureName];
+        }
+        // Ensure it's a boolean
+        else if (typeof currentValue !== 'boolean') {
+          merged.exlibris.features[featureName] = Boolean(currentValue);
+        }
+      }
+    }
+    
+    // Merge persistentBanner.messages if it exists
+    if (settings.exlibris.persistentBanner) {
+      merged.exlibris.persistentBanner = {
+        ...defaults.exlibris.persistentBanner,
+        ...settings.exlibris.persistentBanner,
+        messages: {
+          ...defaults.exlibris.persistentBanner.messages,
+          ...(settings.exlibris.persistentBanner.messages || {}),
+          defaultMessages: {
+            ...defaults.exlibris.persistentBanner.messages.defaultMessages,
+            ...(settings.exlibris.persistentBanner.messages?.defaultMessages || {}),
+            items: settings.exlibris.persistentBanner.messages?.defaultMessages?.items || 
+                   defaults.exlibris.persistentBanner.messages.defaultMessages.items
+          },
+          customMessages: settings.exlibris.persistentBanner.messages?.customMessages || []
+        }
+      };
+    } else {
+      // Ensure persistentBanner structure exists
+      merged.exlibris.persistentBanner = defaults.exlibris.persistentBanner;
+    }
+    
     if (settings.exlibris.ui?.menuLocations) {
       merged.exlibris.ui.menuLocations = {
         ...defaults.exlibris.ui.menuLocations,
@@ -167,6 +241,7 @@ function populateUI(settings) {
   document.getElementById('selectionDropdown').value = settings.savedSelection || 'EndNote';
   
   // Ex Libris features
+  // Use consistent check logic: !== false (undefined/true = enabled, false = disabled)
   if (settings.exlibris?.features) {
     document.getElementById('featureHighlighting').checked = settings.exlibris.features.fieldHighlighting !== false;
     document.getElementById('featureContextMenu').checked = settings.exlibris.features.contextMenu !== false;
@@ -175,7 +250,33 @@ function populateUI(settings) {
     document.getElementById('featureCharCounter').checked = settings.exlibris.features.characterCounter !== false;
     document.getElementById('featureDynamicMenu').checked = settings.exlibris.features.dynamicMenu !== false;
     document.getElementById('featurePersistentBanner').checked = settings.exlibris.features.persistentBanner !== false;
-    document.getElementById('featureHighlighter').checked = settings.exlibris.features.highlighterEnabled === true;
+    document.getElementById('featureHighlighter').checked = settings.exlibris.features.highlighterEnabled !== false;
+    document.getElementById('featureBannerMessages').checked = settings.exlibris.features.bannerMessages !== false;
+  }
+  
+  // Banner Messages settings
+  if (settings.exlibris?.persistentBanner?.messages) {
+    const messages = settings.exlibris.persistentBanner.messages;
+    document.getElementById('bannerMessagesEnabled').checked = messages.enabled !== false;
+    document.getElementById('messageRotationInterval').value = messages.rotationInterval || 5000;
+    document.getElementById('messageAutoRotate').checked = messages.autoRotate !== false;
+    document.getElementById('defaultMessagesEnabled').checked = messages.defaultMessages?.enabled !== false;
+    
+    // Toggle settings panel visibility
+    toggleBannerMessagesSettings(messages.enabled !== false);
+    
+    // Populate default messages
+    if (messages.defaultMessages?.items) {
+      renderDefaultMessages(messages.defaultMessages.items);
+    }
+    
+    // Populate custom messages
+    if (messages.customMessages) {
+      renderCustomMessages(messages.customMessages);
+    }
+  } else {
+    // Default state
+    toggleBannerMessagesSettings(true);
   }
   
   // UI preferences
@@ -236,6 +337,231 @@ function populateUI(settings) {
   document.getElementById('useTeamDefaults').addEventListener('change', (e) => {
     document.getElementById('customIRT').disabled = e.target.checked;
   });
+  
+  // Add listener for banner messages enabled toggle
+  document.getElementById('bannerMessagesEnabled').addEventListener('change', (e) => {
+    toggleBannerMessagesSettings(e.target.checked);
+  });
+}
+
+/**
+ * Toggle banner messages settings panel visibility
+ * @param {boolean} enabled
+ */
+function toggleBannerMessagesSettings(enabled) {
+  const panel = document.getElementById('bannerMessagesSettings');
+  if (panel) {
+    panel.style.display = enabled ? 'block' : 'none';
+  }
+}
+
+/**
+ * Get message settings from UI
+ * @returns {Object} Message settings object
+ */
+function getMessageSettingsFromUI() {
+  const defaultMessagesList = document.getElementById('defaultMessagesList');
+  const customMessagesList = document.getElementById('customMessagesList');
+  
+  // Collect default messages state
+  const defaultItems = [];
+  if (defaultMessagesList) {
+    defaultMessagesList.querySelectorAll('[data-message-id]').forEach(item => {
+      const id = item.dataset.messageId;
+      const checkbox = item.querySelector('input[type="checkbox"]');
+      const text = item.querySelector('.message-text')?.textContent || '';
+      if (id && id.startsWith('default_')) {
+        defaultItems.push({
+          id: id,
+          text: text,
+          enabled: checkbox ? checkbox.checked : true
+        });
+      }
+    });
+  }
+  
+  // Collect custom messages
+  const customMessages = [];
+  if (customMessagesList) {
+    customMessagesList.querySelectorAll('[data-message-id]').forEach(item => {
+      const id = item.dataset.messageId;
+      const textarea = item.querySelector('textarea');
+      const enabledCheckbox = item.querySelector('input[type="checkbox"]');
+      if (id && id.startsWith('custom_') && textarea) {
+        customMessages.push({
+          id: id,
+          text: textarea.value.trim(),
+          enabled: enabledCheckbox ? enabledCheckbox.checked : true
+        });
+      }
+    });
+  }
+  
+  return {
+    enabled: document.getElementById('bannerMessagesEnabled').checked,
+    defaultMessages: {
+      enabled: document.getElementById('defaultMessagesEnabled').checked,
+      items: defaultItems
+    },
+    customMessages: customMessages,
+    rotationInterval: parseInt(document.getElementById('messageRotationInterval').value, 10) * 1000, // Convert to milliseconds
+    autoRotate: document.getElementById('messageAutoRotate').checked
+  };
+}
+
+/**
+ * Render default messages (toggle only, cannot edit text)
+ * @param {Array} messages - Array of default message objects
+ */
+function renderDefaultMessages(messages) {
+  const container = document.getElementById('defaultMessagesList');
+  if (!container) return;
+  
+  if (!messages || messages.length === 0) {
+    container.innerHTML = '<p class="info-text">No default messages available</p>';
+    return;
+  }
+  
+  container.innerHTML = messages.map(msg => `
+    <div class="message-item" data-message-id="${msg.id}">
+      <label class="message-toggle">
+        <input type="checkbox" ${msg.enabled !== false ? 'checked' : ''}>
+        <span class="message-text">${escapeHtml(msg.text)}</span>
+      </label>
+    </div>
+  `).join('');
+}
+
+/**
+ * Render custom messages (editable)
+ * @param {Array} messages - Array of custom message objects
+ */
+function renderCustomMessages(messages) {
+  const container = document.getElementById('customMessagesList');
+  if (!container) return;
+  
+  if (!messages || messages.length === 0) {
+    container.innerHTML = '<p class="info-text">No custom messages. Click "Add Message" to create one.</p>';
+    return;
+  }
+  
+  container.innerHTML = messages.map(msg => `
+    <div class="message-item custom-message" data-message-id="${msg.id}">
+      <div class="message-controls">
+        <label class="message-toggle">
+          <input type="checkbox" ${msg.enabled !== false ? 'checked' : ''}>
+          <span>Enabled</span>
+        </label>
+        <button class="button-small delete-message-btn" data-message-id="${msg.id}" title="Delete message">Delete</button>
+      </div>
+      <textarea class="message-textarea" rows="3" maxlength="240" placeholder="Enter message (max 3 lines, use Enter for new line)">${escapeHtml(msg.text)}</textarea>
+    </div>
+  `).join('');
+  
+  // Attach delete handlers
+  container.querySelectorAll('.delete-message-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const id = e.target.dataset.messageId;
+      deleteCustomMessage(id);
+    });
+  });
+}
+
+/**
+ * Add new custom message
+ */
+function addCustomMessage() {
+  const container = document.getElementById('customMessagesList');
+  if (!container) return;
+  
+  const newId = 'custom_' + Date.now();
+  const newMessage = {
+    id: newId,
+    text: '',
+    enabled: true
+  };
+  
+  // Get current messages
+  const currentMessages = [];
+  container.querySelectorAll('[data-message-id]').forEach(item => {
+    const id = item.dataset.messageId;
+    const textarea = item.querySelector('textarea');
+    const enabledCheckbox = item.querySelector('input[type="checkbox"]');
+    if (id && id.startsWith('custom_') && textarea) {
+      currentMessages.push({
+        id: id,
+        text: textarea.value.trim(),
+        enabled: enabledCheckbox ? enabledCheckbox.checked : true
+      });
+    }
+  });
+  
+  // Add new message
+  currentMessages.push(newMessage);
+  renderCustomMessages(currentMessages);
+  
+  // Focus on the new textarea
+  const newItem = container.querySelector(`[data-message-id="${newId}"]`);
+  if (newItem) {
+    const textarea = newItem.querySelector('textarea');
+    if (textarea) {
+      textarea.focus();
+    }
+  }
+}
+
+/**
+ * Delete custom message
+ * @param {string} messageId - ID of message to delete
+ */
+function deleteCustomMessage(messageId) {
+  if (!confirm('Delete this custom message?')) return;
+  
+  const container = document.getElementById('customMessagesList');
+  if (!container) return;
+  
+  const item = container.querySelector(`[data-message-id="${messageId}"]`);
+  if (item) {
+    item.remove();
+  }
+  
+  // Update placeholder if no messages left
+  if (container.querySelectorAll('[data-message-id]').length === 0) {
+    container.innerHTML = '<p class="info-text">No custom messages. Click "Add Message" to create one.</p>';
+  }
+}
+
+/**
+ * Validate message text
+ * @param {string} text - Message text to validate
+ * @returns {Object} { valid: boolean, error: string|null }
+ */
+function validateMessageText(text) {
+  if (!text || !text.trim()) {
+    return { valid: false, error: 'Message cannot be empty' };
+  }
+  
+  const lines = text.split('\n');
+  if (lines.length > 3) {
+    return { valid: false, error: 'Message cannot exceed 3 lines' };
+  }
+  
+  if (text.length > 240) {
+    return { valid: false, error: 'Message cannot exceed 240 characters' };
+  }
+  
+  return { valid: true, error: null };
+}
+
+/**
+ * Escape HTML to prevent XSS
+ * @param {string} text - Text to escape
+ * @returns {string} Escaped text
+ */
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 /**
@@ -261,7 +587,8 @@ function getSettingsFromUI() {
         characterCounter: document.getElementById('featureCharCounter').checked,
         dynamicMenu: document.getElementById('featureDynamicMenu').checked,
         persistentBanner: document.getElementById('featurePersistentBanner').checked,
-        highlighterEnabled: document.getElementById('featureHighlighter').checked
+        highlighterEnabled: document.getElementById('featureHighlighter').checked,
+        bannerMessages: document.getElementById('featureBannerMessages').checked
       },
       ui: {
         buttonLabelStyle: document.getElementById('labelStyleSelect').value,
@@ -273,6 +600,9 @@ function getSettingsFromUI() {
       },
       shortcuts: {
         enabled: document.getElementById('shortcutsEnabled').checked
+      },
+      persistentBanner: {
+        messages: getMessageSettingsFromUI()
       }
     },
     userPreferences: {
@@ -417,6 +747,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     await saveSettings(settings);
     showSuccess('Ex Libris settings saved! Please refresh Salesforce.');
   });
+  
+  // Add custom message button
+  const addCustomMessageBtn = document.getElementById('addCustomMessageBtn');
+  if (addCustomMessageBtn) {
+    addCustomMessageBtn.addEventListener('click', () => {
+      addCustomMessage();
+    });
+  }
   
   // Save shortcuts button
   document.getElementById('saveShortcutsButton').addEventListener('click', async () => {

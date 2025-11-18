@@ -73,6 +73,14 @@
         console.warn('[ExLibris Extension] CustomerDataManager not loaded');
       }
 
+      // Initialize InstitutionTimezoneManager
+      if (typeof InstitutionTimezoneManager !== 'undefined') {
+        await InstitutionTimezoneManager.init();
+        console.log('[ExLibris Extension] InstitutionTimezoneManager initialized');
+      } else {
+        console.warn('[ExLibris Extension] InstitutionTimezoneManager not loaded');
+      }
+
       // Initialize CacheManager
       if (typeof CacheManager !== 'undefined') {
         await CacheManager.init();
@@ -257,8 +265,13 @@
         this.currentPage = pageInfo;
         this.currentCaseId = pageInfo.caseId;
 
-        // Update persistent banner with initial info
+        // Update persistent banner with initial info (don't cleanup - it persists)
         if (typeof PersistentBanner !== 'undefined') {
+          // Ensure banner is initialized if not already
+          if (!PersistentBanner.isInitialized) {
+            await PersistentBanner.init();
+          }
+          
           // Convert internal page type to friendly display name
           const displayType = PersistentBanner.getPageTypeDisplayName(pageInfo.type);
           
@@ -271,7 +284,7 @@
           });
         }
 
-        // Clear any existing features
+        // Clear any existing features (but NOT PersistentBanner - it persists)
         console.log('[ExLibris Extension] Cleaning up previous page features (URL changed: ' + urlChanged + ')');
         this.cleanup();
 
@@ -918,10 +931,10 @@
         FlexipagePanelInjector.teardown();
       }
 
-      // Cleanup PersistentBanner
-      if (typeof PersistentBanner !== 'undefined' && PersistentBanner.cleanup) {
-        PersistentBanner.cleanup();
-      }
+      // NOTE: Do NOT cleanup PersistentBanner here - it should persist across SPA navigation
+      // PersistentBanner is only cleaned up when:
+      // 1. Feature is disabled (via settings listener)
+      // 2. Extension is destroyed (via destroy() method)
 
       // Cleanup CaseTimezoneResolver
       if (typeof CaseTimezoneResolver !== 'undefined' && CaseTimezoneResolver.cleanup) {
@@ -959,6 +972,9 @@
       if (typeof FlexipagePanelInjector !== 'undefined' && FlexipagePanelInjector.teardown) {
         FlexipagePanelInjector.teardown();
       }
+      
+      // Cleanup PersistentBanner (only on extension destroy/unload)
+      // This will restore layout adjustments properly
       if (typeof PersistentBanner !== 'undefined' && PersistentBanner.cleanup) {
         PersistentBanner.cleanup();
       }

@@ -26,6 +26,7 @@
             "content_script.js",
             "modules/debounceUtils.js",
             "modules/logger.js",
+            "modules/pageContextValidator.js",
             "modules/pageIdentifier.js",
             "modules/settingsManager.js",
             "modules/customerDataManager.js",
@@ -50,6 +51,7 @@
             "modules/addressTimezoneResolver.js",
             "modules/accountAddressExtractor.js",
             "modules/timezoneStorage.js",
+            "modules/institutionTimezoneManager.js",
             "modules/caseTimezoneResolver.js",
             "modules/unknownCustomerManager.js",
             "modules/caseDetailExtractor.js",
@@ -71,6 +73,7 @@
       {
          "js": [
             "modules/settingsManager.js",
+            "modules/layerManager.js",
             "modules/highlighter.js",
             "modules/stickyNotes.js",
             "modules/bookmarkManager.js",
@@ -96,7 +99,7 @@
    "name": "Penang CoE Salesforce and Docs Extension",
    "permissions": [ "storage", "tabs", "activeTab", "contextMenus" ],
    "update_url": "https://clients2.google.com/service/update2/crx",
-   "version": "7.0",
+   "version": "7.1",
    "web_accessible_resources": [
       {
          "resources": [

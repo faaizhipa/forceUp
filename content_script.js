@@ -372,6 +372,30 @@ const teamConfigs = {
     keywords: emailKeywordsLifeSciencePS,
     responseTimeTarget: 90, // minutes - adjust as needed
     workingHours: { start: 14, end: 23 }
+  },
+  'Alma': {
+    email: 'alma.support@exlibrisgroup.com',
+    keywords: ['alma'],
+    responseTimeTarget: 90, // minutes
+    workingHours: { start: 14, end: 23 } // 2PM to 11PM MYT
+  },
+  'Pivot-RP': {
+    email: 'pivot.support@exlibrisgroup.com',
+    keywords: ['pivot', 'pivot-rp'],
+    responseTimeTarget: 90, // minutes
+    workingHours: { start: 20, end: 5, isOvernightShift: true } // 8PM to 5AM MYT (overnight)
+  },
+  'RefWorks': {
+    email: 'refworks.support@exlibrisgroup.com',
+    keywords: ['refworks'],
+    responseTimeTarget: 90, // minutes
+    workingHours: { start: 14, end: 23 } // 2PM to 11PM MYT
+  },
+  'InCites': {
+    email: 'incites.support@clarivate.com',
+    keywords: ['incites'],
+    responseTimeTarget: 90, // minutes
+    workingHours: { start: 14, end: 23 } // 2PM to 11PM MYT
   }
 };
 
@@ -791,24 +815,47 @@ function calculateWorkingMinutes(startDate, endDate, workingHours = { start: 14,
     return 0;
   }
   
+  // Check if this is an overnight shift (end < start or isOvernightShift flag)
+  const isOvernight = workingHours.isOvernightShift || (workingHours.end < workingHours.start);
+  
   let currentDate = new Date(start);
   
   while (currentDate < end) {
-    // Create working hours boundaries in MYT
-    const dayStart = new Date(currentDate);
-    dayStart.setHours(workingHours.start, 0, 0, 0);
-    
-    const dayEnd = new Date(currentDate);
-    dayEnd.setHours(workingHours.end, 0, 0, 0);
-    
-    // Find the effective start and end times for this day
-    const effectiveStart = currentDate < dayStart ? dayStart : currentDate;
-    const effectiveEnd = end > dayEnd ? dayEnd : end;
-    
-    // If there's overlap with working hours on this day
-    if (effectiveStart < effectiveEnd && effectiveStart < dayEnd && effectiveEnd > dayStart) {
-      const dailyWorkingMinutes = (effectiveEnd - effectiveStart) / (1000 * 60);
-      totalWorkingMinutes += dailyWorkingMinutes;
+    if (isOvernight) {
+      // Overnight shift: spans from start hour to end hour next day
+      const dayStart = new Date(currentDate);
+      dayStart.setHours(workingHours.start, 0, 0, 0);
+      
+      const dayEnd = new Date(currentDate);
+      dayEnd.setDate(dayEnd.getDate() + 1); // Next day
+      dayEnd.setHours(workingHours.end, 0, 0, 0);
+      
+      // Find the effective start and end times for this shift period
+      const effectiveStart = currentDate < dayStart ? dayStart : currentDate;
+      const effectiveEnd = end > dayEnd ? dayEnd : end;
+      
+      // If there's overlap with working hours
+      if (effectiveStart < effectiveEnd && effectiveStart < dayEnd && effectiveEnd > dayStart) {
+        const dailyWorkingMinutes = (effectiveEnd - effectiveStart) / (1000 * 60);
+        totalWorkingMinutes += dailyWorkingMinutes;
+      }
+    } else {
+      // Regular shift: same day
+      const dayStart = new Date(currentDate);
+      dayStart.setHours(workingHours.start, 0, 0, 0);
+      
+      const dayEnd = new Date(currentDate);
+      dayEnd.setHours(workingHours.end, 0, 0, 0);
+      
+      // Find the effective start and end times for this day
+      const effectiveStart = currentDate < dayStart ? dayStart : currentDate;
+      const effectiveEnd = end > dayEnd ? dayEnd : end;
+      
+      // If there's overlap with working hours on this day
+      if (effectiveStart < effectiveEnd && effectiveStart < dayEnd && effectiveEnd > dayStart) {
+        const dailyWorkingMinutes = (effectiveEnd - effectiveStart) / (1000 * 60);
+        totalWorkingMinutes += dailyWorkingMinutes;
+      }
     }
     
     // Move to next day in MYT

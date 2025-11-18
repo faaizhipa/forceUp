@@ -1,5 +1,7 @@
 # Salesforce Chrome Extension - Copilot Instructions
 
+**IMPORTANT:** Before making any changes, review **[PROJECT_RULES.md](../PROJECT_RULES.md)** for comprehensive project rules and agent guidelines.
+
 ## Project Overview
 This is a **Manifest V3 Chrome Extension** for Salesforce (Lightning/Console/Visualforce), specifically targeting ProQuest/Ex Libris case management workflows. The extension provides dynamic menus, field highlighting, URL generation, comment memory, and text formatting capabilities.
 
@@ -155,8 +157,131 @@ new MutationObserver(() => {
 - **Verify selectors**: Salesforce UI changes frequently; validate selectors still work
 - **Test SPA navigation**: Navigate between pages without refresh to ensure observers work
 
+## Best Practices
+
+### Module Development
+
+1. **Always Check Dependencies**
+   ```javascript
+   if (typeof DependencyModule !== 'undefined') {
+     DependencyModule.doSomething();
+   } else {
+     console.warn('[ModuleName] DependencyModule not available');
+   }
+   ```
+
+2. **Implement Cleanup Methods**
+   ```javascript
+   cleanup() {
+     if (this.observer) {
+       this.observer.disconnect();
+       this.observer = null;
+     }
+     // Clear timers, remove listeners, etc.
+   }
+   ```
+
+3. **Check Element Visibility Before Injecting**
+   ```javascript
+   if (!this.isElementVisible(element)) {
+     console.warn('[ModuleName] Element not visible');
+     return;
+   }
+   ```
+
+4. **Handle Shadow DOM Properly**
+   ```javascript
+   // Try direct query first
+   let element = document.querySelector(selector);
+   
+   // Try shadow root
+   if (!element && parent.shadowRoot) {
+     element = parent.shadowRoot.querySelector(selector);
+   }
+   
+   // Try deep traversal if needed
+   if (!element) {
+     element = queryShadowDOM(selector, parent);
+   }
+   ```
+
+5. **Use Debouncing for Expensive Operations**
+   ```javascript
+   const debouncedHandler = DebounceUtils.debounce(() => {
+     this.handleExpensiveOperation();
+   }, 1000);
+   ```
+
+### Selector Best Practices
+
+1. **Use Stable Selectors**
+   - ✅ `records-record-layout-item[field-label="Field Name"]` (stable)
+   - ✅ `data-*` attributes (stable)
+   - ❌ Long DOM paths (fragile)
+   - ❌ Position-based selectors (fragile)
+
+2. **Always Have Fallbacks**
+   ```javascript
+   // Primary selector
+   let element = document.querySelector(primarySelector);
+   
+   // Fallback selectors
+   if (!element) {
+     element = document.querySelector(fallbackSelector1);
+   }
+   if (!element) {
+     element = document.querySelector(fallbackSelector2);
+   }
+   ```
+
+3. **Check Element Existence**
+   ```javascript
+   const element = document.querySelector(selector);
+   if (!element) {
+     console.warn(`[ModuleName] Element not found: ${selector}`);
+     return;
+   }
+   ```
+
+### Documentation Standards
+
+1. **Function Documentation**
+   ```javascript
+   /**
+    * Brief description
+    * @param {Type} paramName - Description
+    * @returns {Type} Description
+    */
+   ```
+
+2. **Selector Documentation**
+   - Document in `SELECTORS.md`
+   - Include stability rating
+   - Include fallback selectors
+   - Include usage context
+
+3. **Change Tracking**
+   - Update `CHANGES.md` for significant changes
+   - Include lessons learned
+   - Link to related issues/PRs
+
+### Common Patterns
+
+See **[BEST_PRACTICES.md](../../BEST_PRACTICES.md)** for:
+- Complete do's/don'ts list
+- Coding patterns (IIFE, Object, Initialization, Cleanup)
+- Redundancies and inconsistencies
+- Well-implemented functions
+- Refactoring opportunities
+
 ## Critical Files Reference
 - **Architecture**: `ARCHITECTURE.md` (diagrams), `AGENTS.md` (patterns)
 - **Entry points**: `content_script_exlibris.js` (controller), `background.js` (router)
 - **Core modules**: `pageIdentifier.js`, `caseDataExtractor.js`, `dynamicMenu.js`, `cacheManager.js`
-- **Docs**: `explanation.md` (comprehensive analysis), `PROMPT.md` (refactoring strategy)
+- **Comprehensive Docs**: 
+  - `explanation.md` (overview with navigation links)
+  - `FUNCTIONS.md` (complete function catalog)
+  - `SELECTORS.md` (DOM selector registry)
+  - `DEPENDENCIES.md` (dependency graph)
+  - `BEST_PRACTICES.md` (patterns and guidelines)
+  - `CHANGES.md` (change tracking)

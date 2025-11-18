@@ -4,6 +4,71 @@
  * Only active on support sites when feature is enabled
  */
 
+/**
+ * Early page layout adjustment
+ * Runs immediately when script loads to prevent layout shift
+ * Applied optimistically, removed if feature is disabled
+ * 
+ * Best Practices:
+ * - Uses CSS injection via style tag (CSP compliant)
+ * - Module-scoped state tracking (no global pollution)
+ * - Idempotent (checks before applying)
+ * - Error handling with try-catch
+ */
+(function earlyLayoutAdjustment() {
+  'use strict';
+  
+  // Constants (following best practices: no magic numbers)
+  const BANNER_HEIGHT_PX = 48; // 3rem = 48px
+  const EARLY_STYLE_ID = 'exl-hl-early-layout';
+  const STATE_FLAG = '__exlHlEarlyLayoutApplied';
+  
+  // Check if already applied (idempotency)
+  if (window[STATE_FLAG]) {
+    return;
+  }
+  
+  try {
+    // Method 1: Apply inline style if body exists
+    if (document.body) {
+      document.body.style.marginTop = `${BANNER_HEIGHT_PX}px`;
+      window[STATE_FLAG] = true;
+      console.log('[HighlighterController] Early layout adjustment applied (inline)');
+      return;
+    }
+    
+    // Method 2: Inject style tag into head (CSP compliant, preferred)
+    // This works even if body doesn't exist yet
+    const style = document.createElement('style');
+    style.id = EARLY_STYLE_ID;
+    style.textContent = `body { margin-top: ${BANNER_HEIGHT_PX}px !important; }`;
+    
+    // Try to inject into head
+    if (document.head) {
+      document.head.appendChild(style);
+      window[STATE_FLAG] = true;
+      console.log('[HighlighterController] Early layout adjustment applied (style tag)');
+      return;
+    }
+    
+    // Method 3: Fallback to documentElement if head doesn't exist
+    if (document.documentElement) {
+      document.documentElement.appendChild(style);
+      window[STATE_FLAG] = true;
+      console.log('[HighlighterController] Early layout adjustment applied (documentElement)');
+      return;
+    }
+    
+    // If we reach here, DOM is not ready at all - will retry in init()
+    console.warn('[HighlighterController] Could not apply early layout adjustment - DOM not ready');
+    
+  } catch (error) {
+    // Error handling (best practice: log with context)
+    console.error('[HighlighterController] Error applying early layout adjustment:', error);
+    // Don't set flag on error - allow retry in init()
+  }
+})();
+
 (function() {
   'use strict';
 
@@ -14,39 +79,71 @@
 
     /**
      * Initialize controller
+     * Follows best practices: feature flag check, early returns, error handling
      */
     async init() {
+      // Idempotency check (best practice)
       if (this.isInitialized) return;
 
       console.log('[HighlighterController] Initializing...');
 
-      // Check if feature is enabled
-      const enabled = await this.isFeatureEnabled();
-      if (!enabled) {
-        console.log('[HighlighterController] Feature disabled in settings');
-        return;
+      try {
+        // Check if feature is enabled (async - best practice)
+        const enabled = await this.isFeatureEnabled();
+        if (!enabled) {
+          console.log('[HighlighterController] Feature disabled in settings');
+          
+          // Remove early layout adjustment if it was applied
+          this.removeEarlyLayoutAdjustment();
+          return; // Early return (best practice)
+        }
+
+        // Feature is enabled - ensure early layout adjustment is still applied
+        // (it should already be, but ensure it's there as fallback)
+        const STATE_FLAG = '__exlHlEarlyLayoutApplied';
+        if (!window[STATE_FLAG]) {
+          // Early adjustment wasn't applied - apply it now
+          this.adjustPageLayout(true);
+        }
+
+        // Initialize modules (sequential - best practice for dependencies)
+        // LayerManager must be initialized first as other modules depend on it
+        if (typeof LayerManager !== 'undefined') {
+          await LayerManager.init();
+        }
+        await Highlighter.init();
+        await StickyNotes.init();
+        await BookmarkManager.init();
+
+        // Create UI
+        this.createBanner();
+        this.setupListeners();
+
+        this.isInitialized = true;
+        console.log('[HighlighterController] Initialized successfully');
+        
+      } catch (error) {
+        // Error handling (best practice: log with context, don't break extension)
+        console.error('[HighlighterController] Error during initialization:', error);
+        // Don't set isInitialized on error - allows retry
       }
-
-      // Initialize modules
-      await Highlighter.init();
-      await StickyNotes.init();
-      await BookmarkManager.init();
-
-      // Create UI
-      this.createBanner();
-      this.setupListeners();
-
-      this.isInitialized = true;
-      console.log('[HighlighterController] Initialized successfully');
     },
 
     /**
      * Check if feature is enabled in settings
+     * Uses SettingsManager if available, otherwise checks storage directly with consistent logic
      */
     async isFeatureEnabled() {
+      // Try SettingsManager first (preferred method)
+      if (typeof SettingsManager !== 'undefined') {
+        return SettingsManager.isFeatureEnabled('highlighterEnabled');
+      }
+      
+      // Fallback to direct storage check with consistent logic
       return new Promise((resolve) => {
         chrome.storage.sync.get(['exlibris'], (result) => {
-          const enabled = result.exlibris?.features?.highlighterEnabled === true;
+          // Consistent check: !== false (undefined/true = enabled, false = disabled)
+          const enabled = result.exlibris?.features?.highlighterEnabled !== false;
           resolve(enabled);
         });
       });
@@ -186,8 +283,15 @@
 
     /**
      * Create layer dropdown
+     * Follows best practices: dependency checks, error handling
      */
     createLayerDropdown() {
+      // Check if LayerManager is available (dependency check - best practice)
+      if (typeof LayerManager === 'undefined') {
+        console.warn('[HighlighterController] LayerManager not available, skipping layer dropdown');
+        return document.createElement('div'); // Return empty div as fallback
+      }
+
       const container = document.createElement('div');
       container.className = 'exl-hl-layer-container';
 
@@ -197,8 +301,17 @@
       
       // Update button text with active layer name
       const updateButtonText = () => {
-        const activeLayer = LayerManager.getActiveLayer();
-        button.innerHTML = `📚 ${activeLayer ? activeLayer.name : 'Layers'}`;
+        if (typeof LayerManager !== 'undefined' && LayerManager.getActiveLayer) {
+          try {
+            const activeLayer = LayerManager.getActiveLayer();
+            button.innerHTML = `📚 ${activeLayer ? activeLayer.name : 'Layers'}`;
+          } catch (error) {
+            console.error('[HighlighterController] Error updating layer button text:', error);
+            button.innerHTML = '📚 Layers';
+          }
+        } else {
+          button.innerHTML = '📚 Layers';
+        }
       };
       updateButtonText();
 
@@ -209,139 +322,191 @@
 
       // Function to render layer list
       const renderLayerList = () => {
+        if (typeof LayerManager === 'undefined') {
+          console.warn('[HighlighterController] LayerManager not available, cannot render layer list');
+          return;
+        }
+
         dropdown.innerHTML = '';
         
-        const layers = LayerManager.getAllLayers();
-        const activeLayerId = LayerManager.getActiveLayerId();
+        try {
+          const layers = LayerManager.getAllLayers();
+          const activeLayerId = LayerManager.getActiveLayerId();
 
-        // New Layer button
-        const newLayerBtn = document.createElement('div');
-        newLayerBtn.className = 'exl-hl-layer-item exl-hl-new-layer';
-        newLayerBtn.innerHTML = '<span class="exl-hl-layer-icon">➕</span> New Layer';
-        newLayerBtn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const layerName = prompt('Enter layer name:');
-          if (layerName && layerName.trim()) {
-            await LayerManager.createLayer(layerName.trim());
-            renderLayerList();
-          }
-        });
-        dropdown.appendChild(newLayerBtn);
-
-        // Separator
-        const separator = document.createElement('div');
-        separator.className = 'exl-hl-layer-separator';
-        dropdown.appendChild(separator);
-
-        // Layer list
-        layers.forEach(layer => {
-          const item = document.createElement('div');
-          item.className = 'exl-hl-layer-item';
-          if (layer.id === activeLayerId) {
-            item.classList.add('exl-hl-active-layer');
-          }
-
-          const nameSpan = document.createElement('span');
-          nameSpan.className = 'exl-hl-layer-name';
-          nameSpan.textContent = layer.name;
-          
-          // Active checkmark
-          if (layer.id === activeLayerId) {
-            const checkmark = document.createElement('span');
-            checkmark.className = 'exl-hl-layer-checkmark';
-            checkmark.textContent = '✓';
-            item.appendChild(checkmark);
-          }
-          
-          item.appendChild(nameSpan);
-
-          // Click to switch layer
-          item.addEventListener('click', async (e) => {
+          // New Layer button
+          const newLayerBtn = document.createElement('div');
+          newLayerBtn.className = 'exl-hl-layer-item exl-hl-new-layer';
+          newLayerBtn.innerHTML = '<span class="exl-hl-layer-icon">➕</span> New Layer';
+          newLayerBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
-            if (layer.id !== activeLayerId) {
-              await LayerManager.setActiveLayer(layer.id);
-              
-              // Switch both highlighter and sticky notes
-              await Promise.all([
-                Highlighter.switchLayer(),
-                StickyNotes.switchLayer()
-              ]);
-              
-              updateButtonText();
-              renderLayerList();
+            if (typeof LayerManager === 'undefined' || !LayerManager.createLayer) {
+              console.error('[HighlighterController] LayerManager.createLayer not available');
+              return;
             }
-            dropdown.style.display = 'none';
-          });
-
-          // Right-click context menu for rename/delete
-          item.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            const contextMenu = document.createElement('div');
-            contextMenu.className = 'exl-hl-layer-context';
-            contextMenu.style.position = 'fixed';
-            contextMenu.style.left = e.clientX + 'px';
-            contextMenu.style.top = e.clientY + 'px';
-
-            // Rename option
-            const renameOption = document.createElement('div');
-            renameOption.className = 'exl-hl-layer-context-item';
-            renameOption.textContent = '✏️ Rename';
-            renameOption.addEventListener('click', async (e) => {
-              e.stopPropagation();
-              const newName = prompt('Enter new name:', layer.name);
-              if (newName && newName.trim() && newName.trim() !== layer.name) {
-                await LayerManager.renameLayer(layer.id, newName.trim());
-                updateButtonText();
+            const layerName = prompt('Enter layer name:');
+            if (layerName && layerName.trim()) {
+              try {
+                await LayerManager.createLayer(layerName.trim());
                 renderLayerList();
+              } catch (error) {
+                console.error('[HighlighterController] Error creating layer:', error);
               }
-              document.body.removeChild(contextMenu);
-            });
-            contextMenu.appendChild(renameOption);
+            }
+          });
+          dropdown.appendChild(newLayerBtn);
 
-            // Delete option (if not last layer)
-            if (LayerManager.getLayerCount() > 1) {
-              const deleteOption = document.createElement('div');
-              deleteOption.className = 'exl-hl-layer-context-item exl-hl-layer-delete';
-              deleteOption.textContent = '🗑️ Delete';
-              deleteOption.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                if (confirm(`Delete layer "${layer.name}"? This will remove all highlights and notes in this layer.`)) {
-                  const wasActive = layer.id === activeLayerId;
-                  await LayerManager.deleteLayer(layer.id);
+          // Separator
+          const separator = document.createElement('div');
+          separator.className = 'exl-hl-layer-separator';
+          dropdown.appendChild(separator);
+
+          // Layer list
+          layers.forEach(layer => {
+            const item = document.createElement('div');
+            item.className = 'exl-hl-layer-item';
+            if (layer.id === activeLayerId) {
+              item.classList.add('exl-hl-active-layer');
+            }
+
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'exl-hl-layer-name';
+            nameSpan.textContent = layer.name;
+            
+            // Active checkmark
+            if (layer.id === activeLayerId) {
+              const checkmark = document.createElement('span');
+              checkmark.className = 'exl-hl-layer-checkmark';
+              checkmark.textContent = '✓';
+              item.appendChild(checkmark);
+            }
+            
+            item.appendChild(nameSpan);
+
+            // Click to switch layer
+            item.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              if (typeof LayerManager === 'undefined' || !LayerManager.setActiveLayer) {
+                console.error('[HighlighterController] LayerManager.setActiveLayer not available');
+                return;
+              }
+              if (layer.id !== activeLayerId) {
+                try {
+                  await LayerManager.setActiveLayer(layer.id);
                   
-                  if (wasActive) {
-                    // Refresh both highlighter and notes
+                  // Switch both highlighter and sticky notes
+                  if (typeof Highlighter !== 'undefined' && Highlighter.switchLayer &&
+                      typeof StickyNotes !== 'undefined' && StickyNotes.switchLayer) {
                     await Promise.all([
                       Highlighter.switchLayer(),
                       StickyNotes.switchLayer()
                     ]);
-                    updateButtonText();
                   }
+                  
+                  updateButtonText();
                   renderLayerList();
+                } catch (error) {
+                  console.error('[HighlighterController] Error switching layer:', error);
                 }
-                document.body.removeChild(contextMenu);
-              });
-              contextMenu.appendChild(deleteOption);
-            }
+              }
+              dropdown.style.display = 'none';
+            });
 
-            document.body.appendChild(contextMenu);
+            // Right-click context menu for rename/delete
+            item.addEventListener('contextmenu', (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              
+              const contextMenu = document.createElement('div');
+              contextMenu.className = 'exl-hl-layer-context';
+              contextMenu.style.position = 'fixed';
+              contextMenu.style.left = e.clientX + 'px';
+              contextMenu.style.top = e.clientY + 'px';
 
-            // Close context menu on click outside
-            const closeContextMenu = (e) => {
-              if (!contextMenu.contains(e.target)) {
+              // Rename option
+              const renameOption = document.createElement('div');
+              renameOption.className = 'exl-hl-layer-context-item';
+              renameOption.textContent = '✏️ Rename';
+              renameOption.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (typeof LayerManager === 'undefined' || !LayerManager.renameLayer) {
+                  console.error('[HighlighterController] LayerManager.renameLayer not available');
+                  return;
+                }
+                const newName = prompt('Enter new name:', layer.name);
+                if (newName && newName.trim() && newName.trim() !== layer.name) {
+                  try {
+                    await LayerManager.renameLayer(layer.id, newName.trim());
+                    updateButtonText();
+                    renderLayerList();
+                  } catch (error) {
+                    console.error('[HighlighterController] Error renaming layer:', error);
+                  }
+                }
                 if (document.body.contains(contextMenu)) {
                   document.body.removeChild(contextMenu);
                 }
-                document.removeEventListener('click', closeContextMenu);
-              }
-            };
-            setTimeout(() => document.addEventListener('click', closeContextMenu), 0);
-          });
+              });
+              contextMenu.appendChild(renameOption);
 
-          dropdown.appendChild(item);
-        });
+              // Delete option (if not last layer)
+              if (typeof LayerManager !== 'undefined' && LayerManager.getLayerCount && 
+                  typeof LayerManager.getLayerCount === 'function' && LayerManager.getLayerCount() > 1) {
+                const deleteOption = document.createElement('div');
+                deleteOption.className = 'exl-hl-layer-context-item exl-hl-layer-delete';
+                deleteOption.textContent = '🗑️ Delete';
+                deleteOption.addEventListener('click', async (e) => {
+                  e.stopPropagation();
+                  if (typeof LayerManager === 'undefined' || !LayerManager.deleteLayer) {
+                    console.error('[HighlighterController] LayerManager.deleteLayer not available');
+                    return;
+                  }
+                  if (confirm(`Delete layer "${layer.name}"? This will remove all highlights and notes in this layer.`)) {
+                    const wasActive = layer.id === activeLayerId;
+                    try {
+                      await LayerManager.deleteLayer(layer.id);
+                      
+                      if (wasActive) {
+                        // Refresh both highlighter and notes
+                        if (typeof Highlighter !== 'undefined' && Highlighter.switchLayer &&
+                            typeof StickyNotes !== 'undefined' && StickyNotes.switchLayer) {
+                          await Promise.all([
+                            Highlighter.switchLayer(),
+                            StickyNotes.switchLayer()
+                          ]);
+                        }
+                        updateButtonText();
+                      }
+                      renderLayerList();
+                    } catch (error) {
+                      console.error('[HighlighterController] Error deleting layer:', error);
+                    }
+                  }
+                  if (document.body.contains(contextMenu)) {
+                    document.body.removeChild(contextMenu);
+                  }
+                });
+                contextMenu.appendChild(deleteOption);
+              }
+
+              document.body.appendChild(contextMenu);
+
+              // Close context menu on click outside
+              const closeContextMenu = (e) => {
+                if (!contextMenu.contains(e.target)) {
+                  if (document.body.contains(contextMenu)) {
+                    document.body.removeChild(contextMenu);
+                  }
+                  document.removeEventListener('click', closeContextMenu);
+                }
+              };
+              setTimeout(() => document.addEventListener('click', closeContextMenu), 0);
+            });
+
+            dropdown.appendChild(item);
+          });
+        } catch (error) {
+          console.error('[HighlighterController] Error rendering layer list:', error);
+        }
       };
 
       // Toggle dropdown
@@ -524,52 +689,152 @@
 
     /**
      * Adjust page layout to avoid banner overlap
+     * Note: Early layout adjustment may already be applied
+     * Follows best practices: constants, element checks, error handling
      */
     adjustPageLayout(apply) {
-      if (apply) {
-        document.body.style.marginTop = '48px';
-      } else {
-        document.body.style.marginTop = '';
+      const BANNER_HEIGHT_PX = 48; // 3rem = 48px (constant, not magic number)
+      const STATE_FLAG = '__exlHlEarlyLayoutApplied';
+      
+      try {
+        if (apply) {
+          // Apply or maintain layout adjustment
+          if (document.body) {
+            // Check element existence (best practice)
+            document.body.style.marginTop = `${BANNER_HEIGHT_PX}px`;
+          }
+          window[STATE_FLAG] = true;
+        } else {
+          // Remove layout adjustment
+          if (document.body) {
+            // Check element existence (best practice)
+            document.body.style.marginTop = '';
+          }
+          
+          // Also remove early style tag if present
+          const earlyStyle = document.getElementById('exl-hl-early-layout');
+          if (earlyStyle) {
+            // Check element existence before removal (best practice)
+            earlyStyle.remove();
+          }
+          
+          window[STATE_FLAG] = false;
+        }
+      } catch (error) {
+        // Error handling (best practice: log with context)
+        console.error('[HighlighterController] Error adjusting page layout:', error);
+      }
+    },
+
+    /**
+     * Remove early layout adjustment if feature is disabled
+     * Follows best practices: checks element existence, error handling
+     */
+    removeEarlyLayoutAdjustment() {
+      const EARLY_STYLE_ID = 'exl-hl-early-layout';
+      const STATE_FLAG = '__exlHlEarlyLayoutApplied';
+      
+      try {
+        // Remove inline style from body if present
+        if (document.body && document.body.style.marginTop) {
+          document.body.style.marginTop = '';
+        }
+        
+        // Remove early style tag if present (check existence first - best practice)
+        const earlyStyle = document.getElementById(EARLY_STYLE_ID);
+        if (earlyStyle) {
+          earlyStyle.remove();
+        }
+        
+        // Clear flag
+        window[STATE_FLAG] = false;
+        
+        console.log('[HighlighterController] Removed early layout adjustment');
+        
+      } catch (error) {
+        // Error handling (best practice: log with context)
+        console.error('[HighlighterController] Error removing early layout adjustment:', error);
       }
     },
 
     /**
      * Setup settings listener
+     * Follows best practices: dependency checks, error handling
      */
     setupListeners() {
-      chrome.storage.onChanged.addListener((changes, areaName) => {
-        if (areaName === 'sync' && changes.exlibris) {
-          const newValue = changes.exlibris.newValue?.features?.highlighterEnabled;
-          const oldValue = changes.exlibris.oldValue?.features?.highlighterEnabled;
-          
-          if (newValue !== oldValue) {
-            if (newValue === false) {
-              this.cleanup();
-            } else if (!this.isInitialized) {
-              this.init();
+      try {
+        chrome.storage.onChanged.addListener((changes, areaName) => {
+          try {
+            if (areaName === 'sync' && changes.exlibris) {
+              const newValue = changes.exlibris.newValue?.features?.highlighterEnabled;
+              const oldValue = changes.exlibris.oldValue?.features?.highlighterEnabled;
+              
+              if (newValue !== oldValue) {
+                if (newValue === false) {
+                  // Feature disabled - remove early adjustment and cleanup
+                  this.removeEarlyLayoutAdjustment();
+                  this.cleanup();
+                } else if (!this.isInitialized) {
+                  // Feature enabled - apply early adjustment and init
+                  // Early adjustment should already be applied, but ensure it
+                  const STATE_FLAG = '__exlHlEarlyLayoutApplied';
+                  if (!window[STATE_FLAG]) {
+                    this.adjustPageLayout(true);
+                  }
+                  this.init();
+                }
+              }
             }
+          } catch (error) {
+            // Error handling (best practice: log with context)
+            console.error('[HighlighterController] Error in storage change listener:', error);
           }
-        }
-      });
+        });
+      } catch (error) {
+        // Error handling (best practice: log with context)
+        console.error('[HighlighterController] Error setting up listeners:', error);
+      }
     },
 
     /**
      * Cleanup
+     * Follows best practices: idempotency check, proper cleanup order
      */
     cleanup() {
-      if (this.bannerElement) {
-        this.bannerElement.remove();
-        this.bannerElement = null;
+      // Idempotency check (best practice)
+      if (!this.isInitialized) return;
+
+      try {
+        // Remove banner from DOM (check existence first - best practice)
+        if (this.bannerElement) {
+          this.bannerElement.remove();
+          this.bannerElement = null;
+        }
+
+        // Remove layout adjustment
+        this.adjustPageLayout(false);
+        this.removeEarlyLayoutAdjustment();
+
+        // Cleanup modules (best practice: cleanup in reverse order of init)
+        if (typeof Highlighter !== 'undefined') {
+          Highlighter.cleanup();
+        }
+        if (typeof StickyNotes !== 'undefined') {
+          StickyNotes.cleanup();
+        }
+        if (typeof BookmarkManager !== 'undefined') {
+          BookmarkManager.cleanup();
+        }
+
+        this.isInitialized = false;
+        console.log('[HighlighterController] Cleaned up');
+        
+      } catch (error) {
+        // Error handling (best practice: log with context)
+        console.error('[HighlighterController] Error during cleanup:', error);
+        // Still mark as not initialized to allow retry
+        this.isInitialized = false;
       }
-
-      this.adjustPageLayout(false);
-
-      Highlighter.cleanup();
-      StickyNotes.cleanup();
-      BookmarkManager.cleanup();
-
-      this.isInitialized = false;
-      console.log('[HighlighterController] Cleaned up');
     }
   };
 

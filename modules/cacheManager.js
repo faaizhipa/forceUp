@@ -15,6 +15,9 @@ const CacheManager = (function() {
   
   let memoryCache = new Map(); // In-memory cache for current session
   let isInitialized = false;
+  let _lock = false; // Lock flag to prevent race conditions
+  let _queue = []; // Queue for concurrent requests
+  let _persistTimer = null; // Timer for debouncing persistence
 
   // ========== PRIVATE FUNCTIONS ==========
 
@@ -171,7 +174,7 @@ const CacheManager = (function() {
   }
 
   /**
-   * Builds a deterministic signature from the extracted fields
+   * Builds a deterministic signature from the extracted fields (from DOM)
    * @returns {string}
    */
   function buildSignature() {
@@ -184,6 +187,125 @@ const CacheManager = (function() {
       fields.subCategory,
       fields.analysisNote
     ].map((value) => (value || '').toLowerCase()).join('|');
+  }
+
+  /**
+   * Builds signature from data object (not DOM)
+   * This is the correct way to build signatures for cached data
+   * @param {Object} data - Case data object
+   * @returns {string}
+   */
+  function buildSignatureFromData(data) {
+    if (!data) return '';
+    
+    const fields = {
+      status: (data.status || '').trim().toLowerCase(),
+      subStatus: (data.subStatus || '').trim().toLowerCase(),
+      category: (data.category || '').trim().toLowerCase(),
+      subCategory: (data.subCategory || '').trim().toLowerCase(),
+      analysisNote: (data.analysisNote || '').trim().toLowerCase()
+    };
+
+    return [
+      fields.status,
+      fields.subStatus,
+      fields.category,
+      fields.subCategory,
+      fields.analysisNote
+    ].join('|');
+  }
+
+  /**
+   * Extracts case ID from current URL
+   * @returns {string|null}
+   */
+  function getCaseIdFromUrl() {
+    const match = window.location.pathname.match(/\/Case\/([a-zA-Z0-9]{15,18})\//);
+    return match ? match[1] : null;
+  }
+
+  /**
+   * Determines if a cache entry should be accepted
+   * Validates case ID, case number, and page state
+   * @param {string} caseId - Case ID to validate
+   * @param {string} caseNumber - Case number to validate (optional)
+   * @param {Object} data - Data to validate
+   * @returns {Object} { accept: boolean, reason: string }
+   */
+  function shouldAcceptCacheEntry(caseId, caseNumber, data) {
+    // Step 1: Basic format validation
+    if (!caseId || !/^[a-zA-Z0-9]{15,18}$/.test(caseId)) {
+      return { accept: false, reason: 'Invalid case ID format' };
+    }
+
+    // Step 2: Validate case ID matches current page
+    const currentCaseId = getCaseIdFromUrl();
+    if (currentCaseId && currentCaseId !== caseId) {
+      console.warn(`[CacheManager] Case ID mismatch: ${caseId} !== ${currentCaseId}, skipping cache`);
+      return { accept: false, reason: `Case ID mismatch: ${caseId} !== ${currentCaseId}` };
+    }
+
+    // Step 3: Validate data contains matching case ID
+    if (data.caseId && data.caseId !== caseId) {
+      console.warn(`[CacheManager] Data case ID mismatch: ${data.caseId} !== ${caseId}`);
+      return { accept: false, reason: `Data case ID mismatch: ${data.caseId} !== ${caseId}` };
+    }
+
+    // Step 4: Validate case number if provided
+    if (caseNumber) {
+      // Get current context if PageContextValidator available
+      if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.getCurrentCaseContext === 'function') {
+        const context = PageContextValidator.getCurrentCaseContext();
+        if (context && context.caseNumber && context.caseNumber !== caseNumber) {
+          console.warn(`[CacheManager] Case number mismatch: ${caseNumber} !== ${context.caseNumber}`);
+          return { accept: false, reason: `Case number mismatch: ${caseNumber} !== ${context.caseNumber}` };
+        }
+      }
+
+      // Validate data contains matching case number
+      if (data.caseNumber && data.caseNumber !== caseNumber) {
+        console.warn(`[CacheManager] Data case number mismatch: ${data.caseNumber} !== ${caseNumber}`);
+        return { accept: false, reason: `Data case number mismatch: ${data.caseNumber} !== ${caseNumber}` };
+      }
+    }
+
+    // Step 5: Check if page is still loading
+    if (document.title === 'Lightning Experience') {
+      return { accept: false, reason: 'Page is still loading' };
+    }
+
+    return { accept: true, reason: 'Validation passed' };
+  }
+
+  /**
+   * Waits for lock to be released
+   * @param {string} caseId - Case ID for the request
+   * @returns {Promise<void>}
+   */
+  async function waitForLock(caseId) {
+    return new Promise((resolve) => {
+      _queue.push({ caseId, resolve });
+      console.log(`[CacheManager] Request queued for case ${caseId} (lock active)`);
+    });
+  }
+
+  /**
+   * Acquires lock
+   */
+  function acquireLock() {
+    _lock = true;
+  }
+
+  /**
+   * Releases lock and processes queue
+   */
+  function releaseLock() {
+    _lock = false;
+    if (_queue.length > 0) {
+      const next = _queue.shift();
+      console.log(`[CacheManager] Processing queued request for case ${next.caseId}`);
+      next.resolve();
+    }
   }
 
   // ========== PUBLIC API ==========
@@ -237,32 +359,67 @@ const CacheManager = (function() {
 
       if (!caseId) return null;
 
-      // Check memory cache
+      // Wait for lock if active
+      if (_lock) {
+        await waitForLock(caseId);
+      }
+
+      // Step 1: Validate case ID matches current page
+      const currentCaseId = getCaseIdFromUrl();
+      if (currentCaseId && currentCaseId !== caseId) {
+        console.warn(`[CacheManager] Case ID mismatch on get: ${caseId} !== ${currentCaseId}, returning null`);
+        return null;
+      }
+
+      // Step 2: Check memory cache
       const cached = memoryCache.get(caseId);
       if (!cached) {
         console.log(`[CacheManager] Cache miss for case ${caseId}`);
         return null;
       }
 
-      // Get current last modified date from DOM
+      // Step 3: Build signature from cached data (not current DOM)
+      const cachedSignature = buildSignatureFromData(cached.data);
+
+      if (!cachedSignature && !cached.signature) {
+        console.warn('[CacheManager] No signature available, using cached data as fallback');
+        return cached.data;
+      }
+
+      // Step 4: Get current signature from DOM for comparison
       const currentSignature = buildSignature();
 
+      // Step 5: Compare signatures
+      // Use cached signature if available, otherwise use stored signature
+      const signatureToCompare = cachedSignature || cached.signature;
+      
+      if (currentSignature && signatureToCompare === currentSignature) {
+        console.log(`[CacheManager] Cache hit for case ${caseId} (signature match)`);
+        return cached.data;
+      }
+
+      // Step 6: If no current signature available, validate case number matches
       if (!currentSignature) {
-        console.warn('[CacheManager] Could not resolve status signature, using cached data as fallback');
+        if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.getCurrentCaseContext === 'function') {
+          const context = PageContextValidator.getCurrentCaseContext();
+          if (context && cached.data.caseNumber && context.caseNumber !== cached.data.caseNumber) {
+            console.warn(`[CacheManager] Case number mismatch: ${cached.data.caseNumber} !== ${context.caseNumber}`);
+            return null;
+          }
+        }
+        // If no signature but case number matches, return cached data
+        console.log(`[CacheManager] Cache hit for case ${caseId} (no signature, case number validated)`);
         return cached.data;
       }
 
-      if (cached.signature && cached.signature === currentSignature) {
-        console.log(`[CacheManager] Cache hit for case ${caseId} (signature: ${currentSignature})`);
-        return cached.data;
-      }
-
-      console.log(`[CacheManager] Cache invalid for case ${caseId} (signature mismatch)`);
+      console.log(`[CacheManager] Cache invalid for case ${caseId} (signature mismatch: ${signatureToCompare} !== ${currentSignature})`);
       return null;
     },
 
     /**
      * Sets cached data for a case
+     * Validates case ID and case number before caching
+     * Uses locking to prevent race conditions
      * @param {string} caseId
      * @param {Object} data - Case data to cache
      * @returns {Promise<void>}
@@ -274,41 +431,77 @@ const CacheManager = (function() {
 
       if (!caseId || !data) return;
 
-      const signature = buildSignature();
-      
-      const cacheEntry = {
-        signature,
-        data: data,
-        timestamp: Date.now()
-      };
+      // Wait for lock if active
+      if (_lock) {
+        await waitForLock(caseId);
+      }
 
-      // Update memory cache
-      memoryCache.set(caseId, cacheEntry);
+      try {
+        // Acquire lock
+        acquireLock();
 
-      console.log(`[CacheManager] Cached data for case ${caseId} (signature: ${signature || 'n/a'})`);
+        // Step 1: Validate cache entry should be accepted
+        const validation = shouldAcceptCacheEntry(caseId, data.caseNumber, data);
+        if (!validation.accept) {
+          console.warn(`[CacheManager] Cache entry rejected: ${validation.reason}`);
+          return;
+        }
 
-      // Update storage (throttled)
-      await this.persistToStorage();
+        // Step 2: Build signature from data (not DOM)
+        const signature = buildSignatureFromData(data);
+        
+        const cacheEntry = {
+          signature,
+          data: data,
+          timestamp: Date.now()
+        };
+
+        // Step 3: Update memory cache
+        memoryCache.set(caseId, cacheEntry);
+
+        console.log(`[CacheManager] Cached data for case ${caseId} (signature: ${signature || 'n/a'})`);
+
+        // Step 4: Update storage (throttled)
+        await this.persistToStorage();
+      } finally {
+        // Always release lock
+        releaseLock();
+      }
     },
 
     /**
      * Persists memory cache to storage
+     * Debounced to avoid excessive writes
      * @returns {Promise<void>}
      */
     async persistToStorage() {
       if (!isInitialized) return;
 
-      try {
-        const cacheData = {};
-        memoryCache.forEach((entry, caseId) => {
-          cacheData[caseId] = entry;
-        });
-
-        await saveToStorage(cacheData);
-        console.log(`[CacheManager] Persisted ${memoryCache.size} entries to storage`);
-      } catch (err) {
-        console.error('[CacheManager] Error persisting cache:', err);
+      // Clear any pending debounce timer
+      if (_persistTimer) {
+        clearTimeout(_persistTimer);
       }
+
+      // Debounce persistence (250ms)
+      return new Promise((resolve) => {
+        _persistTimer = setTimeout(async () => {
+          try {
+            const cacheData = {};
+            memoryCache.forEach((entry, caseId) => {
+              cacheData[caseId] = entry;
+            });
+
+            await saveToStorage(cacheData);
+            console.log(`[CacheManager] Persisted ${memoryCache.size} entries to storage`);
+            _persistTimer = null;
+            resolve();
+          } catch (err) {
+            console.error('[CacheManager] Error persisting cache:', err);
+            _persistTimer = null;
+            resolve();
+          }
+        }, 250);
+      });
     },
 
     /**

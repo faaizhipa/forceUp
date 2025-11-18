@@ -77,11 +77,36 @@ const CasePageDataExtractor = {
 
       // Extract all case data
       const data = await this.extractAllCaseData();
+      
+      // Validate extracted data matches current page context before using
+      if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
+        const validation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber);
+        
+        if (!validation.valid) {
+          console.warn(`[CasePageDataExtractor] Extracted data validation failed: ${validation.reason}`);
+          console.warn(`[CasePageDataExtractor] Data caseId: ${data.caseId}, caseNumber: ${data.caseNumber}`);
+          if (validation.currentContext) {
+            console.warn(`[CasePageDataExtractor] Current context caseId: ${validation.currentContext.caseId}, caseNumber: ${validation.currentContext.caseNumber}`);
+          }
+          // Clear extracted data if validation failed
+          this.lastExtractedData = null;
+          return;
+        }
+        
+        // Update data with validated identifiers if needed
+        if (validation.currentContext) {
+          data.caseId = validation.currentContext.caseId;
+          if (validation.currentContext.caseNumber && !data.caseNumber) {
+            data.caseNumber = validation.currentContext.caseNumber;
+          }
+        }
+      }
+      
       this.lastExtractedData = data;
 
-      console.log('[CasePageDataExtractor] Extracted case data:', data);
+      console.log('[CasePageDataExtractor] Extracted case data (validated):', data);
 
-      // Trigger custom event for other modules to consume
+      // Trigger custom event for other modules to consume (only if validated)
       this.dispatchDataExtractedEvent(data);
     } catch (error) {
       console.error('[CasePageDataExtractor] Error during extraction:', error);
@@ -600,16 +625,27 @@ const CasePageDataExtractor = {
 
   /**
    * Dispatch custom event with extracted data
+   * Validates data before dispatching
    * @param {Object} data - Extracted case data
    */
   dispatchDataExtractedEvent(data) {
+    // Validate before dispatching
+    if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
+      const validation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber);
+      
+      if (!validation.valid) {
+        console.warn(`[CasePageDataExtractor] Cannot dispatch event: ${validation.reason}`);
+        return;
+      }
+    }
+    
     const event = new CustomEvent('casePageDataExtracted', {
       detail: data,
       bubbles: true,
       composed: true
     });
     document.dispatchEvent(event);
-    console.log('[CasePageDataExtractor] Dispatched casePageDataExtracted event');
+    console.log('[CasePageDataExtractor] Dispatched casePageDataExtracted event (validated)');
   },
 
   /**

@@ -36,8 +36,9 @@ const CaseTimezoneResolver = {
     /**
      * Initialize the timezone resolver
      * Called by FlexipagePanelInjector.ensureInjected()
+     * @param {Object} [caseData] - Optional case data with custID, instID, institutionCode, etc.
      */
-    async init() {
+    async init(caseData) {
         if (this.isInitialized) {
             console.log('[CaseTimezoneResolver] Already initialized, skipping');
             return;
@@ -62,8 +63,29 @@ const CaseTimezoneResolver = {
 
             console.log('[CaseTimezoneResolver] Account Name:', this.accountName);
 
-            // Step 3: Check cache
-            await this.checkCachedTimezone(this.accountName, this.targetDiv);
+            // Step 3: Get case data if not provided (try to get from CasePageDataExtractor)
+            let identifiers = {
+                accountName: this.accountName
+            };
+
+            if (caseData) {
+                identifiers.institutionCode = caseData.exLibrisAccountNumber || caseData.institutionCode;
+                identifiers.customerId = caseData.custID;
+                identifiers.instID = caseData.instID;
+                identifiers.accountCode = caseData.exLibrisAccountNumber;
+            } else if (typeof CasePageDataExtractor !== 'undefined') {
+                // Try to get case data from CasePageDataExtractor
+                const extractedData = CasePageDataExtractor.getLastExtractedData();
+                if (extractedData) {
+                    identifiers.institutionCode = extractedData.exLibrisAccountNumber || extractedData.institutionCode;
+                    identifiers.customerId = extractedData.custID;
+                    identifiers.instID = extractedData.instID;
+                    identifiers.accountCode = extractedData.exLibrisAccountNumber;
+                }
+            }
+
+            // Step 4: Check cache with all available identifiers
+            await this.checkCachedTimezone(identifiers, this.targetDiv);
 
             this.isInitialized = true;
             console.log('[CaseTimezoneResolver] Initialization complete');
@@ -207,11 +229,16 @@ const CaseTimezoneResolver = {
 
     /**
      * Check cached timezone in storage
-     * @param {string} accountName
+     * @param {Object|string} identifiers - Object with accountName, institutionCode, customerId, instID, or just accountName string
      * @param {Element} targetDiv
      */
-    async checkCachedTimezone(accountName, targetDiv) {
-        console.log('[CaseTimezoneResolver] Checking cache for:', accountName);
+    async checkCachedTimezone(identifiers, targetDiv) {
+        // Handle legacy string parameter
+        const lookupParams = typeof identifiers === 'string' 
+            ? { accountName: identifiers }
+            : identifiers;
+
+        console.log('[CaseTimezoneResolver] Checking cache for:', lookupParams);
 
         if (typeof TimezoneStorage === 'undefined') {
             console.warn('[CaseTimezoneResolver] TimezoneStorage not available, skipping cache check');
@@ -220,11 +247,11 @@ const CaseTimezoneResolver = {
         }
 
         try {
-            const cached = await TimezoneStorage.getTimezone({ accountName });
+            const cached = await TimezoneStorage.getTimezone(lookupParams);
 
             if (cached && cached.timezone) {
                 // CACHE HIT
-                console.log('[CaseTimezoneResolver] Cache hit! Timezone:', cached.timezone);
+                console.log('[CaseTimezoneResolver] Cache hit! Timezone:', cached.timezone, 'Source:', cached.source);
                 this.updateUI(cached.timezone);
                 this.isResolved = true;
                 // Do NOT attach event listeners

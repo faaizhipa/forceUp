@@ -4,7 +4,16 @@ Date: 2025-10-23
 
 ## Overview
 
-This document explains the architecture, components, data flow, dependencies, and critical logic of the Chrome extension. It also catalogs known gaps, patterns, and practical usage, and closes with a Development & Debugging Log. It’s written to onboard new contributors quickly and to serve as a single source of truth.
+This document provides a high-level overview of the Chrome extension architecture, components, and workflows. For detailed information, see the focused documentation files:
+
+- **[PROJECT_RULES.md](PROJECT_RULES.md)** - **START HERE** - Comprehensive project rules and agent guidelines for development
+- **[BEST_PRACTICES.md](BEST_PRACTICES.md)** - Best practices, coding patterns, do's/don'ts, and lessons learned
+- **[FUNCTIONS.md](FUNCTIONS.md)** - Complete function catalog with summary table and detailed documentation
+- **[SELECTORS.md](SELECTORS.md)** - Centralized DOM selector registry with stability ratings and usage patterns
+- **[DEPENDENCIES.md](DEPENDENCIES.md)** - Module dependency graph, data flow, and external API usage
+- **[CHANGES.md](CHANGES.md)** - Structured change tracking with lessons learned
+
+This document explains the architecture, components, data flow, dependencies, and critical logic of the Chrome extension. It also catalogs known gaps, patterns, and practical usage, and closes with a Development & Debugging Log. It's written to onboard new contributors quickly and to serve as a single source of truth.
 
 ## Structure and Components
 
@@ -123,14 +132,28 @@ sequenceDiagram
    - Configure settings via the extension popup while on a Salesforce tab. 
    - Use context menu or keyboard shortcuts to format text.
 
-## Documentation Gaps (and pointers)
+## Documentation
 
-- Where to look:
-   - `ARCHITECTURE.md` — diagrams and deep architecture details.
-   - `FEATURE_SUMMARY.md` — feature list and quick steps.
-   - `IMPLEMENTATION_GUIDE.md` — per-feature guidance and future enhancements.
-   - `COMPLETE_FLOW_DOCUMENTATION.md` — end-to-end flows and observer lifecycle.
-   - `DEBUG_INSTRUCTIONS.md` — manual test steps and DOM checks.
+### Focused Documentation Files
+
+For detailed information on specific aspects of the codebase:
+
+- **[FUNCTIONS.md](FUNCTIONS.md)** - Complete catalog of all functions across all modules with parameters, return types, complexity ratings, and detailed documentation for complex functions
+- **[SELECTORS.md](SELECTORS.md)** - Centralized registry of all DOM selectors with module usage, page types, stability ratings, and best practices
+- **[DEPENDENCIES.md](DEPENDENCIES.md)** - Module dependency graph, load order, data flow diagrams, and external API usage
+- **[BEST_PRACTICES.md](BEST_PRACTICES.md)** - Comprehensive do's/don'ts, coding patterns, identified redundancies, inconsistencies, and refactoring opportunities
+- **[CHANGES.md](CHANGES.md)** - Structured change tracking with categories, lessons learned, and related issues
+
+### Additional Documentation
+
+- `ARCHITECTURE.md` — diagrams and deep architecture details.
+- `FEATURE_SUMMARY.md` — feature list and quick steps.
+- `IMPLEMENTATION_GUIDE.md` — per-feature guidance and future enhancements.
+- `COMPLETE_FLOW_DOCUMENTATION.md` — end-to-end flows and observer lifecycle.
+- `DEBUG_INSTRUCTIONS.md` — manual test steps and DOM checks.
+
+### Documentation Gaps (and pointers)
+
 - Gaps to consider filling:
    - Add explicit mapping of selectors used in Lightning pages with screenshots.
    - Add a testing matrix for common page variants and locales.

@@ -241,13 +241,53 @@ const TimezoneStorage = (function() {
 
   /**
    * Get timezone for a customer
-   * @param {Object} identifiers - Object containing accountName, accountCode, institutionCode
+   * Priority: InstitutionTimezoneManager > Stored timezones > Customer list lookup
+   * @param {Object} identifiers - Object containing accountName, accountCode, institutionCode, customerId, instID
    * @returns {Promise<Object|null>} Timezone record or null
    */
   async function getTimezone(identifiers) {
-    const { accountName, accountCode, institutionCode } = identifiers;
+    const { accountName, accountCode, institutionCode, customerId, instID } = identifiers;
     
     try {
+      // STEP 1: Check InstitutionTimezoneManager first (primary source)
+      if (typeof InstitutionTimezoneManager !== 'undefined') {
+        try {
+          // Try lookup with priority: ORG_CODE > CUSTOMERID > INSTITUTIONID
+          const institutionResult = InstitutionTimezoneManager.getTimezone({
+            orgCode: institutionCode || accountCode,
+            customerId: customerId,
+            institutionId: instID
+          });
+          
+          if (institutionResult && institutionResult.timezone) {
+            console.log(`[TimezoneStorage] Found timezone from InstitutionTimezoneManager: ${institutionResult.timezone}`);
+            
+            // Check if customer is in customer list
+            const customer = await findCustomerInList({ accountName, accountCode, institutionCode });
+            const inCustomerList = customer !== null;
+            
+            // Return formatted result compatible with existing structure
+            return {
+              timezone: institutionResult.timezone,
+              source: institutionResult.source,
+              orgCode: institutionResult.orgCode,
+              orgName: institutionResult.orgName,
+              dbServers: institutionResult.dbServers,
+              inCustomerList,
+              customerName: customer ? customer.name : accountName,
+              server: customer ? customer.server : null,
+              custID: customer ? customer.custID : customerId,
+              instID: customer ? customer.instID : instID,
+              timestamp: Date.now()
+            };
+          }
+        } catch (error) {
+          console.warn('[TimezoneStorage] Error checking InstitutionTimezoneManager:', error);
+          // Continue to fallback methods
+        }
+      }
+
+      // STEP 2: Check stored timezones (user-entered or previously detected)
       const timezoneData = await getAllTimezoneData();
 
       // Try lookup by institution code first

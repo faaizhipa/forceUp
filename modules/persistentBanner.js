@@ -19,6 +19,17 @@ const PersistentBanner = {
     // Current case tracking (to detect navigation to different case)
     currentCaseId: null,
     
+    // Displayed case tracking (for stale data prevention)
+    displayedCaseId: null,
+    displayedCaseNumber: null,
+    validationInterval: null,
+    
+    // Message rotation state
+    messageRotationInterval: null,
+    currentMessageIndex: 0,
+    activeMessages: [],
+    messageSettings: null,
+    
     // Current page info
     currentPage: {
         type: 'Unknown',
@@ -117,16 +128,73 @@ const PersistentBanner = {
         // Listen for settings changes
         this.setupSettingsListener();
         
+        // Start periodic validation for stale data prevention
+        this.startPeriodicValidation();
+        
+        // Load messages for rotation
+        await this.loadMessages();
+        
         this.isInitialized = true;
         console.log('[PersistentBanner] Initialized');
     },
 
     /**
+     * Start periodic validation to prevent stale data display
+     * Checks every 2 seconds if displayed data is still valid
+     */
+    startPeriodicValidation() {
+        // Clear any existing interval
+        if (this.validationInterval) {
+            clearInterval(this.validationInterval);
+        }
+        
+        // Check every 2 seconds if displayed data is still valid
+        this.validationInterval = setInterval(() => {
+            if (this.displayedCaseId || this.displayedCaseNumber) {
+                if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
+                    const validation = PageContextValidator.validatePageContextBeforeDisplay(
+                        this.displayedCaseId,
+                        this.displayedCaseNumber
+                    );
+                    
+                    if (!validation.valid) {
+                        console.warn('[PersistentBanner] Periodic validation failed, clearing display');
+                        this.clearCaseData();
+                        // Update UI to show cleared state
+                        this.updateBannerUI();
+                    }
+                }
+            }
+        }, 2000);
+        
+        console.log('[PersistentBanner] Periodic validation started');
+    },
+
+    /**
+     * Stop periodic validation
+     */
+    stopPeriodicValidation() {
+        if (this.validationInterval) {
+            clearInterval(this.validationInterval);
+            this.validationInterval = null;
+            console.log('[PersistentBanner] Periodic validation stopped');
+        }
+    },
+
+    /**
      * Check if persistent banner feature is enabled in settings
+     * Uses SettingsManager if available, otherwise checks storage directly with consistent logic
      */
     async isFeatureEnabled() {
+        // Try SettingsManager first (preferred method)
+        if (typeof SettingsManager !== 'undefined') {
+            return SettingsManager.isFeatureEnabled('persistentBanner');
+        }
+        
+        // Fallback to direct storage check with consistent logic
         return new Promise((resolve) => {
             chrome.storage.sync.get(['exlibris'], (result) => {
+                // Consistent check: !== false (undefined/true = enabled, false = disabled)
                 const enabled = result.exlibris?.features?.persistentBanner !== false;
                 resolve(enabled);
             });
@@ -139,6 +207,7 @@ const PersistentBanner = {
     setupSettingsListener() {
         chrome.storage.onChanged.addListener((changes, areaName) => {
             if (areaName === 'sync' && changes.exlibris) {
+                // Check persistent banner feature toggle
                 const newEnabled = changes.exlibris.newValue?.features?.persistentBanner !== false;
                 const oldEnabled = changes.exlibris.oldValue?.features?.persistentBanner !== false;
                 
@@ -149,6 +218,30 @@ const PersistentBanner = {
                     } else {
                         this.hide();
                     }
+                }
+                
+                // Check banner messages feature toggle
+                const newMessagesEnabled = changes.exlibris.newValue?.features?.bannerMessages !== false;
+                const oldMessagesEnabled = changes.exlibris.oldValue?.features?.bannerMessages !== false;
+                
+                if (newMessagesEnabled !== oldMessagesEnabled) {
+                    console.log('[PersistentBanner] Banner messages feature toggle changed:', newMessagesEnabled);
+                    // Reload messages and update display
+                    this.loadMessages().then(() => {
+                        this.updateBannerUI();
+                    });
+                }
+                
+                // Check message settings changes
+                const newMessages = changes.exlibris.newValue?.persistentBanner?.messages;
+                const oldMessages = changes.exlibris.oldValue?.persistentBanner?.messages;
+                
+                if (newMessages && JSON.stringify(newMessages) !== JSON.stringify(oldMessages)) {
+                    console.log('[PersistentBanner] Message settings changed, reloading...');
+                    // Reload messages and restart rotation
+                    this.loadMessages().then(() => {
+                        this.updateBannerUI();
+                    });
                 }
             }
         });
@@ -211,6 +304,17 @@ const PersistentBanner = {
             const data = event.detail;
             console.log('[PersistentBanner] Received case page data from CasePageDataExtractor:', data);
             
+            // Validate data before displaying
+            if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
+                const validation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber);
+                
+                if (!validation.valid) {
+                    console.warn(`[PersistentBanner] Cannot display data: ${validation.reason}`);
+                    this.clearCaseData();
+                    return;
+                }
+            }
+            
             // Extract case ID from the data
             const newCaseId = data.caseNumber || null;
             
@@ -270,6 +374,15 @@ const PersistentBanner = {
         // This is a placeholder - institution code would come from other fields
         // For now, return null and rely on other extraction methods
         return null;
+    },
+
+    /**
+     * Extract case ID from current URL
+     * @returns {string|null}
+     */
+    getCaseIdFromUrl() {
+        const match = window.location.pathname.match(/\/lightning\/r\/Case\/([a-zA-Z0-9]{15,18})/);
+        return match ? match[1] : null;
     },
 
     /**
@@ -338,6 +451,10 @@ const PersistentBanner = {
         
         // Clear current case ID
         this.currentCaseId = null;
+        
+        // Clear displayed case tracking
+        this.displayedCaseId = null;
+        this.displayedCaseNumber = null;
         
         // Clear customer metadata
         this.customerMetadata = {
@@ -412,11 +529,34 @@ const PersistentBanner = {
 
     /**
      * Update current page information
+     * Validates page context before updating
      * @param {Object} pageData
      */
     updateCurrentPage(pageData = {}) {
+        // Validate if this is case data
+        if (pageData.caseNumber || pageData.caseId) {
+            // Get case ID from URL if not provided
+            const caseId = pageData.caseId || this.getCaseIdFromUrl();
+            
+            if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
+                const validation = PageContextValidator.validatePageContextBeforeDisplay(caseId, pageData.caseNumber);
+                
+                if (!validation.valid) {
+                    console.warn(`[PersistentBanner] Cannot update page: ${validation.reason}`);
+                    this.clearCaseData();
+                    return;
+                }
+            }
+        }
+        
+        // Normalize page type - store raw type for internal logic, display name for UI
+        const rawPageType = pageData.type || 'Unknown';
+        // Convert display name back to raw type if needed for logic checks
+        const normalizedType = this.normalizePageType(rawPageType);
+        
         this.currentPage = {
-            type: pageData.type || 'Unknown',
+            type: normalizedType,  // Store raw type for logic checks
+            displayType: this.getPageTypeDisplayName(normalizedType),  // Store display name for UI
             caseNumber: pageData.caseNumber || null,
             subject: pageData.subject || null,
             status: pageData.status || null,
@@ -426,6 +566,14 @@ const PersistentBanner = {
         };
 
         console.log('[PersistentBanner] Updated current page:', this.currentPage);
+        
+        // Track displayed case for validation
+        if (pageData.caseNumber) {
+            this.displayedCaseNumber = pageData.caseNumber;
+        }
+        if (pageData.caseId) {
+            this.displayedCaseId = pageData.caseId;
+        }
         
         // Update UI
         this.updateBannerUI();
@@ -455,7 +603,7 @@ const PersistentBanner = {
                     <div class="exl-banner-page-type" id="exl-banner-page-type">—</div>
                 </div>
                 
-                <div class="exl-banner-section exl-banner-metadata">
+                <div class="exl-banner-section exl-banner-metadata" id="exl-banner-metadata-section">
                     <div class="exl-banner-label">Primary Metadata</div>
                     <div class="exl-banner-metadata-grid" id="exl-banner-metadata">
                         <span class="exl-banner-meta-item" id="exl-banner-case-item">Case: <strong id="exl-banner-case">—</strong></span>
@@ -467,6 +615,17 @@ const PersistentBanner = {
                         <span class="exl-banner-meta-item">CustID: <strong id="exl-banner-custid">—</strong></span>
                         <span class="exl-banner-meta-item">InstID: <strong id="exl-banner-instid">—</strong></span>
                         <span class="exl-banner-meta-item">Server: <strong id="exl-banner-server">—</strong></span>
+                    </div>
+                </div>
+                
+                <div class="exl-banner-section exl-banner-messages" id="exl-banner-messages" style="display: none;">
+                    <div class="exl-banner-message-content" id="exl-banner-message-content">
+                        <!-- Message text rendered here (multiline support) -->
+                    </div>
+                    <div class="exl-banner-message-nav">
+                        <button class="exl-banner-nav-btn" id="exl-message-prev" title="Previous message">◀</button>
+                        <span class="exl-banner-message-index" id="exl-message-index">1/1</span>
+                        <button class="exl-banner-nav-btn" id="exl-message-next" title="Next message">▶</button>
                     </div>
                 </div>
                 
@@ -483,6 +642,7 @@ const PersistentBanner = {
                 </div>
                 
                 <div class="exl-banner-section exl-banner-actions">
+                    <button class="exl-banner-btn" data-action="refresh" title="Refresh banner data from current page">🔄 Refresh</button>
                     <button class="exl-banner-btn" data-action="action1" title="Extract and enable copy buttons for case comments">Extract Comments</button>
                     <button class="exl-banner-btn" data-action="action2" title="Show or update the Flexipage panel in case pages">Show Panel</button>
                     <button class="exl-banner-btn" data-action="action3" title="Copy case details as XML or TSV">Copy Details</button>
@@ -530,6 +690,12 @@ const PersistentBanner = {
         this.elements.envSection = banner.querySelector('#exl-banner-env-section');
         this.elements.envButtonsContainer = banner.querySelector('#exl-env-buttons-container');
         this.elements.historyList = banner.querySelector('#exl-banner-history');
+        this.elements.messagesSection = banner.querySelector('#exl-banner-messages');
+        this.elements.messageContent = banner.querySelector('#exl-banner-message-content');
+        this.elements.messagePrevBtn = banner.querySelector('#exl-message-prev');
+        this.elements.messageNextBtn = banner.querySelector('#exl-message-next');
+        this.elements.messageIndex = banner.querySelector('#exl-message-index');
+        this.elements.metadataSection = banner.querySelector('#exl-banner-metadata-section');
     },
 
     /**
@@ -576,6 +742,21 @@ const PersistentBanner = {
                 window.location.href = url;
             }
         });
+        
+        // Handle message navigation buttons
+        if (this.elements.messagePrevBtn) {
+            this.elements.messagePrevBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.rotateToPreviousMessage();
+            });
+        }
+        
+        if (this.elements.messageNextBtn) {
+            this.elements.messageNextBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.rotateToNextMessage();
+            });
+        }
     },
 
     /**
@@ -586,6 +767,9 @@ const PersistentBanner = {
         console.log('[PersistentBanner] Action triggered:', action);
         
         switch (action) {
+            case 'refresh':
+                this.handleRefresh();
+                break;
             case 'action1':
                 this.handleCaseCommentExtractor();
                 break;
@@ -601,11 +785,242 @@ const PersistentBanner = {
     },
 
     /**
+     * Handle refresh action - force refresh of banner data
+     * Scrolls to load content and extracts case data like "Prepare Tools" does
+     * Follows best practices: dependency checks, error handling, proper module interaction
+     */
+    async handleRefresh() {
+        console.log('[PersistentBanner] Refresh button clicked');
+        
+        this.showNotification('Refreshing banner data...', 'info');
+        
+        try {
+            const caseId = this.getCaseIdFromUrl();
+            
+            // Handle non-case pages
+            if (!caseId) {
+                if (typeof PageIdentifier !== 'undefined') {
+                    const pageInfo = PageIdentifier.identifyPage(window.location.href);
+                    const displayType = this.getPageTypeDisplayName(pageInfo.type);
+                    this.updateCurrentPage({
+                        type: displayType,
+                        caseNumber: null,
+                        subject: null,
+                        status: null,
+                        subStatus: null
+                    });
+                    this.showNotification('Page info refreshed', 'success');
+                } else {
+                    this.showNotification('Unable to refresh: PageIdentifier not available', 'warning');
+                }
+                return;
+            }
+            
+            // Save original scroll position
+            const originalScrollTop = window.pageYOffset || document.documentElement.scrollTop || 0;
+            console.log('[PersistentBanner] Saved scroll position:', originalScrollTop);
+            
+            // Clear current case data (prevents stale data display)
+            this.clearCaseData();
+            
+            // Clear toolkit cache if available
+            if (typeof window.ExLibrisExtension !== 'undefined' && 
+                window.ExLibrisExtension.caseToolkit) {
+                window.ExLibrisExtension.caseToolkit.caseData = null;
+                console.log('[PersistentBanner] Cleared toolkit cache');
+            }
+            
+            // Step 1: Scroll to load all content (like "Prepare Tools")
+            let scrollStats = null;
+            const hasScrollController = typeof ScrollController !== 'undefined' && 
+                                       typeof ScrollController.ensureFullPageLoad === 'function';
+            
+            if (hasScrollController) {
+                console.log('[PersistentBanner] Using ScrollController.ensureFullPageLoad()');
+                this.showNotification('Scrolling to load all content...', 'info');
+                scrollStats = await ScrollController.ensureFullPageLoad();
+                console.log('[PersistentBanner] Scroll complete:', scrollStats);
+            } else {
+                // Fallback: Incremental scrolling if ScrollController unavailable
+                console.log('[PersistentBanner] ScrollController not available, using fallback incremental scrolling');
+                this.showNotification('Scrolling to load content...', 'info');
+                scrollStats = await this.scrollToLoadContent();
+            }
+            
+            // Step 2: Extract case data after scrolling
+            this.showNotification('Extracting case data...', 'info');
+            
+            // Priority 1: CasePageDataExtractor.extractNow() (preferred - event-driven)
+            if (typeof CasePageDataExtractor !== 'undefined' && 
+                typeof CasePageDataExtractor.extractNow === 'function') {
+                console.log('[PersistentBanner] Using CasePageDataExtractor.extractNow()');
+                const extractedData = await CasePageDataExtractor.extractNow();
+                
+                if (extractedData) {
+                    // Event dispatched automatically, triggers update via setupCaseDataListener()
+                    // Restore scroll position
+                    window.scrollTo({ top: originalScrollTop, behavior: 'auto' });
+                    this.showNotification('Banner data refreshed successfully', 'success');
+                    return;
+                }
+                console.warn('[PersistentBanner] CasePageDataExtractor.extractNow() returned no data');
+            }
+            
+            // Priority 2: ExLibrisExtension.getCaseData() with forceRefresh
+            if (typeof window.ExLibrisExtension !== 'undefined' && 
+                typeof window.ExLibrisExtension.getCaseData === 'function') {
+                console.log('[PersistentBanner] Using ExLibrisExtension.getCaseData() with forceRefresh');
+                const caseData = await window.ExLibrisExtension.getCaseData(caseId, { forceRefresh: true });
+                
+                if (caseData) {
+                    this.updateCurrentPage({
+                        type: 'Case',
+                        caseNumber: caseData.caseNumber,
+                        subject: caseData.subject,
+                        status: caseData.status,
+                        subStatus: caseData.subStatus
+                    });
+                    
+                    if (caseData.custID || caseData.instID || caseData.server) {
+                        this.customerMetadata = {
+                            customerId: caseData.custID || null,
+                            institutionId: caseData.instID || null,
+                            server: caseData.server || null,
+                            productServiceName: caseData.productServiceName || null,
+                            institutionCode: caseData.exLibrisAccountNumber || null
+                        };
+                    }
+                    
+                    this.updateBannerUI();
+                    // Restore scroll position
+                    window.scrollTo({ top: originalScrollTop, behavior: 'auto' });
+                    this.showNotification('Banner data refreshed successfully', 'success');
+                    return;
+                }
+                console.warn('[PersistentBanner] ExLibrisExtension.getCaseData() returned no data');
+            }
+            
+            // Priority 3: Fallback to CaseDataExtractor.getData()
+            if (typeof CaseDataExtractor !== 'undefined') {
+                console.log('[PersistentBanner] Using CaseDataExtractor.getData() as fallback');
+                const freshData = await CaseDataExtractor.getData();
+                
+                if (freshData) {
+                    this.updateCurrentPage({
+                        type: 'Case',
+                        caseNumber: freshData.caseNumber,
+                        subject: freshData.subject,
+                        status: freshData.status,
+                        subStatus: freshData.subStatus
+                    });
+                    
+                    if (freshData.custID || freshData.instID || freshData.server) {
+                        this.customerMetadata = {
+                            customerId: freshData.custID || null,
+                            institutionId: freshData.instID || null,
+                            server: freshData.server || null,
+                            productServiceName: freshData.productServiceName || null,
+                            institutionCode: freshData.exLibrisAccountNumber || null
+                        };
+                    }
+                    
+                    this.updateBannerUI();
+                    // Restore scroll position
+                    window.scrollTo({ top: originalScrollTop, behavior: 'auto' });
+                    this.showNotification('Banner data refreshed successfully', 'success');
+                    return;
+                }
+                console.warn('[PersistentBanner] CaseDataExtractor.getData() returned no data');
+            }
+            
+            // All methods failed
+            console.error('[PersistentBanner] All extraction methods failed or unavailable');
+            // Restore scroll position even on failure
+            window.scrollTo({ top: originalScrollTop, behavior: 'auto' });
+            this.showNotification('Unable to refresh: No data extractors available', 'error');
+            
+        } catch (error) {
+            console.error('[PersistentBanner] Error refreshing banner data:', error);
+            this.showNotification('Error refreshing data: ' + (error.message || 'Unknown error'), 'error');
+        }
+    },
+
+    /**
+     * Scroll to load content incrementally (fallback when ScrollController unavailable)
+     * @returns {Promise<Object>} Stats about scroll operation
+     */
+    async scrollToLoadContent() {
+        const STEP_PX = 800;
+        const DELAY_MS = 150;
+        const MAX_SCROLLS = 50;
+        
+        const stats = {
+            totalScrolled: 0,
+            iterations: 0,
+            startScrollHeight: document.documentElement.scrollHeight,
+            endScrollHeight: 0,
+            duration: 0,
+            startTime: performance.now()
+        };
+        
+        let lastScrollHeight = 0;
+        let unchangedCount = 0;
+        
+        console.log('[PersistentBanner] Starting incremental scroll, initial height:', stats.startScrollHeight);
+        
+        for (let i = 0; i < MAX_SCROLLS; i++) {
+            stats.iterations = i + 1;
+            
+            // Get current scroll position and height
+            const currentScrollHeight = document.documentElement.scrollHeight;
+            const currentScrollTop = window.pageYOffset || document.documentElement.scrollTop;
+            
+            // Check if we've reached the bottom
+            if (currentScrollTop + window.innerHeight >= currentScrollHeight - 10) {
+                console.log('[PersistentBanner] Reached bottom after', stats.iterations, 'iterations');
+                break;
+            }
+            
+            // Check if content is still loading
+            if (currentScrollHeight === lastScrollHeight) {
+                unchangedCount++;
+                if (unchangedCount >= 3) {
+                    console.log('[PersistentBanner] No new content after 3 attempts, stopping');
+                    break;
+                }
+            } else {
+                unchangedCount = 0;
+            }
+            
+            lastScrollHeight = currentScrollHeight;
+            
+            // Scroll by step
+            window.scrollBy(0, STEP_PX);
+            stats.totalScrolled += STEP_PX;
+            
+            // Wait for content to load
+            await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+        }
+        
+        // Scroll back to top
+        window.scrollTo({ top: 0, behavior: 'auto' });
+        
+        // Wait for any final renders
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        stats.endScrollHeight = document.documentElement.scrollHeight;
+        stats.duration = performance.now() - stats.startTime;
+        
+        console.log('[PersistentBanner] Incremental scroll complete:', stats);
+        return stats;
+    },
+
+    /**
      * Handle case comment extractor action
      */
     async handleCaseCommentExtractor() {
         // Check if we're on a case page
-        if (this.currentPage.type !== 'Case' || !this.currentPage.caseNumber) {
+        if (this.currentPage.type !== 'case_page' || !this.currentPage.caseNumber) {
             this.showNotification('Please navigate to a Case page first', 'warning');
             return;
         }
@@ -686,7 +1101,7 @@ const PersistentBanner = {
      */
     async handleFlexipagePanel() {
         // Check if we're on a case page
-        if (this.currentPage.type !== 'Case' || !this.currentPage.caseNumber) {
+        if (this.currentPage.type !== 'case_page' || !this.currentPage.caseNumber) {
             this.showNotification('Please navigate to a Case page first', 'warning');
             return;
         }
@@ -801,12 +1216,13 @@ const PersistentBanner = {
                 
                 FlexipagePanelInjector.setSlot2Message('Case data ready. Prepare tools to populate the reference workspace.');
                 
-                // Step 5: Initialize CaseTimezoneResolver with account name
+                // Step 5: Initialize CaseTimezoneResolver with full case data
                 // Wait for panel to be fully rendered before initializing timezone resolver
                 if (typeof CaseTimezoneResolver !== 'undefined' && caseData.accountName) {
                     setTimeout(async () => {
                         console.log('[PersistentBanner] Initializing CaseTimezoneResolver for account:', caseData.accountName);
-                        await CaseTimezoneResolver.init(caseData.accountName);
+                        // Pass full case data to enable institution-based timezone lookup
+                        await CaseTimezoneResolver.init(caseData);
                     }, 1000); // 1 second delay to ensure panel DOM is fully ready
                 } else if (!caseData.accountName) {
                     console.warn('[PersistentBanner] No account name available for timezone detection');
@@ -831,7 +1247,7 @@ const PersistentBanner = {
      */
     async handleCaseDetailExtractor() {
         // Check if we're on a case page
-        if (this.currentPage.type !== 'Case' || !this.currentPage.caseNumber) {
+        if (this.currentPage.type !== 'case_page' || !this.currentPage.caseNumber) {
             this.showNotification('Please navigate to a Case page first', 'warning');
             return;
         }
@@ -1074,9 +1490,36 @@ const PersistentBanner = {
     },
 
     /**
+     * Normalize page type (convert display name to raw type if needed)
+     * @param {string} pageType - Page type (raw or display name)
+     * @returns {string} Raw page type
+     */
+    normalizePageType(pageType) {
+        // Reverse mapping: display name -> raw type
+        const reverseMap = {
+            'Case': 'case_page',
+            'Case Comments': 'case_comments',
+            'Case List': 'cases_list',
+            'Report Home': 'report_home',
+            'Report': 'report_page',
+            'Report Builder': 'report_builder',
+            'Search': 'search_page',
+            'Unknown': 'unknown'
+        };
+        
+        // If it's a display name, convert to raw type
+        if (reverseMap[pageType]) {
+            return reverseMap[pageType];
+        }
+        
+        // Otherwise assume it's already a raw type
+        return pageType;
+    },
+
+    /**
      * Convert page type to display name
-     * @param {string} pageType
-     * @returns {string}
+     * @param {string} pageType - Raw page type
+     * @returns {string} Display name
      */
     getPageTypeDisplayName(pageType) {
         const displayNames = {
@@ -1100,12 +1543,13 @@ const PersistentBanner = {
         if (!this.elements.pageType) return;
 
         // Update page type with friendly display name
-        const displayName = this.getPageTypeDisplayName(this.currentPage.type);
+        const displayName = this.currentPage.displayType || this.getPageTypeDisplayName(this.currentPage.type);
         this.elements.pageType.textContent = displayName;
         
-        // Update page type styling based on type
+        // Update page type styling based on raw type
+        const rawType = this.currentPage.type;
         this.elements.pageType.className = 'exl-banner-page-type';
-        this.elements.pageType.classList.add(`exl-page-${this.currentPage.type.toLowerCase().replace(/\s+/g, '-')}`);
+        this.elements.pageType.classList.add(`exl-page-${rawType.toLowerCase().replace(/\s+/g, '-').replace(/_/g, '-')}`);
 
         // Update metadata
         this.elements.caseNumber.textContent = this.currentPage.caseNumber || '—';
@@ -1170,13 +1614,51 @@ const PersistentBanner = {
             this.elements.substatusItem.style.display = hasCustomerData ? 'none' : 'inline';
         }
         
-        // Show/hide metadata section based on page type
-        const metadataSection = this.elements.banner.querySelector('.exl-banner-metadata');
-        if (this.currentPage.type === 'Case' && this.currentPage.caseNumber) {
-            metadataSection.style.display = 'flex';
-        } else {
-            metadataSection.style.display = 'none';
-        }
+        // Show/hide metadata section or messages based on page type
+        const metadataSection = this.elements.metadataSection;
+        const messagesSection = this.elements.messagesSection;
+        
+        // Check if should show messages
+        this.shouldShowMessages().then(showMessages => {
+            if (showMessages) {
+                // Show messages, hide metadata
+                if (metadataSection) metadataSection.style.display = 'none';
+                if (messagesSection) {
+                    messagesSection.style.display = 'flex';
+                    // Update message display
+                    this.updateMessageDisplay();
+                    // Start rotation if enabled
+                    this.startMessageRotation();
+                }
+            } else {
+                // Show metadata for case pages, hide messages
+                if (messagesSection) {
+                    messagesSection.style.display = 'none';
+                    this.stopMessageRotation();
+                }
+                
+                if (metadataSection) {
+                    // Check using raw type
+                    if (this.currentPage.type === 'case_page' && this.currentPage.caseNumber) {
+                        metadataSection.style.display = 'flex';
+                    } else {
+                        metadataSection.style.display = 'none';
+                    }
+                }
+            }
+        }).catch(error => {
+            console.error('[PersistentBanner] Error checking shouldShowMessages:', error);
+            // Fallback: show metadata for case pages
+            if (metadataSection) {
+                // Check using raw type
+                if (this.currentPage.type === 'case_page' && this.currentPage.caseNumber) {
+                    metadataSection.style.display = 'flex';
+                } else {
+                    metadataSection.style.display = 'none';
+                }
+            }
+            if (messagesSection) messagesSection.style.display = 'none';
+        });
         
         // Update banner background based on case status
         this.updateBannerBackground();
@@ -1189,7 +1671,7 @@ const PersistentBanner = {
         if (!this.elements.banner) return;
 
         // Check if we're on a case page with a status
-        if (this.currentPage.type === 'Case' && this.currentPage.status) {
+        if (this.currentPage.type === 'case_page' && this.currentPage.status) {
             const statusConfig = this.STATUS_COLORS[this.currentPage.status];
             
             if (statusConfig) {
@@ -1372,10 +1854,250 @@ const PersistentBanner = {
     },
 
     /**
+     * Check if banner messages feature is enabled
+     * Checks both feature toggle and messages.enabled setting
+     * @returns {Promise<boolean>}
+     */
+    async isBannerMessagesEnabled() {
+        // Check feature toggle first
+        if (typeof SettingsManager !== 'undefined') {
+            const featureEnabled = SettingsManager.isFeatureEnabled('bannerMessages');
+            if (!featureEnabled) {
+                return false;
+            }
+        }
+        
+        // Check messages.enabled setting
+        return new Promise((resolve) => {
+            chrome.storage.sync.get(['exlibris'], (result) => {
+                const enabled = result.exlibris?.persistentBanner?.messages?.enabled !== false;
+                resolve(enabled);
+            });
+        });
+    },
+
+    /**
+     * Load messages from storage and build active messages list
+     * @returns {Promise<void>}
+     */
+    async loadMessages() {
+        return new Promise((resolve) => {
+            chrome.storage.sync.get(['exlibris'], (result) => {
+                const messagesConfig = result.exlibris?.persistentBanner?.messages;
+                
+                if (!messagesConfig) {
+                    this.activeMessages = [];
+                    this.messageSettings = null;
+                    resolve();
+                    return;
+                }
+                
+                this.messageSettings = messagesConfig;
+                this.activeMessages = this.getActiveMessages(messagesConfig);
+                console.log(`[PersistentBanner] Loaded ${this.activeMessages.length} active messages`);
+                resolve();
+            });
+        });
+    },
+
+    /**
+     * Get combined list of enabled messages (default + custom)
+     * @param {Object} messagesConfig - Messages configuration object
+     * @returns {Array} Array of message objects with text property
+     */
+    getActiveMessages(messagesConfig) {
+        const active = [];
+        
+        // Add enabled default messages if default messages are enabled
+        if (messagesConfig.defaultMessages?.enabled && messagesConfig.defaultMessages?.items) {
+            messagesConfig.defaultMessages.items.forEach(msg => {
+                if (msg.enabled !== false && msg.text) {
+                    active.push({ text: msg.text, id: msg.id, type: 'default' });
+                }
+            });
+        }
+        
+        // Add enabled custom messages
+        if (messagesConfig.customMessages && Array.isArray(messagesConfig.customMessages)) {
+            messagesConfig.customMessages.forEach(msg => {
+                if (msg.enabled !== false && msg.text && msg.text.trim()) {
+                    active.push({ text: msg.text.trim(), id: msg.id, type: 'custom' });
+                }
+            });
+        }
+        
+        return active;
+    },
+
+    /**
+     * Start message rotation timer
+     */
+    startMessageRotation() {
+        this.stopMessageRotation(); // Clear any existing timer
+        
+        if (!this.messageSettings || !this.messageSettings.autoRotate) {
+            return;
+        }
+        
+        if (this.activeMessages.length <= 1) {
+            return; // No need to rotate if only one or no messages
+        }
+        
+        const interval = this.messageSettings.rotationInterval || 5000;
+        
+        this.messageRotationInterval = setInterval(() => {
+            this.rotateToNextMessage();
+        }, interval);
+        
+        console.log(`[PersistentBanner] Started message rotation (${interval}ms interval)`);
+    },
+
+    /**
+     * Stop message rotation timer
+     */
+    stopMessageRotation() {
+        if (this.messageRotationInterval) {
+            clearInterval(this.messageRotationInterval);
+            this.messageRotationInterval = null;
+            console.log('[PersistentBanner] Stopped message rotation');
+        }
+    },
+
+    /**
+     * Rotate to next message
+     */
+    rotateToNextMessage() {
+        if (this.activeMessages.length === 0) return;
+        
+        this.currentMessageIndex = (this.currentMessageIndex + 1) % this.activeMessages.length;
+        this.updateMessageDisplay();
+    },
+
+    /**
+     * Rotate to previous message
+     */
+    rotateToPreviousMessage() {
+        if (this.activeMessages.length === 0) return;
+        
+        this.currentMessageIndex = (this.currentMessageIndex - 1 + this.activeMessages.length) % this.activeMessages.length;
+        this.updateMessageDisplay();
+    },
+
+    /**
+     * Rotate to specific message index
+     * @param {number} index - Message index (0-based)
+     */
+    rotateToMessage(index) {
+        if (this.activeMessages.length === 0) return;
+        
+        if (index >= 0 && index < this.activeMessages.length) {
+            this.currentMessageIndex = index;
+            this.updateMessageDisplay();
+        }
+    },
+
+    /**
+     * Render message with multiline support (max 3 lines)
+     * Uses DOM methods for security (CSP compliant)
+     * @param {string} messageText - Message text (may contain \n for line breaks)
+     * @returns {string} HTML string for message display
+     */
+    renderMessage(messageText) {
+        if (!messageText) return '';
+        
+        // Split by newlines and limit to 3 lines
+        const lines = messageText.split('\n').slice(0, 3);
+        
+        // Apply dynamic spacing based on line count
+        let lineClass = 'message-line';
+        if (lines.length === 1) {
+            lineClass = 'message-line message-line-single';
+        } else if (lines.length === 2) {
+            lineClass = 'message-line message-line-double';
+        } else {
+            lineClass = 'message-line message-line-triple';
+        }
+        
+        // Escape HTML and render lines (CSP compliant)
+        const escapeHtml = (text) => {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        };
+        
+        return lines.map(line => {
+            const escaped = escapeHtml(line.trim());
+            return `<div class="${lineClass}">${escaped}</div>`;
+        }).join('');
+    },
+
+    /**
+     * Update message display with current message
+     */
+    updateMessageDisplay() {
+        if (!this.elements.messageContent || !this.elements.messageIndex) return;
+        
+        if (this.activeMessages.length === 0) {
+            this.elements.messageContent.innerHTML = '<div class="message-line">No messages available</div>';
+            this.elements.messageIndex.textContent = '0/0';
+            
+            // Disable navigation buttons
+            if (this.elements.messagePrevBtn) this.elements.messagePrevBtn.disabled = true;
+            if (this.elements.messageNextBtn) this.elements.messageNextBtn.disabled = true;
+            return;
+        }
+        
+        const currentMessage = this.activeMessages[this.currentMessageIndex];
+        if (currentMessage) {
+            this.elements.messageContent.innerHTML = this.renderMessage(currentMessage.text);
+            this.elements.messageIndex.textContent = `${this.currentMessageIndex + 1}/${this.activeMessages.length}`;
+        }
+        
+        // Enable/disable navigation buttons
+        if (this.elements.messagePrevBtn) {
+            this.elements.messagePrevBtn.disabled = this.activeMessages.length <= 1;
+        }
+        if (this.elements.messageNextBtn) {
+            this.elements.messageNextBtn.disabled = this.activeMessages.length <= 1;
+        }
+    },
+
+    /**
+     * Check if should show messages (feature enabled + not case page/comments)
+     * @returns {Promise<boolean>}
+     */
+    async shouldShowMessages() {
+        // Check if feature is enabled
+        const featureEnabled = await this.isBannerMessagesEnabled();
+        if (!featureEnabled) {
+            return false;
+        }
+        
+        // Check if we have active messages
+        if (this.activeMessages.length === 0) {
+            return false;
+        }
+        
+        // Check page type - show messages when NOT on case page or case comments
+        // Use normalized raw type for consistent checking
+        const pageType = this.currentPage.type; // Should be raw type after normalization
+        const isCasePage = pageType === 'case_page' && this.currentPage.caseNumber;
+        const isCaseComments = pageType === 'case_comments';
+        
+        return !isCasePage && !isCaseComments;
+    },
+
+    /**
      * Clean up
+     * Follows best practices: restore layout adjustments, proper cleanup order
      */
     cleanup() {
+        // Restore Salesforce layout adjustments BEFORE removing banner
+        // This prevents leaving an unpleasant gap
+        this.applySalesforceLayoutAdjustments(false);
+        
         this.stopUrlMonitoring();
+        this.stopMessageRotation();
         this.remove();
         this.isInitialized = false;
         console.log('[PersistentBanner] Cleaned up');
