@@ -56,13 +56,74 @@ const PageContextValidator = {
   },
 
   /**
+   * Waits for document.title to update with the expected case number
+   * Used when case ID matches but case number doesn't (title may update later)
+   * @param {string} expectedCaseNumber - The case number we're waiting for
+   * @param {number} maxWaitMs - Maximum time to wait in milliseconds (default: 2000)
+   * @returns {Promise<Object|null>} Updated context or null if timeout
+   */
+  async waitForTitleUpdate(expectedCaseNumber, maxWaitMs = 2000) {
+    const startTime = Date.now();
+    const checkInterval = 100; // Check every 100ms
+    let timeoutId = null;
+    
+    return new Promise((resolve, reject) => {
+      try {
+        const checkTitle = () => {
+          try {
+            const elapsed = Date.now() - startTime;
+            
+            if (elapsed >= maxWaitMs) {
+              // Timeout - return current context even if it doesn't match
+              const context = this.getCurrentCaseContext();
+              timeoutId = null;
+              resolve(context);
+              return;
+            }
+            
+            const context = this.getCurrentCaseContext();
+            
+            // If title has updated with expected case number, return it
+            if (context && context.caseNumber === expectedCaseNumber) {
+              console.log(`[PageContextValidator] Title updated after ${elapsed}ms`);
+              if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+              }
+              resolve(context);
+              return;
+            }
+            
+            // Continue waiting
+            timeoutId = setTimeout(checkTitle, checkInterval);
+          } catch (error) {
+            console.error('[PageContextValidator] Error in waitForTitleUpdate check:', error);
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+              timeoutId = null;
+            }
+            reject(error);
+          }
+        };
+        
+        checkTitle();
+      } catch (error) {
+        console.error('[PageContextValidator] Error setting up waitForTitleUpdate:', error);
+        reject(error);
+      }
+    });
+  },
+
+  /**
    * Validates page context before displaying data
    * Ensures that the data being displayed matches the current page
+   * If case IDs match but case numbers don't, waits for title update (SPA navigation timing issue)
    * @param {string} dataCaseId - Case ID from data to display
    * @param {string} dataCaseNumber - Case number from data to display
-   * @returns {Object} { valid: boolean, reason: string, currentContext: Object|null }
+   * @param {boolean} waitForTitle - Whether to wait for title update if case numbers don't match (default: true)
+   * @returns {Object|Promise<Object>} { valid: boolean, reason: string, currentContext: Object|null }
    */
-  validatePageContextBeforeDisplay(dataCaseId, dataCaseNumber) {
+  validatePageContextBeforeDisplay(dataCaseId, dataCaseNumber, waitForTitle = true) {
     // Step 1: Get current page context (fast, reliable)
     const currentContext = this.getCurrentCaseContext();
     
@@ -74,7 +135,7 @@ const PageContextValidator = {
       };
     }
     
-    // Step 2: Validate case ID matches
+    // Step 2: Validate case ID matches (most reliable - from URL)
     if (dataCaseId && dataCaseId !== currentContext.caseId) {
       console.warn(`[PageContextValidator] Case ID mismatch: data=${dataCaseId}, current=${currentContext.caseId}`);
       return {
@@ -86,6 +147,43 @@ const PageContextValidator = {
     
     // Step 3: Validate case number matches
     if (dataCaseNumber && dataCaseNumber !== currentContext.caseNumber) {
+      // Case IDs match but case numbers don't - this is likely a timing issue
+      // During SPA navigation, DOM updates before document.title
+      // If waitForTitle is enabled, wait for title to update
+      if (waitForTitle && dataCaseId === currentContext.caseId) {
+        console.log(`[PageContextValidator] Case number mismatch but case IDs match. Waiting for title update...`);
+        console.log(`[PageContextValidator] Data caseNumber: ${dataCaseNumber}, Current title caseNumber: ${currentContext.caseNumber}`);
+        
+        // Return a promise that waits for title update
+        return this.waitForTitleUpdate(dataCaseNumber, 2000).then((updatedContext) => {
+          if (!updatedContext) {
+            return {
+              valid: false,
+              reason: 'Title update timeout',
+              currentContext: null
+            };
+          }
+          
+          // Check again after title update
+          if (updatedContext.caseNumber === dataCaseNumber) {
+            console.log(`[PageContextValidator] Title updated successfully. Case number now matches.`);
+            return {
+              valid: true,
+              reason: 'Context validated after title update',
+              currentContext: updatedContext
+            };
+          } else {
+            console.warn(`[PageContextValidator] Title updated but case number still doesn't match: ${dataCaseNumber} !== ${updatedContext.caseNumber}`);
+            return {
+              valid: false,
+              reason: `Case number mismatch after title update: ${dataCaseNumber} !== ${updatedContext.caseNumber}`,
+              currentContext: updatedContext
+            };
+          }
+        });
+      }
+      
+      // Case numbers don't match and we're not waiting
       console.warn(`[PageContextValidator] Case number mismatch: data=${dataCaseNumber}, current=${currentContext.caseNumber}`);
       return {
         valid: false,

@@ -134,8 +134,36 @@ const PersistentBanner = {
         // Load messages for rotation
         await this.loadMessages();
         
+        // Check initial state - if on case page, check extraction status
+        this.checkInitialState();
+        
         this.isInitialized = true;
         console.log('[PersistentBanner] Initialized');
+    },
+
+    /**
+     * Check initial state when banner loads
+     * If on case page, check extraction state and show appropriate content
+     */
+    checkInitialState() {
+        const pageType = this.currentPage.type;
+        const isCasePage = pageType === 'case_page';
+        
+        if (isCasePage) {
+            const extractionState = this.isCaseDataExtractionComplete();
+            console.log('[PersistentBanner] Initial state check - extraction state:', extractionState);
+            
+            // If extraction is complete, update UI immediately
+            if (extractionState.complete && extractionState.hasData) {
+                // Get the extracted data and update banner
+                if (typeof CasePageDataExtractor !== 'undefined' && CasePageDataExtractor.lastExtractedData) {
+                    const data = CasePageDataExtractor.lastExtractedData;
+                    // Trigger update as if we received the event
+                    const event = new CustomEvent('casePageDataExtracted', { detail: data });
+                    document.dispatchEvent(event);
+                }
+            }
+        }
     },
 
     /**
@@ -149,19 +177,32 @@ const PersistentBanner = {
         }
         
         // Check every 2 seconds if displayed data is still valid
-        this.validationInterval = setInterval(() => {
+        // Only clear if case ID mismatches (case number mismatch might be timing issue)
+        this.validationInterval = setInterval(async () => {
             if (this.displayedCaseId || this.displayedCaseNumber) {
                 if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
-                    const validation = PageContextValidator.validatePageContextBeforeDisplay(
+                    let validation = PageContextValidator.validatePageContextBeforeDisplay(
                         this.displayedCaseId,
-                        this.displayedCaseNumber
+                        this.displayedCaseNumber,
+                        false // Don't wait for title update in periodic validation
                     );
                     
+                    // Handle async validation (shouldn't happen with waitForTitle=false, but just in case)
+                    if (validation instanceof Promise) {
+                        validation = await validation;
+                    }
+                    
                     if (!validation.valid) {
-                        console.warn('[PersistentBanner] Periodic validation failed, clearing display');
-                        this.clearCaseData();
-                        // Update UI to show cleared state
-                        this.updateBannerUI();
+                        // Only clear if case ID also mismatches (case number mismatch alone might be timing issue)
+                        if (validation.currentContext && this.displayedCaseId && this.displayedCaseId !== validation.currentContext.caseId) {
+                            console.warn('[PersistentBanner] Periodic validation failed - case ID mismatch, clearing display');
+                            this.clearCaseData();
+                            // Update UI to show cleared state
+                            this.updateBannerUI();
+                        } else {
+                            // Case number mismatch but case ID matches - likely timing issue, log but don't clear
+                            console.log('[PersistentBanner] Periodic validation: case number mismatch but case ID matches (likely timing issue)');
+                        }
                     }
                 }
             }
@@ -300,18 +341,45 @@ const PersistentBanner = {
      * Setup listener for CasePageDataExtractor events
      */
     setupCaseDataListener() {
-        document.addEventListener('casePageDataExtracted', (event) => {
+        // Track when we last received data for fallback mechanism
+        this.lastDataReceivedTime = null;
+        this.dataReceptionTimeout = null;
+        
+        document.addEventListener('casePageDataExtracted', async (event) => {
             const data = event.detail;
             console.log('[PersistentBanner] Received case page data from CasePageDataExtractor:', data);
             
-            // Validate data before displaying
+            // Clear any pending fallback timeout
+            if (this.dataReceptionTimeout) {
+                clearTimeout(this.dataReceptionTimeout);
+                this.dataReceptionTimeout = null;
+            }
+            
+            // Update last data received time
+            this.lastDataReceivedTime = Date.now();
+            
+            // Validate data before displaying (may be async if waiting for title update)
             if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
-                const validation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber);
-                
-                if (!validation.valid) {
-                    console.warn(`[PersistentBanner] Cannot display data: ${validation.reason}`);
-                    this.clearCaseData();
-                    return;
+                try {
+                    let validation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber);
+                    
+                    // Handle async validation (when waiting for title update)
+                    if (validation instanceof Promise) {
+                        validation = await validation;
+                    }
+                    
+                    if (!validation.valid) {
+                        console.warn(`[PersistentBanner] Cannot display data: ${validation.reason}`);
+                        // Only clear if case ID also mismatches (case number mismatch might be timing issue)
+                        if (validation.currentContext && data.caseId !== validation.currentContext.caseId) {
+                            this.clearCaseData();
+                        }
+                        return;
+                    }
+                } catch (error) {
+                    console.error('[PersistentBanner] Error during validation:', error);
+                    // On validation error, still try to display data (graceful degradation)
+                    // But log the error for debugging
                 }
             }
             
@@ -326,6 +394,8 @@ const PersistentBanner = {
             
             // Update current case ID
             this.currentCaseId = newCaseId;
+            this.displayedCaseId = data.caseId || null;
+            this.displayedCaseNumber = data.caseNumber || null;
             
             // Update customer metadata from extracted data
             // CasePageDataExtractor now enriches data with custID, instID, server from CustomerDataManager
@@ -345,11 +415,59 @@ const PersistentBanner = {
                 console.log('[PersistentBanner] Updated status from page data:', data.pageStatus);
             }
             
+            // Explicitly stop message rotation and hide messages when case data arrives
+            this.stopMessageRotation();
+            if (this.elements.messagesSection) {
+                this.elements.messagesSection.style.display = 'none';
+            }
+            
             // Update banner UI with new metadata and status
             this.updateBannerUI();
         });
         
+        // Set up fallback mechanism: if no data received within 3 seconds after page change, trigger manual extraction
+        this.setupDataReceptionFallback();
+        
         console.log('[PersistentBanner] CasePageDataExtractor listener registered');
+    },
+
+    /**
+     * Setup fallback mechanism to trigger manual extraction if no data received
+     */
+    setupDataReceptionFallback() {
+        // Monitor for page changes and set timeout
+        if (typeof NavigationObserver !== 'undefined') {
+            NavigationObserver.onRouteChange(() => {
+                // Clear existing timeout
+                if (this.dataReceptionTimeout) {
+                    clearTimeout(this.dataReceptionTimeout);
+                }
+                
+                // Reset last data received time
+                this.lastDataReceivedTime = null;
+                
+                // Set timeout: if no data received within 3 seconds, trigger manual extraction
+                this.dataReceptionTimeout = setTimeout(() => {
+                    if (!this.lastDataReceivedTime || (Date.now() - this.lastDataReceivedTime) > 3000) {
+                        console.warn('[PersistentBanner] No case data received within 3 seconds. Triggering manual extraction...');
+                        this.triggerManualExtraction();
+                    }
+                }, 3000);
+            });
+        }
+    },
+
+    /**
+     * Trigger manual case data extraction as fallback
+     */
+    triggerManualExtraction() {
+        const caseId = this.getCaseIdFromUrl();
+        if (caseId && typeof CasePageDataExtractor !== 'undefined' && typeof CasePageDataExtractor.extractNow === 'function') {
+            console.log('[PersistentBanner] Triggering manual extraction for case:', caseId);
+            CasePageDataExtractor.extractNow(caseId);
+        } else {
+            console.warn('[PersistentBanner] Cannot trigger manual extraction - CasePageDataExtractor not available');
+        }
     },
 
     /**
@@ -1551,11 +1669,106 @@ const PersistentBanner = {
         this.elements.pageType.className = 'exl-banner-page-type';
         this.elements.pageType.classList.add(`exl-page-${rawType.toLowerCase().replace(/\s+/g, '-').replace(/_/g, '-')}`);
 
-        // Update metadata
-        this.elements.caseNumber.textContent = this.currentPage.caseNumber || '—';
-        this.elements.subject.textContent = this.currentPage.subject || '—';
-        this.elements.status.textContent = this.currentPage.status || '—';
-        this.elements.subStatus.textContent = this.currentPage.subStatus || '—';
+        // FIRST: Check if we're on a case page or case comments
+        // These pages NEVER show messages - they have their own data
+        const isCasePage = rawType === 'case_page';
+        const isCaseComments = rawType === 'case_comments';
+        const metadataSection = this.elements.metadataSection;
+        const messagesSection = this.elements.messagesSection;
+        
+        if (isCasePage || isCaseComments) {
+            // Case page or case comments - NEVER show messages
+            if (messagesSection) {
+                messagesSection.style.display = 'none';
+                this.stopMessageRotation();
+            }
+            
+            // Check extraction state for case pages
+            if (isCasePage) {
+                const extractionState = this.isCaseDataExtractionComplete();
+                
+                if (extractionState.complete && extractionState.hasData) {
+                    // Extraction complete - show case data
+                    if (metadataSection) {
+                        metadataSection.style.display = 'flex';
+                    }
+                    console.log('[PersistentBanner] Case data extraction complete - showing case data');
+                } else if (extractionState.isExtracting) {
+                    // Extraction in progress - show loading state (hide both)
+                    if (metadataSection) {
+                        metadataSection.style.display = 'none';
+                    }
+                    console.log('[PersistentBanner] Case data extraction in progress - showing loading state');
+                } else {
+                    // No extraction started or no data yet - show empty state
+                    if (metadataSection) {
+                        metadataSection.style.display = 'flex'; // Show metadata section but with empty data
+                    }
+                    console.log('[PersistentBanner] Case data extraction not started or no data yet');
+                }
+            } else {
+                // Case comments - show metadata section
+                if (metadataSection) {
+                    metadataSection.style.display = 'flex';
+                }
+            }
+            
+            // Update metadata fields (will show '—' if no data)
+            this.updateMetadataFields();
+            
+        } else {
+            // NOT a case page or case comments - show messages if enabled
+            if (metadataSection) {
+                metadataSection.style.display = 'none';
+            }
+            
+            // Check if should show messages
+            this.shouldShowMessages().then(showMessages => {
+                if (showMessages) {
+                    // Show messages
+                    if (messagesSection) {
+                        messagesSection.style.display = 'flex';
+                        this.updateMessageDisplay();
+                        this.startMessageRotation();
+                    }
+                } else {
+                    // Don't show messages (feature disabled or no messages)
+                    if (messagesSection) {
+                        messagesSection.style.display = 'none';
+                        this.stopMessageRotation();
+                    }
+                }
+            }).catch(error => {
+                console.error('[PersistentBanner] Error checking shouldShowMessages:', error);
+                if (messagesSection) {
+                    messagesSection.style.display = 'none';
+                    this.stopMessageRotation();
+                }
+            });
+        }
+        
+        // Update banner background based on case status
+        this.updateBannerBackground();
+    },
+
+    /**
+     * Update metadata fields in the banner
+     * Separated for reuse in different contexts
+     */
+    updateMetadataFields() {
+        // Update case metadata
+        if (this.elements.caseNumber) {
+            this.elements.caseNumber.textContent = this.currentPage.caseNumber || '—';
+        }
+        if (this.elements.subject) {
+            this.elements.subject.textContent = this.currentPage.subject || '—';
+        }
+        if (this.elements.status) {
+            this.elements.status.textContent = this.currentPage.status || '—';
+        }
+        if (this.elements.subStatus) {
+            this.elements.subStatus.textContent = this.currentPage.subStatus || '—';
+        }
         
         // Update customer metadata
         if (this.elements.product) {
@@ -1585,7 +1798,7 @@ const PersistentBanner = {
         }
         
         // Populate environment buttons if data is available
-        if (hasEnvData) {
+        if (hasEnvData && this.elements.envButtonsContainer) {
             this.populateEnvButtons();
         }
         
@@ -1613,55 +1826,6 @@ const PersistentBanner = {
         if (this.elements.substatusItem) {
             this.elements.substatusItem.style.display = hasCustomerData ? 'none' : 'inline';
         }
-        
-        // Show/hide metadata section or messages based on page type
-        const metadataSection = this.elements.metadataSection;
-        const messagesSection = this.elements.messagesSection;
-        
-        // Check if should show messages
-        this.shouldShowMessages().then(showMessages => {
-            if (showMessages) {
-                // Show messages, hide metadata
-                if (metadataSection) metadataSection.style.display = 'none';
-                if (messagesSection) {
-                    messagesSection.style.display = 'flex';
-                    // Update message display
-                    this.updateMessageDisplay();
-                    // Start rotation if enabled
-                    this.startMessageRotation();
-                }
-            } else {
-                // Show metadata for case pages, hide messages
-                if (messagesSection) {
-                    messagesSection.style.display = 'none';
-                    this.stopMessageRotation();
-                }
-                
-                if (metadataSection) {
-                    // Check using raw type
-                    if (this.currentPage.type === 'case_page' && this.currentPage.caseNumber) {
-                        metadataSection.style.display = 'flex';
-                    } else {
-                        metadataSection.style.display = 'none';
-                    }
-                }
-            }
-        }).catch(error => {
-            console.error('[PersistentBanner] Error checking shouldShowMessages:', error);
-            // Fallback: show metadata for case pages
-            if (metadataSection) {
-                // Check using raw type
-                if (this.currentPage.type === 'case_page' && this.currentPage.caseNumber) {
-                    metadataSection.style.display = 'flex';
-                } else {
-                    metadataSection.style.display = 'none';
-                }
-            }
-            if (messagesSection) messagesSection.style.display = 'none';
-        });
-        
-        // Update banner background based on case status
-        this.updateBannerBackground();
     },
 
     /**
@@ -1877,6 +2041,26 @@ const PersistentBanner = {
     },
 
     /**
+     * Check if case data extraction is complete
+     * @returns {Object} { complete: boolean, hasData: boolean, isExtracting: boolean }
+     */
+    isCaseDataExtractionComplete() {
+        if (typeof CasePageDataExtractor === 'undefined') {
+            return { complete: false, hasData: false, isExtracting: false };
+        }
+        
+        const isExtracting = CasePageDataExtractor.isExtracting || false;
+        const hasData = CasePageDataExtractor.lastExtractedData !== null;
+        const complete = !isExtracting && hasData;
+        
+        return {
+            complete: complete,
+            hasData: hasData,
+            isExtracting: isExtracting
+        };
+    },
+
+    /**
      * Load messages from storage and build active messages list
      * @returns {Promise<void>}
      */
@@ -2064,9 +2248,21 @@ const PersistentBanner = {
 
     /**
      * Check if should show messages (feature enabled + not case page/comments)
+     * Explicitly excludes case pages and case comments - these pages have their own data
      * @returns {Promise<boolean>}
      */
     async shouldShowMessages() {
+        // FIRST: Explicit early return for case pages and case comments
+        // These pages NEVER show messages - they have their own data to display
+        const pageType = this.currentPage.type; // Should be raw type after normalization
+        const isCasePage = pageType === 'case_page';
+        const isCaseComments = pageType === 'case_comments';
+        
+        if (isCasePage || isCaseComments) {
+            console.log('[PersistentBanner] Case page/comments detected - messages will NOT be shown');
+            return false;
+        }
+        
         // Check if feature is enabled
         const featureEnabled = await this.isBannerMessagesEnabled();
         if (!featureEnabled) {
@@ -2078,13 +2274,8 @@ const PersistentBanner = {
             return false;
         }
         
-        // Check page type - show messages when NOT on case page or case comments
-        // Use normalized raw type for consistent checking
-        const pageType = this.currentPage.type; // Should be raw type after normalization
-        const isCasePage = pageType === 'case_page' && this.currentPage.caseNumber;
-        const isCaseComments = pageType === 'case_comments';
-        
-        return !isCasePage && !isCaseComments;
+        // All checks passed - can show messages
+        return true;
     },
 
     /**
@@ -2095,6 +2286,15 @@ const PersistentBanner = {
         // Restore Salesforce layout adjustments BEFORE removing banner
         // This prevents leaving an unpleasant gap
         this.applySalesforceLayoutAdjustments(false);
+        
+        // Clear data reception timeout
+        if (this.dataReceptionTimeout) {
+            clearTimeout(this.dataReceptionTimeout);
+            this.dataReceptionTimeout = null;
+        }
+        
+        // Stop periodic validation
+        this.stopPeriodicValidation();
         
         this.stopUrlMonitoring();
         this.stopMessageRotation();

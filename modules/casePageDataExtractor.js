@@ -10,6 +10,7 @@ const CasePageDataExtractor = {
   lastExtractedData: null,
   isExtracting: false, // Track if extraction is in progress
   extractionQueue: [], // Queue for pending extractions
+  retryTimeoutId: null, // Track retry timeout for cleanup
 
   /**
    * Initialize the module and start monitoring page changes
@@ -41,11 +42,8 @@ const CasePageDataExtractor = {
   async handlePageChange(pageInfo) {
     // Only handle case detail pages (PageIdentifier returns 'case_page')
     if (pageInfo.type !== 'case_page') {
-      // Not a case page, clear current data
-      this.currentCaseId = null;
-      this.lastExtractedData = null;
-      this.isExtracting = false;
-      this.extractionQueue = [];
+      // Not a case page, cleanup and clear current data
+      this.cleanup();
       return;
     }
 
@@ -53,6 +51,16 @@ const CasePageDataExtractor = {
     if (!caseId) {
       console.warn('[CasePageDataExtractor] Case page detected but no case ID found');
       return;
+    }
+
+    // If case changed, cleanup previous state including retry timeout
+    if (this.currentCaseId && this.currentCaseId !== caseId) {
+      console.log(`[CasePageDataExtractor] Case changed from ${this.currentCaseId} to ${caseId}, cleaning up...`);
+      // Clear retry timeout if active
+      if (this.retryTimeoutId) {
+        clearTimeout(this.retryTimeoutId);
+        this.retryTimeoutId = null;
+      }
     }
 
     // Check if we already extracted data for this case
@@ -79,8 +87,14 @@ const CasePageDataExtractor = {
       const data = await this.extractAllCaseData();
       
       // Validate extracted data matches current page context before using
+      // Note: validatePageContextBeforeDisplay may return a Promise if waiting for title update
       if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
-        const validation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber);
+        let validation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber);
+        
+        // Handle async validation (when waiting for title update)
+        if (validation instanceof Promise) {
+          validation = await validation;
+        }
         
         if (!validation.valid) {
           console.warn(`[CasePageDataExtractor] Extracted data validation failed: ${validation.reason}`);
@@ -90,6 +104,55 @@ const CasePageDataExtractor = {
           }
           // Clear extracted data if validation failed
           this.lastExtractedData = null;
+          
+          // Retry validation after a delay if case IDs matched (title might update later)
+          if (validation.currentContext && data.caseId === validation.currentContext.caseId) {
+            console.log('[CasePageDataExtractor] Case IDs match but case numbers don't. Retrying validation after delay...');
+            
+            // Clear any existing retry timeout
+            if (this.retryTimeoutId) {
+              clearTimeout(this.retryTimeoutId);
+              this.retryTimeoutId = null;
+            }
+            
+            // Store case ID for validation check
+            const retryCaseId = data.caseId;
+            
+            this.retryTimeoutId = setTimeout(async () => {
+              try {
+                // Check if we're still on the same case (might have navigated away)
+                const currentCaseId = this.getCaseIdFromUrl();
+                if (currentCaseId !== retryCaseId) {
+                  console.log('[CasePageDataExtractor] Case changed during retry, aborting');
+                  this.retryTimeoutId = null;
+                  return;
+                }
+                
+                // Retry with waitForTitle disabled (already waited)
+                const retryValidation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber, false);
+                const retryResult = retryValidation instanceof Promise ? await retryValidation : retryValidation;
+                
+                if (retryResult.valid) {
+                  console.log('[CasePageDataExtractor] Retry validation succeeded');
+                  // Update data with validated identifiers
+                  if (retryResult.currentContext) {
+                    data.caseId = retryResult.currentContext.caseId;
+                    if (retryResult.currentContext.caseNumber && !data.caseNumber) {
+                      data.caseNumber = retryResult.currentContext.caseNumber;
+                    }
+                  }
+                  this.lastExtractedData = data;
+                  await this.dispatchDataExtractedEvent(data);
+                } else {
+                  console.warn(`[CasePageDataExtractor] Retry validation also failed: ${retryResult.reason}`);
+                }
+              } catch (error) {
+                console.error('[CasePageDataExtractor] Error during retry validation:', error);
+              } finally {
+                this.retryTimeoutId = null;
+              }
+            }, 500);
+          }
           return;
         }
         
@@ -107,7 +170,7 @@ const CasePageDataExtractor = {
       console.log('[CasePageDataExtractor] Extracted case data (validated):', data);
 
       // Trigger custom event for other modules to consume (only if validated)
-      this.dispatchDataExtractedEvent(data);
+      await this.dispatchDataExtractedEvent(data);
     } catch (error) {
       console.error('[CasePageDataExtractor] Error during extraction:', error);
     } finally {
@@ -625,13 +688,20 @@ const CasePageDataExtractor = {
 
   /**
    * Dispatch custom event with extracted data
-   * Validates data before dispatching
+   * Validates data before dispatching (async if waiting for title update)
    * @param {Object} data - Extracted case data
+   * @returns {Promise<void>}
    */
-  dispatchDataExtractedEvent(data) {
+  async dispatchDataExtractedEvent(data) {
     // Validate before dispatching
+    // Note: validatePageContextBeforeDisplay may return a Promise if waiting for title update
     if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
-      const validation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber);
+      let validation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber);
+      
+      // Handle async validation (when waiting for title update)
+      if (validation instanceof Promise) {
+        validation = await validation;
+      }
       
       if (!validation.valid) {
         console.warn(`[CasePageDataExtractor] Cannot dispatch event: ${validation.reason}`);
@@ -646,6 +716,36 @@ const CasePageDataExtractor = {
     });
     document.dispatchEvent(event);
     console.log('[CasePageDataExtractor] Dispatched casePageDataExtracted event (validated)');
+  },
+
+  /**
+   * Extract case ID from current URL
+   * @returns {string|null}
+   */
+  getCaseIdFromUrl() {
+    if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.getCaseIdFromUrl === 'function') {
+      return PageContextValidator.getCaseIdFromUrl();
+    }
+    // Fallback implementation
+    const match = window.location.pathname.match(/\/Case\/([a-zA-Z0-9]{15,18})\//);
+    return match ? match[1] : null;
+  },
+
+  /**
+   * Cleanup method to clear timeouts and reset state
+   */
+  cleanup() {
+    // Clear retry timeout if active
+    if (this.retryTimeoutId) {
+      clearTimeout(this.retryTimeoutId);
+      this.retryTimeoutId = null;
+    }
+    
+    // Reset state
+    this.currentCaseId = null;
+    this.lastExtractedData = null;
+    this.isExtracting = false;
+    this.extractionQueue = [];
   },
 
   /**
