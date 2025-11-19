@@ -7,8 +7,10 @@
 const BookmarkManager = (function() {
   'use strict';
 
+  const STORAGE_VERSION = 1;
   const STORAGE_KEY_COLLECTIONS = 'exl_bookmark_collections';
   const STORAGE_KEY_BOOKMARKS = 'exl_bookmarks';
+  const VERSION_KEY = 'exl_bookmark_storage_version';
   
   let collections = {};
   let bookmarks = {};
@@ -30,11 +32,54 @@ const BookmarkManager = (function() {
   }
 
   /**
-   * Load collections and bookmarks from storage
+   * Get current storage version from storage
+   * @returns {Promise<number>} Current storage version
+   */
+  async function getCurrentStorageVersion() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([VERSION_KEY], (result) => {
+        resolve(result[VERSION_KEY] || STORAGE_VERSION);
+      });
+    });
+  }
+
+  /**
+   * Set storage version in storage
+   * @param {number} version - Version to set
+   * @returns {Promise<void>}
+   */
+  async function setStorageVersion(version) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ [VERSION_KEY]: version }, () => {
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Get storage keys with version
+   */
+  function getStorageKeys() {
+    return {
+      collections: `${STORAGE_KEY_COLLECTIONS}_v${STORAGE_VERSION}`,
+      bookmarks: `${STORAGE_KEY_BOOKMARKS}_v${STORAGE_VERSION}`
+    };
+  }
+
+  /**
+   * Load collections and bookmarks from storage (with backward compatibility)
    */
   async function loadData() {
     return new Promise((resolve) => {
-      chrome.storage.local.get([STORAGE_KEY_COLLECTIONS, STORAGE_KEY_BOOKMARKS], (result) => {
+      const keys = getStorageKeys();
+      const oldCollectionKey = STORAGE_KEY_COLLECTIONS;
+      const oldBookmarkKey = STORAGE_KEY_BOOKMARKS;
+      
+      // Try new format first, then fall back to old format
+      chrome.storage.local.get([
+        keys.collections, keys.bookmarks,
+        oldCollectionKey, oldBookmarkKey
+      ], (result) => {
         if (chrome.runtime.lastError) {
           console.error('[BookmarkManager] Error loading data:', chrome.runtime.lastError);
           collections = {};
@@ -43,8 +88,15 @@ const BookmarkManager = (function() {
           return;
         }
         
-        collections = result[STORAGE_KEY_COLLECTIONS] || {};
-        bookmarks = result[STORAGE_KEY_BOOKMARKS] || {};
+        // Prefer new format, fall back to old format
+        collections = result[keys.collections] || result[oldCollectionKey] || {};
+        bookmarks = result[keys.bookmarks] || result[oldBookmarkKey] || {};
+        
+        if ((result[oldCollectionKey] || result[oldBookmarkKey]) && 
+            (!result[keys.collections] && !result[keys.bookmarks])) {
+          console.log('[BookmarkManager] Loaded data from old format, migration will handle upgrade');
+        }
+        
         resolve();
       });
     });
@@ -551,9 +603,10 @@ const BookmarkManager = (function() {
    * Get all data (for export)
    */
   function getAllData() {
+    const keys = getStorageKeys();
     return {
-      [STORAGE_KEY_COLLECTIONS]: collections,
-      [STORAGE_KEY_BOOKMARKS]: bookmarks
+      [keys.collections]: collections,
+      [keys.bookmarks]: bookmarks
     };
   }
 
@@ -561,12 +614,13 @@ const BookmarkManager = (function() {
    * Import data
    */
   async function importData(data) {
-    if (data[STORAGE_KEY_COLLECTIONS]) {
-      collections = data[STORAGE_KEY_COLLECTIONS];
+    const keys = getStorageKeys();
+    if (data[keys.collections] || data[STORAGE_KEY_COLLECTIONS]) {
+      collections = data[keys.collections] || data[STORAGE_KEY_COLLECTIONS];
       await saveCollections();
     }
-    if (data[STORAGE_KEY_BOOKMARKS]) {
-      bookmarks = data[STORAGE_KEY_BOOKMARKS];
+    if (data[keys.bookmarks] || data[STORAGE_KEY_BOOKMARKS]) {
+      bookmarks = data[keys.bookmarks] || data[STORAGE_KEY_BOOKMARKS];
       await saveBookmarks();
     }
     console.log('[BookmarkManager] Imported data');

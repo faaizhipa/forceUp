@@ -9,6 +9,8 @@ const Highlighter = (function() {
 
   const STORAGE_PREFIX = 'exl_highlights_';
   const HIGHLIGHT_CLASS_PREFIX = 'exl-hl-highlight';
+  const STORAGE_VERSION = 1;
+  const VERSION_KEY = 'exl_highlighter_storage_version';
   
   // 11 custom highlight colors
   const COLORS = [
@@ -112,20 +114,56 @@ const Highlighter = (function() {
   }
 
   /**
+   * Get current storage version from storage
+   * @returns {Promise<number>} Current storage version
+   */
+  async function getCurrentStorageVersion() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([VERSION_KEY], (result) => {
+        resolve(result[VERSION_KEY] || STORAGE_VERSION);
+      });
+    });
+  }
+
+  /**
+   * Set storage version in storage
+   * @param {number} version - Version to set
+   * @returns {Promise<void>}
+   */
+  async function setStorageVersion(version) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ [VERSION_KEY]: version }, () => {
+        resolve();
+      });
+    });
+  }
+
+  /**
    * Get storage key for current URL and active layer
    */
   function getStorageKey() {
+    const layerId = typeof LayerManager !== 'undefined' ? LayerManager.getActiveLayerId() : 'default';
+    return `${STORAGE_PREFIX}v${STORAGE_VERSION}_${layerId}_${window.location.href}`;
+  }
+
+  /**
+   * Get old-format storage key (for backward compatibility)
+   */
+  function getOldStorageKey() {
     const layerId = typeof LayerManager !== 'undefined' ? LayerManager.getActiveLayerId() : 'default';
     return STORAGE_PREFIX + layerId + '_' + window.location.href;
   }
 
   /**
-   * Load highlights from storage
+   * Load highlights from storage (with backward compatibility for old format)
    */
   async function loadHighlights() {
     return new Promise((resolve) => {
       const key = getStorageKey();
-      chrome.storage.local.get([key], (result) => {
+      const oldKey = getOldStorageKey();
+      
+      // Try new format first, then fall back to old format
+      chrome.storage.local.get([key, oldKey], (result) => {
         if (chrome.runtime.lastError) {
           console.error('[Highlighter] Error loading highlights:', chrome.runtime.lastError);
           highlights = {};
@@ -133,7 +171,13 @@ const Highlighter = (function() {
           return;
         }
         
-        highlights = result[key] || {};
+        // Prefer new format, fall back to old format
+        highlights = result[key] || result[oldKey] || {};
+        
+        if (result[oldKey] && !result[key]) {
+          console.log('[Highlighter] Loaded highlights from old format, migration will handle upgrade');
+        }
+        
         console.log('[Highlighter] Loaded', Object.keys(highlights).length, 'highlights');
         resolve();
       });

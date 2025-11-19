@@ -2160,6 +2160,207 @@ window.ExLibrisExtension = {
 - Global variables in content scripts are valid for the page lifecycle
 - The "no global variables" guidance applies specifically to **service workers**, not content scripts
 
+## Timezone Conversion Best Practices
+
+### DO's
+
+1. **Use Intl.DateTimeFormat for Timezone Conversions**
+   - ✅ **DO** use `Intl.DateTimeFormat` for accurate timezone conversions
+   - ✅ **DO** let the browser handle DST transitions automatically
+   - ✅ **DO** use `formatToParts()` when you need individual date/time components
+   - Example:
+     ```javascript
+     const formatter = new Intl.DateTimeFormat('en-US', {
+       timeZone: 'Asia/Singapore',
+       year: 'numeric',
+       month: '2-digit',
+       day: '2-digit',
+       hour: '2-digit',
+       minute: '2-digit'
+     });
+     const formatted = formatter.format(date);
+     ```
+
+2. **Always Provide Timezone Fallbacks**
+   - ✅ **DO** provide UTC as a universal fallback
+   - ✅ **DO** check for timezone availability before using it
+   - ✅ **DO** log warnings when falling back to UTC
+   - Example:
+     ```javascript
+     let timezone = resolvedTimezone || 'UTC';
+     if (timezone === 'UTC') {
+       console.warn('[Module] Using UTC fallback');
+     }
+     ```
+
+3. **Resolve Timezones with Priority Order**
+   - ✅ **DO** use priority-based resolution: cached > lookup > fallback
+   - ✅ **DO** cache resolved timezones to avoid repeated lookups
+   - ✅ **DO** handle async timezone resolution properly
+   - Example:
+     ```javascript
+     // Priority: TimezoneStorage > InstitutionTimezoneManager > UTC
+     let timezone = await TimezoneStorage.getTimezone(identifiers);
+     if (!timezone) {
+       timezone = InstitutionTimezoneManager.getTimezone(identifiers);
+     }
+     if (!timezone) {
+       timezone = 'UTC'; // Fallback
+     }
+     ```
+
+4. **Parse Dates Carefully**
+   - ✅ **DO** handle multiple date formats (Salesforce has various formats)
+   - ✅ **DO** validate parsed dates before using them
+   - ✅ **DO** use try-catch when parsing dates
+   - Example:
+     ```javascript
+     function parseDate(dateString) {
+       try {
+         const date = new Date(dateString);
+         if (isNaN(date.getTime())) {
+           // Try alternative formats
+           return parseAlternativeFormat(dateString);
+         }
+         return date;
+       } catch (error) {
+         console.warn('[Module] Date parsing failed:', error);
+         return null;
+       }
+     }
+     ```
+
+5. **Format Timezone Names for Display**
+   - ✅ **DO** provide human-readable timezone names
+   - ✅ **DO** show timezone abbreviations (SGT, MYT, EST, etc.)
+   - ✅ **DO** indicate auto-detection with "(auto)" label
+   - Example:
+     ```javascript
+     const displayName = getTimezoneDisplayName(timezone);
+     const abbreviation = getTimezoneAbbreviation(timezone, date);
+     const label = `${displayName} (${abbreviation})${isAuto ? ' (auto)' : ''}`;
+     ```
+
+### DON'Ts
+
+1. **Don't Manually Calculate Timezone Offsets**
+   - ❌ **DON'T** manually calculate UTC offsets (DST breaks this)
+   - ❌ **DON'T** assume fixed offset values
+   - ❌ **DON'T** use `getTimezoneOffset()` for conversions (it's for local timezone only)
+   - Bad:
+     ```javascript
+     // WRONG - doesn't handle DST
+     const offset = 8; // hours
+     const converted = new Date(date.getTime() + (offset * 60 * 60 * 1000));
+     ```
+   - Good:
+     ```javascript
+     // CORRECT - handles DST automatically
+     const formatter = new Intl.DateTimeFormat('en-US', {
+       timeZone: 'Asia/Singapore',
+       hour: '2-digit',
+       minute: '2-digit'
+     });
+     const converted = formatter.format(date);
+     ```
+
+2. **Don't Store Dates as Strings Without Timezone Info**
+   - ❌ **DON'T** store dates as "YYYY-MM-DD HH:MM" without timezone
+   - ❌ **DON'T** assume dates are in a specific timezone
+   - ✅ **DO** store dates as ISO strings or Date objects
+   - ✅ **DO** include timezone information when displaying
+
+3. **Don't Ignore Timezone Resolution Failures**
+   - ❌ **DON'T** silently fail when timezone resolution fails
+   - ❌ **DON'T** show incorrect timezone information
+   - ✅ **DO** log warnings when resolution fails
+   - ✅ **DO** show UTC as fallback with clear indication
+
+4. **Don't Block UI on Async Timezone Resolution**
+   - ❌ **DON'T** block UI rendering while resolving timezones
+   - ✅ **DO** show loading state or default values
+   - ✅ **DO** update UI when timezone resolution completes
+   - Example:
+     ```javascript
+     // Show default, then update
+     showTimezone('UTC', 'Resolving...');
+     const resolved = await resolveTimezone();
+     showTimezone(resolved.timezone, resolved.displayName);
+     ```
+
+### Common Patterns
+
+1. **Timezone Resolution Pattern**
+   ```javascript
+   async function resolveTimezone(identifiers) {
+     // Try cached first
+     const cached = await TimezoneStorage.getTimezone(identifiers);
+     if (cached) return cached;
+     
+     // Try lookup
+     const lookedUp = InstitutionTimezoneManager.getTimezone(identifiers);
+     if (lookedUp) return lookedUp;
+     
+     // Fallback to UTC
+     return { timezone: 'UTC', displayName: 'UTC', source: 'fallback' };
+   }
+   ```
+
+2. **Date Conversion Pattern**
+   ```javascript
+   function convertToTimezone(date, timezone) {
+     try {
+       const formatter = new Intl.DateTimeFormat('en-US', {
+         timeZone: timezone,
+         year: 'numeric',
+         month: '2-digit',
+         day: '2-digit',
+         hour: '2-digit',
+         minute: '2-digit'
+       });
+       return formatter.format(date);
+     } catch (error) {
+       console.error('[Module] Conversion failed:', error);
+       return date.toISOString(); // Fallback
+     }
+   }
+   ```
+
+3. **Multiple Timezone Display Pattern**
+   ```javascript
+   function displayAllTimezones(date, caseTz, userTz) {
+     return {
+       case: formatForTimezone(date, caseTz),
+       user: formatForTimezone(date, userTz),
+       utc: formatForTimezone(date, 'UTC')
+     };
+   }
+   ```
+
+### Edge Cases to Handle
+
+1. **DST Transitions**
+   - Browser's `Intl.DateTimeFormat` handles DST automatically
+   - Don't try to manually adjust for DST
+   - Test with dates during DST transitions
+
+2. **Invalid Timezones**
+   - Always validate timezone strings (IANA format)
+   - Provide fallback for invalid timezones
+   - Log warnings for invalid timezone usage
+
+3. **Missing Date Data**
+   - Handle cases where dates are not available
+   - Show "N/A" or disable options gracefully
+   - Don't break UI when dates are missing
+
+4. **Rapid Navigation**
+   - Timezone resolution may be in progress when user navigates
+   - Cancel pending resolutions on navigation
+   - Update UI when resolution completes (even if on different case)
+
+**Location**: `timezoneConverter.js`, `dynamicMenu.js` (createTimezoneConverter)
+
 ## Cache Management Best Practices
 
 ### Critical Issues in SPA Environments
@@ -2451,6 +2652,163 @@ normalizeData(data, caseId) {
     timestamp: Date.now() // Add extraction timestamp
   };
 }
+```
+
+#### 6. Implement Cache Invalidation to Prevent Stale Data
+
+**Problem:**
+```javascript
+// ❌ BAD: Cache never invalidates - returns stale data when case is modified
+async handlePageChange(pageInfo) {
+  if (this.currentCaseId === caseId && this.lastExtractedData) {
+    return; // Always returns cached data, even if case was modified
+  }
+  // ... extraction logic
+}
+```
+
+**Solution:**
+```javascript
+// ✅ GOOD: Multi-layered cache invalidation
+const CasePageDataExtractor = {
+  // Cache TTL constant
+  CACHE_TTL_MS: 30000, // 30 seconds
+  
+  async handlePageChange(pageInfo) {
+    const caseId = pageInfo.caseId;
+    
+    // Check if cache is valid (not just if it exists)
+    const cacheValidation = this.isCacheValid(caseId);
+    if (cacheValidation.valid) {
+      console.log('[CasePageDataExtractor] Using cached data:', cacheValidation.reason);
+      return;
+    } else {
+      console.log('[CasePageDataExtractor] Cache invalid, re-extracting:', cacheValidation.reason);
+      this.lastExtractedData = null; // Clear stale cache
+    }
+    
+    // Proceed with extraction...
+  },
+  
+  isCacheValid(caseId) {
+    // 1. Check if we have cached data for this case
+    if (!this.lastExtractedData || this.currentCaseId !== caseId) {
+      return { valid: false, reason: 'No cached data for this case' };
+    }
+    
+    // 2. Check TTL (Time-To-Live)
+    const now = Date.now();
+    const extractedAt = new Date(this.lastExtractedData.extractedAt).getTime();
+    if (now - extractedAt > this.CACHE_TTL_MS) {
+      return { valid: false, reason: `Cache expired (TTL: ${this.CACHE_TTL_MS}ms)` };
+    }
+    
+    // 3. Check Last Modified Date (primary validation)
+    const currentLastModified = this.getLastModifiedDate();
+    const cachedLastModified = this.lastExtractedData.lastModifiedDate;
+    
+    if (currentLastModified && cachedLastModified) {
+      const normalizedCurrent = this.normalizeDate(currentLastModified);
+      const normalizedCached = this.normalizeDate(cachedLastModified);
+      
+      if (normalizedCurrent !== normalizedCached) {
+        return { valid: false, reason: 'Case was modified (Last Modified Date changed)' };
+      }
+    }
+    
+    // 4. Field-level change detection (secondary validation)
+    const fieldValidation = this.validateCriticalFields();
+    if (!fieldValidation.valid) {
+      return { valid: false, reason: fieldValidation.reason };
+    }
+    
+    return { valid: true, reason: 'Cache is valid' };
+  },
+  
+  validateCriticalFields() {
+    // Check critical fields that might change without Last Modified Date updating
+    const criticalFields = [
+      { name: 'asset', extractor: () => this.getFlexipageField('RecordAsset_Line_Item_cField', true) },
+      { name: 'status', extractor: () => this.getRecordLayoutField('Status') },
+      { name: 'pageStatus', extractor: () => this.getFlexipageField('RecordStatusField', false) },
+      { name: 'category', extractor: () => this.getRecordLayoutField('Category') }
+    ];
+    
+    for (const field of criticalFields) {
+      const currentValue = field.extractor();
+      const cachedValue = this.lastExtractedData[field.name];
+      
+      if (currentValue !== null && cachedValue !== null) {
+        const normalizedCurrent = typeof currentValue === 'string' ? currentValue.trim() : currentValue;
+        const normalizedCached = typeof cachedValue === 'string' ? cachedValue.trim() : cachedValue;
+        
+        if (normalizedCurrent !== normalizedCached) {
+          return { 
+            valid: false, 
+            reason: `Critical field changed: ${field.name} (${normalizedCached} → ${normalizedCurrent})` 
+          };
+        }
+      }
+    }
+    
+    return { valid: true, reason: 'Critical fields unchanged' };
+  },
+  
+  // Extract Last Modified Date for cache validation
+  getLastModifiedDate() {
+    const field = document.querySelector('records-record-layout-item[field-label*="Last Modified"]');
+    if (field) {
+      const value = field.querySelector('.test-id__field-value, lightning-formatted-text, lightning-formatted-date-time');
+      return value ? value.textContent.trim() : null;
+    }
+    return null;
+  },
+  
+  // Normalize date strings for comparison
+  normalizeDate(dateString) {
+    if (!dateString) return null;
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        return dateString.trim();
+      }
+      return date.toISOString();
+    } catch (error) {
+      return dateString.trim();
+    }
+  },
+  
+  // Force re-extraction (bypass cache)
+  async extractNow(force = false) {
+    if (force) {
+      this.lastExtractedData = null; // Clear cache
+    }
+    // ... extraction logic
+  },
+  
+  // Manual cache clearing
+  clearCache(caseId = null) {
+    if (caseId && this.currentCaseId === caseId) {
+      this.lastExtractedData = null;
+    } else if (!caseId && this.currentCaseId) {
+      this.lastExtractedData = null;
+    }
+  }
+};
+```
+
+**Key Principles:**
+1. **Multi-layered Validation**: Use TTL, Last Modified Date, and field-level checks
+2. **Primary vs Secondary**: Last Modified Date is primary, field-level is secondary for rapid changes
+3. **Graceful Degradation**: If Last Modified Date unavailable, rely on TTL and field-level checks
+4. **Force Option**: Provide `extractNow(true)` to bypass cache when needed
+5. **Clear Logging**: Log cache validation reasons for debugging
+
+**Cache Invalidation Strategies:**
+- **Last Modified Date** (Primary) - Most reliable indicator of case changes
+- **TTL** (Secondary) - Fallback if Last Modified Date unavailable, ensures data freshness
+- **Field-level Detection** (Tertiary) - Catches rapid changes that might not update Last Modified Date immediately
+- **Force flag** (Manual) - For explicit re-extraction when user suspects stale data
 ```
 
 #### 6. Handle Navigation During Cache Operations

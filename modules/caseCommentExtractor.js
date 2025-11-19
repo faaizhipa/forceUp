@@ -223,14 +223,15 @@ const CaseCommentExtractor = (() => {
 
     /**
      * Extracts case metadata from the page
-     * @returns {Object} Case metadata
+     * Uses PageContextValidator to ensure data matches current page (prevents stale data)
+     * @returns {Promise<Object>} Case metadata (validated against current page context)
      */
-    function extractCaseMetadata() {
+    async function extractCaseMetadata() {
         const metadata = {};
         
-        // Extract Case ID from URL (supports both case detail and comments view pages)
+        // Extract Case ID from URL FIRST (source of truth)
         let urlMatch = window.location.pathname.match(/\/(?:Case|lightning\/r\/Case)\/([a-zA-Z0-9]{15,18})/i);
-        metadata.caseId = urlMatch?.[1] || 'N/A';
+        metadata.caseId = urlMatch?.[1] || null;
         
         // Extract Case Number
         const caseNumberElement = document.querySelector('lightning-formatted-text[data-output-element-id="output-field"][slot="output"]');
@@ -257,7 +258,40 @@ const CaseCommentExtractor = (() => {
             }
         }
         
-        metadata.caseNumber = caseNumber || 'N/A';
+        metadata.caseNumber = caseNumber || null;
+        
+        // GUARDRAIL: Validate extracted metadata against current page context
+        // This prevents stale data from being used when navigating between cases
+        if (typeof PageContextValidator !== 'undefined' && 
+            typeof PageContextValidator.validateExtractedData === 'function') {
+            try {
+                const validatedMetadata = await PageContextValidator.validateExtractedData(metadata, {
+                    waitForTitle: false, // Don't wait during extraction (we're extracting fresh)
+                    requireCaseId: true,
+                    requireCaseNumber: false // Case number might not be available immediately
+                });
+                
+                if (!validatedMetadata) {
+                    console.warn('[CaseCommentExtractor] Metadata validation failed, returning null');
+                    return null;
+                }
+                
+                // Use validated metadata (ensures caseId and caseNumber match current page)
+                metadata.caseId = validatedMetadata.caseId || 'N/A';
+                metadata.caseNumber = validatedMetadata.caseNumber || 'N/A';
+                console.log('[CaseCommentExtractor] Metadata validated successfully');
+            } catch (error) {
+                console.error('[CaseCommentExtractor] Error during metadata validation:', error);
+                // On validation error, still return metadata but log the error
+                // This provides graceful degradation
+            }
+        } else {
+            // Fallback: Simple validation if PageContextValidator not available
+            if (!metadata.caseId || metadata.caseId === 'N/A') {
+                console.warn('[CaseCommentExtractor] No case ID available, cannot validate');
+                return null;
+            }
+        }
         
         // Extract subject
         const subjectElement = document.querySelector('div[data-target-selection-name="sfdc:RecordField.Case.Subject"] lightning-formatted-text[slot="outputField"]');
@@ -501,12 +535,19 @@ const CaseCommentExtractor = (() => {
 
     /**
      * Main extraction function
-     * @returns {Object|null} Extracted case data or null
+     * @returns {Promise<Object|null>} Extracted case data or null
      */
-    function extractCaseComments() {
+    async function extractCaseComments() {
         console.log('Attempting to extract case comments...');
         
-        const metadata = extractCaseMetadata();
+        const metadata = await extractCaseMetadata();
+        
+        // If metadata validation failed, return null
+        if (!metadata) {
+            console.warn('[CaseCommentExtractor] Cannot extract comments: metadata validation failed');
+            return null;
+        }
+        
         const commentsTable = findCommentsTable();
         
         if (!commentsTable) {
@@ -710,7 +751,7 @@ const CaseCommentExtractor = (() => {
             e.preventDefault();
             e.stopPropagation();
             
-            const data = extractCaseComments();
+            const data = await extractCaseComments();
             if (data && data.comments.length > 0) {
                 const tableText = generateTable(data);
                 const success = await copyToClipboard(tableText);
@@ -732,7 +773,7 @@ const CaseCommentExtractor = (() => {
             e.preventDefault();
             e.stopPropagation();
             
-            const data = extractCaseComments();
+            const data = await extractCaseComments();
             if (data && data.comments.length > 0) {
                 const xmlText = generateXML(data);
                 const success = await copyToClipboard(xmlText);

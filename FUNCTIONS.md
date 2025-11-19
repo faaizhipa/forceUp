@@ -109,12 +109,24 @@ This document provides a comprehensive catalog of all functions across all modul
 | URLBuilder | `buildCustomerJiraURL` | Build customer JIRA URL | `caseData: Object` | `string` | Low |
 | URLBuilder | `getNextAnalyticsRefresh` | Get next analytics refresh time | `serverRegion: string, userTimezone: string` | `Object\|null` | High |
 | DynamicMenu | `setSettings` | Set injection settings | `settings: Object` | `void` | Low |
-| DynamicMenu | `injectMenu` | Inject menu into configured locations | `buttonGroups: Object, caseData: Object` | `void` | High |
-| DynamicMenu | `injectIntoCardActions` | Inject into card actions | `buttonGroups: Object, caseData: Object` | `void` | Medium |
-| DynamicMenu | `injectIntoHeaderDetails` | Inject into header details | `buttonGroups: Object, caseData: Object` | `void` | High |
+| DynamicMenu | `injectMenu` | Inject menu into configured locations | `buttonGroups: Object, caseData: Object` | `Promise<void>` | High |
+| DynamicMenu | `injectIntoCardActions` | Inject into card actions | `buttonGroups: Object, caseData: Object` | `Promise<void>` | Medium |
+| DynamicMenu | `injectIntoHeaderDetails` | Inject into header details | `buttonGroups: Object, caseData: Object` | `Promise<void>` | High |
 | DynamicMenu | `observeHeaderSection` | Observe header section | `headerSlot: Element` | `void` | Medium |
 | DynamicMenu | `createMenuContainer` | Create menu container | `location: string` | `HTMLElement` | Low |
-| DynamicMenu | `populateMenu` | Populate menu with buttons | `container: HTMLElement, buttonGroups: Object, caseData: Object` | `void` | High |
+| DynamicMenu | `populateMenu` | Populate menu with buttons | `container: HTMLElement, buttonGroups: Object, caseData: Object` | `Promise<void>` | High |
+| DynamicMenu | `createTimezoneConverter` | Create timezone converter UI (expandable) | `refreshInfo: Object, caseData: Object` | `Promise<HTMLElement>` | High |
+| TimezoneConverter | `convertTime` | Convert date between timezones | `date: Date\|string, fromTimezone: string, toTimezone: string` | `Date\|null` | Medium |
+| TimezoneConverter | `formatTimeForTimezone` | Format time for display in timezone | `date: Date, timezone: string, options: Object` | `string` | Medium |
+| TimezoneConverter | `formatDateForTimezone` | Format date for timezone | `date: Date, timezone: string` | `string` | Low |
+| TimezoneConverter | `getTimezoneAbbreviation` | Get timezone abbreviation (SGT, MYT, etc.) | `timezone: string, date: Date` | `string` | Low |
+| TimezoneConverter | `getTimezoneDisplayName` | Get human-readable timezone name | `timezone: string` | `string` | Low |
+| TimezoneConverter | `getTimezoneOffset` | Get UTC offset for timezone | `timezone: string, date: Date` | `string` | Medium |
+| TimezoneConverter | `getAvailableDates` | Get available dates from case data | `caseData: Object, refreshInfo: Object` | `Array<Object>` | Medium |
+| TimezoneConverter | `parseSalesforceDate` | Parse Salesforce date format | `dateString: string` | `Date\|null` | Medium |
+| TimezoneConverter | `resolveCaseTimezone` | Resolve case timezone from case data | `caseData: Object` | `Promise<Object>` | High |
+| TimezoneConverter | `resolveUserTimezone` | Resolve user timezone from preferences | `void` | `Promise<Object>` | Medium |
+| TimezoneConverter | `convertToAllTimezones` | Convert date to Case, User, UTC | `date: Date, caseTimezone: string, userTimezone: string` | `Object` | High |
 | FieldHighlighter | `isEmpty` | Check if field value is empty | `element: HTMLElement` | `boolean` | Low |
 | FieldHighlighter | `styleLabelElement` | Apply label styling | `label: HTMLElement, backgroundColor: string` | `void` | Low |
 | FieldHighlighter | `highlightField` | Apply highlight to field | `fieldSelector: Object` | `void` | Medium |
@@ -155,6 +167,16 @@ This document provides a comprehensive catalog of all functions across all modul
 | ConfigurationWarningBanner | `show` | Show banner | `void` | `void` | Low |
 | ConfigurationWarningBanner | `hide` | Hide banner | `void` | `void` | Low |
 | ConfigurationWarningBanner | `dismiss` | Dismiss banner | `void` | `Promise<void>` | Low |
+| CasePageDataExtractor | `init` | Initialize data extractor | `void` | `void` | Medium |
+| CasePageDataExtractor | `handlePageChange` | Handle page change events | `pageInfo: Object` | `Promise<void>` | High |
+| CasePageDataExtractor | `extractAllCaseData` | Extract all case data fields | `void` | `Promise<Object>` | High |
+| CasePageDataExtractor | `getLastModifiedDate` | Get last modified date of case | `void` | `string\|null` | Medium |
+| CasePageDataExtractor | `normalizeDate` | Normalize date string for comparison | `dateString: string` | `string\|null` | Low |
+| CasePageDataExtractor | `isCacheValid` | Check if cached data is valid | `caseId: string` | `{valid: boolean, reason: string}` | Medium |
+| CasePageDataExtractor | `validateCriticalFields` | Validate critical fields haven't changed | `void` | `{valid: boolean, reason: string}` | Medium |
+| CasePageDataExtractor | `extractNow` | Manually trigger data extraction | `force: boolean` | `Promise<Object\|null>` | Medium |
+| CasePageDataExtractor | `clearCache` | Clear cached data for case | `caseId: string\|null` | `void` | Low |
+| CasePageDataExtractor | `getLastExtractedData` | Get last extracted data | `void` | `Object\|null` | Low |
 
 ## Detailed Function Documentation
 

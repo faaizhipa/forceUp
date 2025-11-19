@@ -30,10 +30,13 @@ const CaseDataExtractor = {
       lastModifiedDate: this.getLastModifiedDate(),
       // Derived fields (populated in processData)
       institutionCode: null,
+      customerCode: this.getExLibrisAccountNumber(),
       server: null,
       serverRegion: null,
       custID: null,
+      customerId: null,
       instID: null,
+      institutionId: null,
       customerName: null
     };
   },
@@ -295,7 +298,8 @@ const CaseDataExtractor = {
         formattedCode = `${formattedCode}_INST`;
       }
 
-      processed.institutionCode = formattedCode;
+      processed.institutionCode = formattedCode === originalCode ? null : formattedCode;  
+      processed.customerCode = originalCode;
       
       // Try to find customer record by institution code, with account name as fallback
       if (typeof CustomerDataManager !== 'undefined') {
@@ -329,9 +333,11 @@ const CaseDataExtractor = {
       // Always use customer data for these IDs if available
       if (customerRecord.custID) {
         processed.custID = customerRecord.custID;
+        processed.customerid = customerRecord.custID;
       }
       if (customerRecord.instID) {
         processed.instID = customerRecord.instID;
+        processed.institutionid = customerRecord.instID;
       }
       if (customerRecord.name) {
         processed.customerName = customerRecord.name;

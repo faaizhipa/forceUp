@@ -263,6 +263,106 @@ const PageContextValidator = {
   isOnCasePage() {
     const context = this.getCurrentCaseContext();
     return context !== null;
+  },
+
+  /**
+   * Main guardrail function against stale data
+   * Validates extracted/cached data against current page context before use
+   * This is the primary function modules should use to prevent stale data issues
+   * 
+   * @param {Object} extractedData - Data object with caseId and/or caseNumber properties
+   * @param {Object} options - Validation options
+   * @param {boolean} options.waitForTitle - Whether to wait for title update if case numbers don't match (default: true)
+   * @param {boolean} options.requireCaseId - Whether case ID is required for validation (default: true)
+   * @param {boolean} options.requireCaseNumber - Whether case number is required for validation (default: false)
+   * @returns {Promise<Object|null>} Validated data object or null if validation fails
+   */
+  async validateExtractedData(extractedData, options = {}) {
+    const {
+      waitForTitle = true,
+      requireCaseId = true,
+      requireCaseNumber = false
+    } = options;
+
+    // Step 1: Check if data exists
+    if (!extractedData) {
+      console.warn('[PageContextValidator] No data provided to validateExtractedData');
+      return null;
+    }
+
+    // Step 2: Extract case ID from URL first (source of truth)
+    const currentCaseId = this.getCaseIdFromUrl();
+    
+    // Step 3: Get current page context
+    const currentContext = this.getCurrentCaseContext();
+    
+    if (!currentContext) {
+      console.warn('[PageContextValidator] Not on a valid case page');
+      return null;
+    }
+
+    // Step 4: Validate case ID (most reliable - from URL)
+    if (requireCaseId) {
+      if (!extractedData.caseId && !currentCaseId) {
+        console.warn('[PageContextValidator] Case ID required but not available');
+        return null;
+      }
+      
+      // If we have both, they must match
+      if (extractedData.caseId && currentCaseId && extractedData.caseId !== currentCaseId) {
+        console.warn(`[PageContextValidator] Case ID mismatch: extracted=${extractedData.caseId}, current=${currentCaseId}`);
+        return null;
+      }
+      
+      // If extracted data has case ID but URL doesn't, that's suspicious
+      if (extractedData.caseId && !currentCaseId) {
+        console.warn('[PageContextValidator] Extracted data has case ID but URL does not');
+        return null;
+      }
+    }
+
+    // Step 5: Validate case number (may need to wait for title update)
+    if (extractedData.caseNumber) {
+      const validation = this.validatePageContextBeforeDisplay(
+        extractedData.caseId || currentCaseId,
+        extractedData.caseNumber,
+        waitForTitle
+      );
+      
+      // Handle async validation (when waiting for title update)
+      let validationResult = validation;
+      if (validation instanceof Promise) {
+        validationResult = await validation;
+      }
+      
+      if (!validationResult.valid) {
+        console.warn(`[PageContextValidator] Case number validation failed: ${validationResult.reason}`);
+        // Reject if validation failed (prevents stale data)
+        return null;
+      }
+    } else if (requireCaseNumber) {
+      // Case number is required but not in extracted data
+      console.warn('[PageContextValidator] Case number required but not in extracted data');
+      return null;
+    }
+
+    // Step 6: Ensure extracted data has current case ID (use URL as source of truth)
+    const validatedData = { ...extractedData };
+    if (currentCaseId) {
+      validatedData.caseId = currentCaseId;
+    }
+    
+    // Step 7: Ensure extracted data has current case number from context
+    if (currentContext.caseNumber) {
+      validatedData.caseNumber = currentContext.caseNumber;
+    }
+
+    console.log('[PageContextValidator] Data validated successfully:', {
+      caseId: validatedData.caseId,
+      caseNumber: validatedData.caseNumber
+    });
+
+    return validatedData;
   }
 };
 

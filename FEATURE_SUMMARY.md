@@ -115,7 +115,60 @@ Injects action buttons that generate dynamic URLs for:
 
 ---
 
-### 3. Case Comment Memory
+### 3. Timezone Converter
+**Module:** `timezoneConverter.js`, `dynamicMenu.js`  
+**Page Type:** Case Page  
+**Status:** ✅ Active
+
+**Description:**  
+Expandable timezone converter that displays time conversions between case timezone, user timezone, and UTC. Replaces the previous "Next Analytics Refresh" section with a comprehensive converter.
+
+**Features:**
+- Expandable/collapsible UI (default collapsed)
+- Date selection dropdown:
+  - Next Analytics Refresh (default)
+  - Case Created Date
+  - Case Closed Date
+  - Case Last Modified Date
+- Three timezone displays:
+  - Case Timezone (resolved from case data)
+  - Your Timezone (from user preferences)
+  - UTC
+- Automatic timezone resolution
+- Real-time conversion updates
+
+**Quick Start:**
+1. Navigate to a case page
+2. Timezone converter appears in Dynamic Menu
+3. Click header to expand/collapse
+4. Select different dates from dropdown
+5. View conversions in all three timezones
+
+**Timezone Resolution:**
+- **Case Timezone:** 
+  - Priority: TimezoneStorage (cached) > InstitutionTimezoneManager > UTC fallback
+  - Uses case account name, institution code, customer ID, institution ID
+- **User Timezone:**
+  - From UserPreferences (auto-detect or manual)
+  - Falls back to browser detection
+- **UTC:** Always available
+
+**Configuration:**
+- User timezone: `Popup > Timezone Settings > Your Local Timezone`
+- Auto-detect or manual override available
+- Case timezone resolved automatically from case data
+
+**Dependencies:**
+- `timezoneConverter.js` (conversion logic)
+- `timezoneStorage.js` (case timezone cache)
+- `institutionTimezoneManager.js` (institution timezone lookup)
+- `userPreferences.js` (user timezone settings)
+- `urlBuilder.js` (analytics refresh time)
+- `casePageDataExtractor.js` (case dates)
+
+---
+
+### 4. Case Comment Memory
 **Module:** `caseCommentMemory.js`  
 **Page Type:** Case Comments page  
 **Status:** ✅ Active

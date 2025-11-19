@@ -63,10 +63,14 @@ const CasePageDataExtractor = {
       }
     }
 
-    // Check if we already extracted data for this case
-    if (this.currentCaseId === caseId && this.lastExtractedData) {
-      console.log('[CasePageDataExtractor] Already have data for case:', caseId);
+    // Check if cache is valid for this case
+    const cacheValidation = this.isCacheValid(caseId);
+    if (cacheValidation.valid) {
+      console.log('[CasePageDataExtractor] Using cached data:', cacheValidation.reason);
       return;
+    } else {
+      console.log('[CasePageDataExtractor] Cache invalid, re-extracting:', cacheValidation.reason);
+      this.lastExtractedData = null; // Clear stale cache
     }
 
     // Check if extraction is already in progress for this case
@@ -207,6 +211,43 @@ const CasePageDataExtractor = {
   },
 
   /**
+   * Gets the last modified date of the case
+   * @returns {string|null}
+   */
+  getLastModifiedDate() {
+    const field = document.querySelector('records-record-layout-item[field-label*="Last Modified"]');
+    if (field) {
+      const value = field.querySelector('.test-id__field-value, lightning-formatted-text, lightning-formatted-date-time');
+      return value ? value.textContent.trim() : null;
+    }
+    return null;
+  },
+
+  /**
+   * Normalize date string for comparison
+   * Handles various Salesforce date formats
+   * @param {string} dateString - Date string to normalize
+   * @returns {string|null} - Normalized date string or null
+   */
+  normalizeDate(dateString) {
+    if (!dateString) return null;
+    
+    try {
+      // Try to parse as Date and return ISO string
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        // If parsing fails, return trimmed original
+        return dateString.trim();
+      }
+      // Return ISO string for consistent comparison
+      return date.toISOString();
+    } catch (error) {
+      // If error, return trimmed original
+      return dateString.trim();
+    }
+  },
+
+  /**
    * Extract all case data fields
    * @returns {Object} - Extracted case data
    */
@@ -251,7 +292,10 @@ const CasePageDataExtractor = {
       pageStatus: this.getFlexipageField('RecordStatusField', false), // Direct page status for banner
 
       // Timestamp
-      extractedAt: new Date().toISOString()
+      extractedAt: new Date().toISOString(),
+      
+      // Last Modified Date for cache validation
+      lastModifiedDate: this.getLastModifiedDate()
     };
 
     // Enrich with customer data from CustomerDataManager
@@ -647,6 +691,104 @@ const CasePageDataExtractor = {
   },
 
   /**
+   * Check if cached data is still valid for the given case
+   * @param {string} caseId - Case ID to validate cache for
+   * @returns {{valid: boolean, reason: string}} - Validation result
+   */
+  isCacheValid(caseId) {
+    // Check if we have cached data for this case
+    if (!this.lastExtractedData || this.currentCaseId !== caseId) {
+      return { valid: false, reason: 'No cached data for this case' };
+    }
+    
+    // Validate extraction timestamp exists and is valid
+    if (!this.lastExtractedData.extractedAt) {
+      return { valid: false, reason: 'Invalid extraction timestamp (missing)' };
+    }
+    
+    // Check TTL (Time-To-Live)
+    const CACHE_TTL_MS = 30000; // 30 seconds
+    const now = Date.now();
+    let extractedAt;
+    try {
+      extractedAt = new Date(this.lastExtractedData.extractedAt).getTime();
+      if (isNaN(extractedAt)) {
+        return { valid: false, reason: 'Invalid extraction timestamp (not a valid date)' };
+      }
+    } catch (error) {
+      return { valid: false, reason: 'Invalid extraction timestamp (parse error)' };
+    }
+    
+    if (now - extractedAt > CACHE_TTL_MS) {
+      return { valid: false, reason: `Cache expired (TTL: ${CACHE_TTL_MS}ms)` };
+    }
+    
+    // Check Last Modified Date (primary validation)
+    const currentLastModified = this.getLastModifiedDate();
+    const cachedLastModified = this.lastExtractedData.lastModifiedDate;
+    
+    if (currentLastModified && cachedLastModified) {
+      // Normalize and compare dates
+      const normalizedCurrent = this.normalizeDate(currentLastModified);
+      const normalizedCached = this.normalizeDate(cachedLastModified);
+      
+      if (normalizedCurrent && normalizedCached && normalizedCurrent !== normalizedCached) {
+        return { valid: false, reason: 'Case was modified (Last Modified Date changed)' };
+      }
+    }
+    
+    // Field-level change detection (secondary validation for rapid changes)
+    // Check critical fields that might change without Last Modified Date updating immediately
+    const fieldValidation = this.validateCriticalFields();
+    if (!fieldValidation.valid) {
+      return { valid: false, reason: fieldValidation.reason };
+    }
+    
+    return { valid: true, reason: 'Cache is valid' };
+  },
+
+  /**
+   * Validate critical fields haven't changed (field-level change detection)
+   * Useful for detecting rapid changes that might not be reflected in Last Modified Date yet
+   * @returns {{valid: boolean, reason: string}} - Validation result
+   */
+  validateCriticalFields() {
+    if (!this.lastExtractedData) {
+      return { valid: true, reason: 'No cached data to validate' };
+    }
+    
+    // Critical fields to check for changes
+    const criticalFields = [
+      { name: 'asset', extractor: () => this.getFlexipageField('RecordAsset_Line_Item_cField', true) },
+      { name: 'status', extractor: () => this.getRecordLayoutField('Status') },
+      { name: 'pageStatus', extractor: () => this.getFlexipageField('RecordStatusField', false) },
+      { name: 'category', extractor: () => this.getRecordLayoutField('Category') }
+    ];
+    
+    for (const field of criticalFields) {
+      const currentValue = field.extractor();
+      const cachedValue = this.lastExtractedData[field.name];
+      
+      // Only validate if both values exist (null/undefined means field not available)
+      if (currentValue !== null && currentValue !== undefined && 
+          cachedValue !== null && cachedValue !== undefined) {
+        // Normalize strings for comparison (trim whitespace)
+        const normalizedCurrent = typeof currentValue === 'string' ? currentValue.trim() : currentValue;
+        const normalizedCached = typeof cachedValue === 'string' ? cachedValue.trim() : cachedValue;
+        
+        if (normalizedCurrent !== normalizedCached) {
+          return { 
+            valid: false, 
+            reason: `Critical field changed: ${field.name} (${normalizedCached} → ${normalizedCurrent})` 
+          };
+        }
+      }
+    }
+    
+    return { valid: true, reason: 'Critical fields unchanged' };
+  },
+
+  /**
    * Normalize text content, converting <br> tags to newlines
    * @param {Element} node
    * @returns {string}
@@ -758,20 +900,45 @@ const CasePageDataExtractor = {
 
   /**
    * Manually trigger data extraction for the current page
+   * @param {boolean} force - If true, bypass cache and force re-extraction
    * @returns {Promise<Object|null>}
    */
-  async extractNow() {
+  async extractNow(force = false) {
     if (!this.currentCaseId) {
       console.warn('[CasePageDataExtractor] No case page currently loaded');
       return null;
     }
 
-    console.log('[CasePageDataExtractor] Manual extraction triggered for case:', this.currentCaseId);
+    if (force) {
+      console.log('[CasePageDataExtractor] Force extraction triggered for case:', this.currentCaseId);
+      this.lastExtractedData = null; // Clear cache
+    } else {
+      console.log('[CasePageDataExtractor] Manual extraction triggered for case:', this.currentCaseId);
+    }
+
     await this.waitForPageLoad();
     const data = await this.extractAllCaseData();
     this.lastExtractedData = data;
-    this.dispatchDataExtractedEvent(data);
+    await this.dispatchDataExtractedEvent(data);
     return data;
+  },
+
+  /**
+   * Clear cached data for a specific case
+   * @param {string} caseId - Case ID to clear cache for (optional, clears current if not provided)
+   */
+  clearCache(caseId = null) {
+    if (caseId && this.currentCaseId === caseId) {
+      console.log('[CasePageDataExtractor] Clearing cache for case:', caseId);
+      this.lastExtractedData = null;
+    } else if (!caseId && this.currentCaseId) {
+      console.log('[CasePageDataExtractor] Clearing cache for current case:', this.currentCaseId);
+      this.lastExtractedData = null;
+    } else if (caseId && this.currentCaseId !== caseId) {
+      console.log('[CasePageDataExtractor] Case ID mismatch, cache already cleared or different case');
+    } else {
+      console.log('[CasePageDataExtractor] No cache to clear');
+    }
   }
 };
 

@@ -57,6 +57,7 @@
             "modules/caseDetailExtractor.js",
             "modules/userPreferences.js",
             "modules/timezoneUtils.js",
+            "modules/timezoneConverter.js",
             "modules/configurationWarningBanner.js",
             "modules/persistentBanner.js",
             "modules/implementationStatus.js",
@@ -74,6 +75,7 @@
          "js": [
             "modules/settingsManager.js",
             "modules/layerManager.js",
+            "modules/dataMigration.js",
             "modules/highlighter.js",
             "modules/stickyNotes.js",
             "modules/bookmarkManager.js",

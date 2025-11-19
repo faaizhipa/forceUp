@@ -751,7 +751,7 @@
 
           DynamicMenu.setSettings(menuConfig.menuLocations || this.settings.menuLocations);
           if (buttonGroups) {
-            DynamicMenu.refresh(buttonGroups, caseData);
+            await DynamicMenu.refresh(buttonGroups, caseData);
           }
         } else {
           console.warn('[ExLibris Extension] Dynamic menu injection skipped (module unavailable or disabled).');

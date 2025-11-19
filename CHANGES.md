@@ -33,6 +33,98 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2024-12-XX] - Features - Timezone Converter Feature
+
+**Description**: Replaced the "Next Analytics Refresh" section in DynamicMenu with a comprehensive timezone converter feature. The converter displays time conversions between case timezone, user timezone, and UTC in an expandable/collapsible UI. Users can select from multiple dates (Analytics Refresh, Case Created, Case Closed, Last Modified) via dropdown.
+
+**Files Changed**:
+- `modules/timezoneConverter.js` - New module with timezone conversion logic, formatting functions, date parsing, and timezone resolution
+- `modules/dynamicMenu.js` - Replaced `createRefreshInfo()` with `createTimezoneConverter()`, made menu injection methods async
+- `manifest.json` - Added `timezoneConverter.js` to content scripts (before `dynamicMenu.js`)
+- `content_script_exlibris.js` - Updated `DynamicMenu.refresh()` call to await async method
+
+**Key Features**:
+- Expandable/collapsible UI (default collapsed, shows summary)
+- Date selection dropdown with dynamic options
+- Three timezone displays: Case, User, UTC
+- Automatic timezone resolution with fallbacks
+- Real-time conversion updates on date selection
+- Handles missing timezones gracefully (UTC fallback)
+- Supports DST transitions and timezone abbreviations
+
+**Implementation Details**:
+- Case timezone resolution: TimezoneStorage > InstitutionTimezoneManager > UTC
+- User timezone resolution: UserPreferences > browser auto-detect
+- Date parsing: Handles multiple Salesforce date formats
+- Time conversion: Uses Intl.DateTimeFormat for accurate conversions
+- UI: Matches existing DynamicMenu styling, accessible (ARIA labels, keyboard navigation)
+
+**Breaking Changes**:
+- `DynamicMenu.createRefreshInfo()` removed (replaced by `createTimezoneConverter()`)
+- `DynamicMenu.injectMenu()`, `injectIntoCardActions()`, `injectIntoHeaderDetails()`, `populateMenu()`, and `refresh()` are now async
+
+**Lessons Learned**:
+- Use Intl.DateTimeFormat for accurate timezone conversions (handles DST automatically)
+- Always provide fallbacks for timezone resolution (UTC is universal)
+- Parse Salesforce dates carefully (multiple formats possible)
+- Make UI expandable for better space utilization
+- Async timezone resolution requires async UI creation
+- Update all call sites when making methods async
+
+**Related Issues/PRs**: Timezone converter feature implementation
+
+### [2024-12-XX] - Bug Fix - CaseDetailExtractor Stale Data Prevention
+
+**Description**: Fixed `CaseDetailExtractor` to prevent extraction of stale data from cached `window.ExLibrisExtension.caseToolkit.caseData`. The module now validates that cached data matches the current case ID from the URL before using it, preventing mixed data scenarios where Case B ID would be combined with Case A details.
+
+**Files Changed**:
+- `modules/caseDetailExtractor.js` - Added cache validation using PageContextValidator, case ID validation, and re-validation after async operations
+
+**Key Changes**:
+- Extract case ID from URL **first** before checking cache
+- Validate cached data using `PageContextValidator.validatePageContextBeforeDisplay()` if available
+- Fallback to simple case ID validation (`cachedData.caseId === currentCaseId && window.ExLibrisExtension.currentCaseId === currentCaseId`)
+- Re-validate after `prepareTools` completes (case might have changed during async operation)
+- Extract fresh data if validation fails
+- Enhanced logging for validation results
+
+**Problem Solved**:
+- **Before**: CaseDetailExtractor could use cached data from Case A when viewing Case B, resulting in mixed data (Case B ID with Case A details)
+- **After**: CaseDetailExtractor validates cache matches current case before use, ensuring data integrity
+
+**Lessons Learned**:
+- Always validate cached data matches current context before use
+- Extract identifiers (case ID) from URL first, then validate cache against them
+- Re-validate after async operations that might update cache
+- Use PageContextValidator for robust validation when available
+- Consistent validation pattern across modules prevents similar issues
+
+**Related Issues/PRs**: Stale data extraction in CaseDetailExtractor
+
+### [2024-12-XX] - Features - Cache Invalidation for Case Data Extractors
+
+**Description**: Implemented multi-layered cache invalidation system to prevent stale data from being returned when case data changes in Salesforce. The system uses Last Modified Date validation (primary), TTL expiration (secondary), and field-level change detection (tertiary) to ensure data freshness.
+
+**Files Changed**:
+- `modules/casePageDataExtractor.js` - Added cache invalidation logic, Last Modified Date extraction, field-level validation, force re-extraction option, and cache clearing methods
+
+**Key Features**:
+- **Last Modified Date Validation**: Primary validation method that compares current case Last Modified Date with cached value
+- **TTL (Time-To-Live)**: 30-second cache expiration to ensure data freshness
+- **Field-level Change Detection**: Validates critical fields (asset, status, category) haven't changed
+- **Force Re-extraction**: `extractNow(true)` parameter to bypass cache when needed
+- **Manual Cache Clearing**: `clearCache(caseId)` method for explicit cache invalidation
+- **Date Normalization**: Handles various Salesforce date formats for consistent comparison
+
+**Lessons Learned**:
+- Multi-layered validation provides robust cache invalidation with graceful degradation
+- Last Modified Date is most reliable but may lag behind rapid changes, hence field-level checks
+- TTL provides fallback when Last Modified Date is unavailable
+- Clear logging of cache validation reasons aids debugging
+- Date normalization is critical for consistent comparison across different formats
+
+**Related Issues/PRs**: Cache invalidation implementation to prevent stale data issue
+
 ### [2024-01-XX] - Documentation - Comprehensive Codebase Documentation
 
 **Description**: Created comprehensive documentation system with multiple focused documents:

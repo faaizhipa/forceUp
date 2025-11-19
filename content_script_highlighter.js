@@ -108,6 +108,16 @@
           this.adjustPageLayout(true);
         }
 
+        // Run data migration before initializing modules (best practice: migrate before use)
+        if (typeof DataMigration !== 'undefined') {
+          try {
+            await DataMigration.migrateAll();
+          } catch (error) {
+            // Log error but don't block initialization (best practice: graceful degradation)
+            console.error('[HighlighterController] Migration error (non-fatal):', error);
+          }
+        }
+
         // Initialize modules (sequential - best practice for dependencies)
         // LayerManager must be initialized first as other modules depend on it
         if (typeof LayerManager !== 'undefined') {

@@ -358,28 +358,58 @@ const PersistentBanner = {
             // Update last data received time
             this.lastDataReceivedTime = Date.now();
             
-            // Validate data before displaying (may be async if waiting for title update)
-            if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
+            // GUARDRAIL: Validate data before displaying using shared validation function
+            if (typeof PageContextValidator !== 'undefined' && 
+                typeof PageContextValidator.validateExtractedData === 'function') {
                 try {
-                    let validation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber);
+                    const validatedData = await PageContextValidator.validateExtractedData(data, {
+                        waitForTitle: true, // Wait for title update during display (SPA navigation timing)
+                        requireCaseId: true,
+                        requireCaseNumber: false
+                    });
                     
-                    // Handle async validation (when waiting for title update)
-                    if (validation instanceof Promise) {
-                        validation = await validation;
-                    }
-                    
-                    if (!validation.valid) {
-                        console.warn(`[PersistentBanner] Cannot display data: ${validation.reason}`);
-                        // Only clear if case ID also mismatches (case number mismatch might be timing issue)
-                        if (validation.currentContext && data.caseId !== validation.currentContext.caseId) {
-                            this.clearCaseData();
-                        }
+                    if (!validatedData) {
+                        console.warn(`[PersistentBanner] Cannot display data: validation failed`);
+                        // Clear stale data if validation fails
+                        this.clearCaseData();
                         return;
                     }
+                    
+                    // Use validated data (ensures caseId and caseNumber match current page)
+                    // Update data with validated values
+                    data.caseId = validatedData.caseId || data.caseId;
+                    data.caseNumber = validatedData.caseNumber || data.caseNumber;
+                    console.log('[PersistentBanner] Data validated successfully');
                 } catch (error) {
                     console.error('[PersistentBanner] Error during validation:', error);
-                    // On validation error, still try to display data (graceful degradation)
-                    // But log the error for debugging
+                    // On validation error, clear data to prevent stale display
+                    this.clearCaseData();
+                    return;
+                }
+            } else {
+                // Fallback: Use old validation method if new function not available
+                if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
+                    try {
+                        let validation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber);
+                        
+                        // Handle async validation (when waiting for title update)
+                        if (validation instanceof Promise) {
+                            validation = await validation;
+                        }
+                        
+                        if (!validation.valid) {
+                            console.warn(`[PersistentBanner] Cannot display data: ${validation.reason}`);
+                            // Only clear if case ID also mismatches (case number mismatch might be timing issue)
+                            if (validation.currentContext && data.caseId !== validation.currentContext.caseId) {
+                                this.clearCaseData();
+                            }
+                            return;
+                        }
+                    } catch (error) {
+                        console.error('[PersistentBanner] Error during validation:', error);
+                        // On validation error, still try to display data (graceful degradation)
+                        // But log the error for debugging
+                    }
                 }
             }
             
