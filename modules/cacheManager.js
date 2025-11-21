@@ -585,14 +585,20 @@ const CacheManager = (function() {
 
     /**
      * Cleans up the cache manager
+     * Ensures pending data is persisted before shutting down
+     * @returns {Promise<void>}
      */
-    cleanup() {
+    async cleanup() {
       if (!isInitialized) return;
 
       console.log('[CacheManager] Cleaning up...');
       
-      // Persist any unsaved data
-      this.persistToStorage();
+      try {
+        // Persist any unsaved data before marking uninitialized
+        await this.persistToStorage();
+      } catch (error) {
+        console.error('[CacheManager] Failed to persist data during cleanup:', error);
+      }
       
       isInitialized = false;
     }
