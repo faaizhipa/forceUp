@@ -388,10 +388,16 @@ function getMessageSettingsFromUI() {
       const textarea = item.querySelector('textarea');
       const enabledCheckbox = item.querySelector('input[type="checkbox"]');
       if (id && id.startsWith('custom_') && textarea) {
+        const imageInput = item.querySelector('.image-url-input');
+        const imagePreview = item.querySelector('.image-preview img');
+        const hoverImage = imagePreview ? imagePreview.src : (imageInput ? imageInput.value.trim() || null : null);
+        
         customMessages.push({
           id: id,
           text: textarea.value.trim(),
-          enabled: enabledCheckbox ? enabledCheckbox.checked : true
+          enabled: enabledCheckbox ? enabledCheckbox.checked : true,
+          hoverImage: hoverImage,
+          description: ''
         });
       }
     });
@@ -454,7 +460,18 @@ function renderCustomMessages(messages) {
         </label>
         <button class="button-small delete-message-btn" data-message-id="${msg.id}" title="Delete message">Delete</button>
       </div>
-      <textarea class="message-textarea" rows="3" maxlength="240" placeholder="Enter message (max 3 lines, use Enter for new line)">${escapeHtml(msg.text)}</textarea>
+      <textarea class="message-textarea" rows="3" maxlength="240" placeholder="Enter message (max 3 lines, use Enter for new line)">${escapeHtml(msg.text || '')}</textarea>
+      <div class="message-image-section">
+        <label>Hover Image:</label>
+        <div class="image-upload-controls">
+          <input type="file" accept="image/*" class="image-file-input" data-message-id="${msg.id}" style="display: none;">
+          <input type="text" class="image-url-input" placeholder="Image URL" data-message-id="${msg.id}" value="${msg.hoverImage && !msg.hoverImage.startsWith('data:') ? escapeHtml(msg.hoverImage) : ''}">
+          <button class="button-small upload-image-btn" data-message-id="${msg.id}" title="Upload from file">📁</button>
+          <button class="button-small paste-image-btn" data-message-id="${msg.id}" title="Paste from clipboard">📋</button>
+          ${msg.hoverImage ? `<button class="button-small remove-image-btn" data-message-id="${msg.id}" title="Remove image">✕</button>` : ''}
+        </div>
+        ${msg.hoverImage ? `<div class="image-preview"><img src="${msg.hoverImage}" alt="Preview" /></div>` : ''}
+      </div>
     </div>
   `).join('');
   
@@ -463,6 +480,47 @@ function renderCustomMessages(messages) {
     btn.addEventListener('click', (e) => {
       const id = e.target.dataset.messageId;
       deleteCustomMessage(id);
+    });
+  });
+  
+  // Attach image upload handlers
+  container.querySelectorAll('.upload-image-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const id = e.target.dataset.messageId;
+      const fileInput = container.querySelector(`.image-file-input[data-message-id="${id}"]`);
+      if (fileInput) fileInput.click();
+    });
+  });
+  
+  container.querySelectorAll('.image-file-input').forEach(input => {
+    input.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        await handleImageUpload(e.target.dataset.messageId, file);
+      }
+    });
+  });
+  
+  container.querySelectorAll('.image-url-input').forEach(input => {
+    input.addEventListener('blur', async (e) => {
+      const url = e.target.value.trim();
+      if (url) {
+        await handleImageUrl(e.target.dataset.messageId, url);
+      }
+    });
+  });
+  
+  container.querySelectorAll('.paste-image-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.target.dataset.messageId;
+      await handleImagePaste(id);
+    });
+  });
+  
+  container.querySelectorAll('.remove-image-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.target.dataset.messageId;
+      await handleImageRemove(id);
     });
   });
 }
@@ -478,7 +536,9 @@ function addCustomMessage() {
   const newMessage = {
     id: newId,
     text: '',
-    enabled: true
+    enabled: true,
+    hoverImage: null,
+    description: ''
   };
   
   // Get current messages
@@ -529,6 +589,128 @@ function deleteCustomMessage(messageId) {
   if (container.querySelectorAll('[data-message-id]').length === 0) {
     container.innerHTML = '<p class="info-text">No custom messages. Click "Add Message" to create one.</p>';
   }
+}
+
+/**
+ * Handle image file upload
+ * @param {string} messageId - Message ID
+ * @param {File} file - File object
+ */
+async function handleImageUpload(messageId, file) {
+  if (!file.type.startsWith('image/')) {
+    alert('Please select an image file');
+    return;
+  }
+  
+  if (file.size > 2 * 1024 * 1024) {
+    alert('Image size must be less than 2MB');
+    return;
+  }
+  
+  try {
+    const base64 = await fileToBase64(file);
+    await saveImageToMessage(messageId, base64);
+    // Reload settings and re-render
+    const settings = await loadSettings();
+    const messages = settings.exlibris?.features?.persistentBanner?.messages?.customMessages || [];
+    renderCustomMessages(messages);
+  } catch (error) {
+    console.error('Error uploading image:', error);
+    alert('Error uploading image: ' + error.message);
+  }
+}
+
+/**
+ * Handle image URL
+ * @param {string} messageId - Message ID
+ * @param {string} url - Image URL
+ */
+async function handleImageUrl(messageId, url) {
+  if (!url) return;
+  
+  // Validate URL
+  try {
+    new URL(url);
+  } catch (e) {
+    alert('Invalid URL');
+    return;
+  }
+  
+  await saveImageToMessage(messageId, url);
+  // Reload settings and re-render
+  const settings = await loadSettings();
+  const messages = settings.exlibris?.features?.persistentBanner?.messages?.customMessages || [];
+  renderCustomMessages(messages);
+}
+
+/**
+ * Handle image paste from clipboard
+ * @param {string} messageId - Message ID
+ */
+async function handleImagePaste(messageId) {
+  try {
+    const clipboardItems = await navigator.clipboard.read();
+    for (const item of clipboardItems) {
+      if (item.types.includes('image/png') || item.types.includes('image/jpeg')) {
+        const blob = await item.getType('image/png') || await item.getType('image/jpeg');
+        const file = new File([blob], 'pasted-image.png', { type: blob.type });
+        await handleImageUpload(messageId, file);
+        return;
+      }
+    }
+    alert('No image found in clipboard');
+  } catch (error) {
+    console.error('Error pasting image:', error);
+    alert('Error pasting image. Please try copying an image first.');
+  }
+}
+
+/**
+ * Handle image removal
+ * @param {string} messageId - Message ID
+ */
+async function handleImageRemove(messageId) {
+  await saveImageToMessage(messageId, null);
+  // Reload settings and re-render
+  const settings = await loadSettings();
+  const messages = settings.exlibris?.features?.persistentBanner?.messages?.customMessages || [];
+  renderCustomMessages(messages);
+}
+
+/**
+ * Save image to message in settings
+ * @param {string} messageId - Message ID
+ * @param {string|null} imageData - Base64 string or URL, or null to remove
+ */
+async function saveImageToMessage(messageId, imageData) {
+  const settings = await loadSettings();
+  const messagesConfig = settings.exlibris?.features?.persistentBanner?.messages;
+  
+  if (!messagesConfig) return;
+  
+  const customIndex = messagesConfig.customMessages?.findIndex(m => m.id === messageId);
+  if (customIndex !== undefined && customIndex >= 0) {
+    if (!messagesConfig.customMessages[customIndex]) {
+      messagesConfig.customMessages[customIndex] = { id: messageId };
+    }
+    messagesConfig.customMessages[customIndex].hoverImage = imageData;
+  }
+  
+  await saveSettings(settings);
+}
+
+/**
+ * Convert file to base64
+ * @param {File} file - File object
+ * @returns {Promise<string>} Base64 string
+ */
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 /**

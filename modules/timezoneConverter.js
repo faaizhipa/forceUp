@@ -259,6 +259,13 @@ const TimezoneConverter = (function() {
   function getAvailableDates(caseData, refreshInfo) {
     const dates = [];
 
+    // Always include Today (current date/time) as first option
+    dates.push({
+      label: 'Today',
+      value: 'today',
+      date: new Date()
+    });
+
     // Always include Analytics Refresh (default)
     if (refreshInfo && refreshInfo.utc) {
       // Parse UTC time from refreshInfo.utc (format: "HH:MM UTC")
@@ -518,53 +525,200 @@ const TimezoneConverter = (function() {
   }
 
   /**
-   * Convert date to all three timezones (Case, User, UTC)
+   * Resolve server timezone from server region
+   * @param {string} serverRegion - Server region (AP, EU, NA, CN, CA)
+   * @returns {Object} { timezone: string, displayName: string, isAuto: boolean }
+   */
+  function resolveServerTimezone(serverRegion) {
+    if (!serverRegion) {
+      return {
+        timezone: 'UTC',
+        displayName: 'UTC',
+        isAuto: true,
+        source: 'fallback'
+      };
+    }
+
+    // Map server regions to representative timezones
+    const regionToTimezoneMap = {
+      'NA': 'America/New_York',   // North America (Eastern)
+      'EU': 'Europe/London',      // Europe (London)
+      'AP': 'Asia/Singapore',     // Asia Pacific (Singapore)
+      'CN': 'Asia/Shanghai',      // China
+      'CA': 'America/Toronto'     // Canada (Eastern)
+    };
+
+    const region = serverRegion.toUpperCase();
+    const timezone = regionToTimezoneMap[region] || 'UTC';
+
+    return {
+      timezone: timezone,
+      displayName: getTimezoneDisplayName(timezone),
+      isAuto: false,
+      source: 'server_region',
+      abbreviation: getTimezoneAbbreviation(timezone),
+      offset: getTimezoneOffset(timezone)
+    };
+  }
+
+  /**
+   * Convert date to all four timezones (Case, User, Server, UTC)
    * @param {Date} date - Date to convert
    * @param {string} caseTimezone - Case timezone (IANA)
    * @param {string} userTimezone - User timezone (IANA)
-   * @returns {Object} Conversions for all three timezones
+   * @param {string} serverTimezone - Server timezone (IANA)
+   * @returns {Object} Conversions for all four timezones
    */
-  function convertToAllTimezones(date, caseTimezone, userTimezone) {
+  function convertToAllTimezones(date, caseTimezone, userTimezone, serverTimezone) {
     if (!date) {
       return {
-        case: { date: null, time: 'N/A', dateStr: 'N/A' },
-        user: { date: null, time: 'N/A', dateStr: 'N/A' },
-        utc: { date: null, time: 'N/A', dateStr: 'N/A' }
+        case: { date: null, time: 'N/A', dateStr: 'N/A', time24: 'N/A', ampm: 'N/A' },
+        user: { date: null, time: 'N/A', dateStr: 'N/A', time24: 'N/A', ampm: 'N/A' },
+        server: { date: null, time: 'N/A', dateStr: 'N/A', time24: 'N/A', ampm: 'N/A' },
+        utc: { date: null, time: 'N/A', dateStr: 'N/A', time24: 'N/A', ampm: 'N/A' }
       };
     }
 
     const dateObj = date instanceof Date ? date : new Date(date);
     if (isNaN(dateObj.getTime())) {
       return {
-        case: { date: null, time: 'Invalid Date', dateStr: 'Invalid Date' },
-        user: { date: null, time: 'Invalid Date', dateStr: 'Invalid Date' },
-        utc: { date: null, time: 'Invalid Date', dateStr: 'Invalid Date' }
+        case: { date: null, time: 'Invalid Date', dateStr: 'Invalid Date', time24: 'Invalid Date', ampm: 'N/A' },
+        user: { date: null, time: 'Invalid Date', dateStr: 'Invalid Date', time24: 'Invalid Date', ampm: 'N/A' },
+        server: { date: null, time: 'Invalid Date', dateStr: 'Invalid Date', time24: 'Invalid Date', ampm: 'N/A' },
+        utc: { date: null, time: 'Invalid Date', dateStr: 'Invalid Date', time24: 'Invalid Date', ampm: 'N/A' }
       };
     }
 
-    return {
-      case: {
+    const formatTimezoneData = (tz) => {
+      const time24 = formatTimeForTimezone(dateObj, tz, { includeSeconds: false, hour12: false });
+      const time12 = formatTimeForTimezone(dateObj, tz, { includeSeconds: false, hour12: true });
+      const ampm = new Intl.DateTimeFormat('en-US', { 
+        hour: 'numeric', 
+        hour12: true, 
+        timeZone: tz 
+      }).format(dateObj).match(/([AP]M)/)?.[1] || '';
+      
+      return {
         date: dateObj,
-        time: formatTimeForTimezone(dateObj, caseTimezone, { includeSeconds: false, hour12: true }),
-        dateStr: formatDateForTimezone(dateObj, caseTimezone),
-        timezone: caseTimezone,
-        displayName: getTimezoneDisplayName(caseTimezone)
-      },
-      user: {
-        date: dateObj,
-        time: formatTimeForTimezone(dateObj, userTimezone, { includeSeconds: false, hour12: true }),
-        dateStr: formatDateForTimezone(dateObj, userTimezone),
-        timezone: userTimezone,
-        displayName: getTimezoneDisplayName(userTimezone)
-      },
-      utc: {
-        date: dateObj,
-        time: formatTimeForTimezone(dateObj, 'UTC', { includeSeconds: false, hour12: true }),
-        dateStr: formatDateForTimezone(dateObj, 'UTC'),
-        timezone: 'UTC',
-        displayName: 'UTC'
-      }
+        time: time12,
+        time24: time24,
+        ampm: ampm,
+        dateStr: formatDateForTimezone(dateObj, tz),
+        timezone: tz,
+        displayName: getTimezoneDisplayName(tz),
+        abbreviation: getTimezoneAbbreviation(tz),
+        offset: getTimezoneOffset(tz)
+      };
     };
+
+    return {
+      case: formatTimezoneData(caseTimezone),
+      user: formatTimezoneData(userTimezone),
+      server: formatTimezoneData(serverTimezone || 'UTC'),
+      utc: formatTimezoneData('UTC')
+    };
+  }
+
+  /**
+   * Format date to Kibana-compatible string
+   * Format: "Nov 17, 2025 @ 23:30:00.000"
+   * @param {Date} date - Date to format
+   * @param {string} timezone - Timezone for formatting
+   * @returns {string} Formatted date string
+   */
+  function formatToKibana(date, timezone) {
+    if (!date || isNaN(date.getTime())) return 'N/A';
+
+    try {
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: timezone === 'UTC' ? 'UTC' : timezone
+      });
+
+      const parts = formatter.formatToParts(date);
+      const year = parts.find(p => p.type === 'year')?.value;
+      const month = parts.find(p => p.type === 'month')?.value;
+      const day = parts.find(p => p.type === 'day')?.value;
+      const hour = parts.find(p => p.type === 'hour')?.value;
+      const minute = parts.find(p => p.type === 'minute')?.value;
+      const second = parts.find(p => p.type === 'second')?.value;
+      const ms = date.getMilliseconds().toString().padStart(3, '0');
+
+      return `${month} ${day}, ${year} @ ${hour}:${minute}:${second}.${ms}`;
+    } catch (error) {
+      console.error('[TimezoneConverter] Error formatting to Kibana format:', error);
+      return 'N/A';
+    }
+  }
+
+  /**
+   * Format date to ISO 8601 string
+   * Format: "2025-11-17T23:30:00.000Z"
+   * @param {Date} date - Date to format
+   * @param {string} timezone - Timezone for formatting
+   * @returns {string} ISO 8601 formatted string
+   */
+  function formatToISO8601(date, timezone) {
+    if (!date || isNaN(date.getTime())) return 'N/A';
+
+    try {
+      // Convert to target timezone first
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: timezone === 'UTC' ? 'UTC' : timezone
+      });
+
+      const parts = formatter.formatToParts(date);
+      const year = parts.find(p => p.type === 'year')?.value;
+      const month = parts.find(p => p.type === 'month')?.value;
+      const day = parts.find(p => p.type === 'day')?.value;
+      const hour = parts.find(p => p.type === 'hour')?.value;
+      const minute = parts.find(p => p.type === 'minute')?.value;
+      const second = parts.find(p => p.type === 'second')?.value;
+      const ms = date.getMilliseconds().toString().padStart(3, '0');
+
+      // Create date in target timezone and convert to UTC ISO string
+      const tzDate = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}.${ms}`);
+      const offset = tzDate.getTimezoneOffset();
+      const utcDate = new Date(tzDate.getTime() - (offset * 60 * 1000));
+      
+      return utcDate.toISOString();
+    } catch (error) {
+      console.error('[TimezoneConverter] Error formatting to ISO 8601:', error);
+      return date.toISOString();
+    }
+  }
+
+  /**
+   * Format date to Unix timestamp (seconds)
+   * @param {Date} date - Date to format
+   * @returns {string} Unix timestamp
+   */
+  function formatToUnixTimestamp(date) {
+    if (!date || isNaN(date.getTime())) return 'N/A';
+    return Math.floor(date.getTime() / 1000).toString();
+  }
+
+  /**
+   * Format date to Unix timestamp (milliseconds)
+   * @param {Date} date - Date to format
+   * @returns {string} Unix timestamp in milliseconds
+   */
+  function formatToUnixTimestampMs(date) {
+    if (!date || isNaN(date.getTime())) return 'N/A';
+    return date.getTime().toString();
   }
 
   // Public API
@@ -579,7 +733,12 @@ const TimezoneConverter = (function() {
     parseSalesforceDate,
     resolveCaseTimezone,
     resolveUserTimezone,
-    convertToAllTimezones
+    resolveServerTimezone,
+    convertToAllTimezones,
+    formatToKibana,
+    formatToISO8601,
+    formatToUnixTimestamp,
+    formatToUnixTimestampMs
   };
 })();
 

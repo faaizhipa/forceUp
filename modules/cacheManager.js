@@ -232,7 +232,7 @@ const CacheManager = (function() {
    * @param {Object} data - Data to validate
    * @returns {Object} { accept: boolean, reason: string }
    */
-  function shouldAcceptCacheEntry(caseId, caseNumber, data) {
+  async function shouldAcceptCacheEntry(caseId, caseNumber, data) {
     // Step 1: Basic format validation
     if (!caseId || !/^[a-zA-Z0-9]{15,18}$/.test(caseId)) {
       return { accept: false, reason: 'Invalid case ID format' };
@@ -253,8 +253,31 @@ const CacheManager = (function() {
 
     // Step 4: Validate case number if provided
     if (caseNumber) {
-      // Get current context if PageContextValidator available
-      if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.getCurrentCaseContext === 'function') {
+      let contextValidationHandled = false;
+
+      if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
+        try {
+          let validation = PageContextValidator.validatePageContextBeforeDisplay(caseId, caseNumber);
+          if (validation instanceof Promise) {
+            validation = await validation;
+          }
+
+          contextValidationHandled = true;
+
+          if (!validation || !validation.valid) {
+            const reason = validation?.reason || 'Page context mismatch';
+            console.warn(`[CacheManager] Page context validation failed: ${reason}`);
+            return { accept: false, reason };
+          }
+        } catch (error) {
+          console.error('[CacheManager] Error during page context validation:', error);
+          // fallback to legacy validation below
+        }
+      }
+
+      if (!contextValidationHandled &&
+        typeof PageContextValidator !== 'undefined' &&
+        typeof PageContextValidator.getCurrentCaseContext === 'function') {
         const context = PageContextValidator.getCurrentCaseContext();
         if (context && context.caseNumber && context.caseNumber !== caseNumber) {
           console.warn(`[CacheManager] Case number mismatch: ${caseNumber} !== ${context.caseNumber}`);
@@ -451,7 +474,7 @@ const CacheManager = (function() {
         acquireLock();
 
         // Step 1: Validate cache entry should be accepted
-        const validation = shouldAcceptCacheEntry(caseId, data.caseNumber, data);
+        const validation = await shouldAcceptCacheEntry(caseId, data.caseNumber, data);
         if (!validation.accept) {
           console.warn(`[CacheManager] Cache entry rejected: ${validation.reason}`);
           return;

@@ -54,17 +54,58 @@ const SettingsManager = (function() {
       persistentBanner: {
         messages: {
           enabled: true,  // Enable/disable rotating messages (separate from feature toggle)
+          showOnCasePages: false,  // Show messages on case pages (collapsible with case details)
           defaultMessages: {
             enabled: true,
             items: [
-              { id: 'default_1', text: 'Field Highlighting', enabled: true },
-              { id: 'default_2', text: 'Context Menu Formatting', enabled: true },
-              { id: 'default_3', text: 'Multi-Tab Warning', enabled: true },
-              { id: 'default_4', text: 'Auto-Save Comments', enabled: true },
-              { id: 'default_5', text: 'Character Counter', enabled: true },
-              { id: 'default_6', text: 'Dynamic Buttons', enabled: true },
-              { id: 'default_7', text: 'Persistent Banner', enabled: true },
-              { id: 'default_8', text: 'Text Highlighter & Sticky Notes', enabled: true }
+              { 
+                id: 'default_1', 
+                text: 'Field Highlighting', 
+                enabled: true,
+                description: 'Highlights key case fields with color coding (red=empty required, yellow=filled). Automatically appears on case pages. Access: Popup > Features > Field Highlighting. Applies to: proquestllc.lightning.force.com'
+              },
+              { 
+                id: 'default_2', 
+                text: 'Context Menu: Format text (𝗕𝗼𝗹𝗱, 𝘐𝘵𝘢𝘭𝘪𝘤, UPPERCASE, ▪)', 
+                enabled: true,
+                description: 'Right-click context menu for text formatting. Select text and right-click in any textarea. Examples: Bold (𝗧𝗲𝘅𝘁), Italic (𝘛𝘦𝘹𝘵), UPPERCASE (TEXT), Insert symbols (▪, ►). Access: Popup > Features > Context Menu Formatting. Applies to: proquestllc.lightning.force.com'
+              },
+              { 
+                id: 'default_3', 
+                text: 'Multi-Tab Warning', 
+                enabled: true,
+                description: 'Detects when same case is open in multiple tabs and shows warning banner. Automatically appears when duplicate tabs detected. Access: Popup > Features > Multi-Tab Warning. Applies to: proquestllc.lightning.force.com'
+              },
+              { 
+                id: 'default_4', 
+                text: 'Auto-Save Comments', 
+                enabled: true,
+                description: 'Auto-saves comment text as you type with history tracking. Automatically saves every 2 seconds in case comment textareas. Access: Popup > Features > Auto-Save Comments. Applies to: proquestllc.lightning.force.com'
+              },
+              { 
+                id: 'default_5', 
+                text: 'Character Counter', 
+                enabled: true,
+                description: 'Displays live character count (0/4000) near Save button with color thresholds. Automatically appears on case comment pages. Access: Popup > Features > Character Counter. Applies to: proquestllc.lightning.force.com'
+              },
+              { 
+                id: 'default_6', 
+                text: 'Dynamic Buttons', 
+                enabled: true,
+                description: 'Injects action buttons that generate dynamic URLs for Live View, Back Office, Sandbox, SQL, JIRA, Analytics. Automatically appears in header details area on case pages. Access: Popup > Ex Libris > Menu Locations. Applies to: proquestllc.lightning.force.com'
+              },
+              { 
+                id: 'default_7', 
+                text: 'Persistent Banner', 
+                enabled: true,
+                description: 'Fixed banner at top showing case info, customer metadata, navigation history, and quick actions. Automatically appears on all ProQuest pages. Access: Popup > Features > Persistent Banner. Applies to: proquestllc.lightning.force.com'
+              },
+              { 
+                id: 'default_8', 
+                text: 'Text Highlighter & Sticky Notes', 
+                enabled: true,
+                description: 'Highlight text and add sticky notes on support documentation pages. Select text to highlight, click note icon to add notes. Access: Popup > Features > Text Highlighter & Sticky Notes. Applies to: support.clarivate.com, knowledge.exlibrisgroup.com, developers.exlibrisgroup.com'
+              }
             ]
           },
           customMessages: [],

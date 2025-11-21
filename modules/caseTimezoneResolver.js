@@ -229,6 +229,7 @@ const CaseTimezoneResolver = {
 
     /**
      * Check cached timezone in storage
+     * Best practice priority: TimezoneStorage (which checks InstitutionTimezoneManager) > Direct InstitutionTimezoneManager check
      * @param {Object|string} identifiers - Object with accountName, institutionCode, customerId, instID, or just accountName string
      * @param {Element} targetDiv
      */
@@ -240,30 +241,72 @@ const CaseTimezoneResolver = {
 
         console.log('[CaseTimezoneResolver] Checking cache for:', lookupParams);
 
-        if (typeof TimezoneStorage === 'undefined') {
-            console.warn('[CaseTimezoneResolver] TimezoneStorage not available, skipping cache check');
-            this.applyCacheMissState();
-            return;
-        }
-
         try {
-            const cached = await TimezoneStorage.getTimezone(lookupParams);
+            // STEP 1: Try TimezoneStorage first (it checks InstitutionTimezoneManager internally)
+            if (typeof TimezoneStorage !== 'undefined') {
+                try {
+                    const cached = await TimezoneStorage.getTimezone(lookupParams);
 
-            if (cached && cached.timezone) {
-                // CACHE HIT
-                console.log('[CaseTimezoneResolver] Cache hit! Timezone:', cached.timezone, 'Source:', cached.source);
-                this.updateUI(cached.timezone);
-                this.isResolved = true;
-                // Do NOT attach event listeners
-                // Process is complete
-            } else {
-                // CACHE MISS
-                console.log('[CaseTimezoneResolver] Cache miss, setting up detection');
-                this.applyCacheMissState();
+                    if (cached && cached.timezone) {
+                        // CACHE HIT
+                        console.log('[CaseTimezoneResolver] Cache hit! Timezone:', cached.timezone, 'Source:', cached.source);
+                        this.updateUI(cached.timezone);
+                        this.isResolved = true;
+                        // Do NOT attach event listeners
+                        // Process is complete
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('[CaseTimezoneResolver] Error checking TimezoneStorage:', error);
+                    // Continue to fallback check
+                }
             }
 
+            // STEP 2: Fallback - Direct InstitutionTimezoneManager check if TimezoneStorage unavailable or missed
+            // This ensures we still get timezone from the database even if storage lookup fails
+            if (typeof InstitutionTimezoneManager !== 'undefined' && lookupParams.institutionCode) {
+                try {
+                    const institutionResult = InstitutionTimezoneManager.getTimezone({
+                        orgCode: lookupParams.institutionCode || lookupParams.accountCode,
+                        customerId: lookupParams.customerId,
+                        institutionId: lookupParams.instID
+                    });
+
+                    if (institutionResult && institutionResult.timezone) {
+                        console.log('[CaseTimezoneResolver] Found timezone via direct InstitutionTimezoneManager check:', institutionResult.timezone);
+                        this.updateUI(institutionResult.timezone);
+                        this.isResolved = true;
+                        
+                        // Optionally save to storage for future quick lookup
+                        if (typeof TimezoneStorage !== 'undefined') {
+                            try {
+                                await TimezoneStorage.storeTimezone({
+                                    timezone: institutionResult.timezone,
+                                    accountName: lookupParams.accountName,
+                                    accountCode: lookupParams.accountCode,
+                                    institutionCode: lookupParams.institutionCode,
+                                    customerId: lookupParams.customerId,
+                                    instID: lookupParams.instID,
+                                    source: 'institution_database'
+                                });
+                            } catch (saveError) {
+                                console.warn('[CaseTimezoneResolver] Could not save to storage:', saveError);
+                            }
+                        }
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('[CaseTimezoneResolver] Error checking InstitutionTimezoneManager:', error);
+                    // Continue to cache miss state
+                }
+            }
+
+            // CACHE MISS - No timezone found in any source
+            console.log('[CaseTimezoneResolver] Cache miss, setting up detection');
+            this.applyCacheMissState();
+
         } catch (error) {
-            console.error('[CaseTimezoneResolver] Error checking cache:', error);
+            console.error('[CaseTimezoneResolver] Unexpected error checking cache:', error);
             this.applyCacheMissState();
         }
     },
@@ -522,7 +565,9 @@ const CaseTimezoneResolver = {
     },
 
     /**
-     * Resolve timezone from address and save to storage
+     * Resolve timezone using best practice priority:
+     * 1. InstitutionTimezoneManager (if case data available)
+     * 2. Address resolution (fallback)
      * CRITICAL: This is the ONLY place that writes to TimezoneStorage
      * @param {Object} address
      * @param {string} accountName
@@ -537,33 +582,95 @@ const CaseTimezoneResolver = {
 
         try {
             let timezone = null;
+            let source = 'case_address_hover';
 
-            // Resolve timezone using AddressTimezoneResolver
-            if (typeof AddressTimezoneResolver !== 'undefined') {
-                timezone = await AddressTimezoneResolver.resolveTimezone(address);
-            } else if (typeof AccountAddressExtractor !== 'undefined' && AccountAddressExtractor.resolveTimezoneFromAddress) {
-                timezone = await AccountAddressExtractor.resolveTimezoneFromAddress(address);
-            } else {
-                console.warn('[CaseTimezoneResolver] No timezone resolver available');
+            // STEP 1: Check InstitutionTimezoneManager first (best practice - most reliable source)
+            // This avoids unnecessary address resolution if timezone is already in the database
+            if (typeof InstitutionTimezoneManager !== 'undefined') {
+                try {
+                    // Get case data if available
+                    let caseData = null;
+                    if (typeof CasePageDataExtractor !== 'undefined') {
+                        caseData = CasePageDataExtractor.getLastExtractedData();
+                    }
+
+                    if (caseData) {
+                        const institutionResult = InstitutionTimezoneManager.getTimezone({
+                            orgCode: caseData.institutionCode || caseData.exLibrisAccountNumber,
+                            customerId: caseData.custID,
+                            institutionId: caseData.instID
+                        });
+
+                        if (institutionResult && institutionResult.timezone) {
+                            timezone = institutionResult.timezone;
+                            source = 'institution_database';
+                            console.log('[CaseTimezoneResolver] Timezone found in InstitutionTimezoneManager:', timezone);
+                            
+                            // Save to storage for future quick lookup
+                            if (typeof TimezoneStorage !== 'undefined') {
+                                await TimezoneStorage.storeTimezone({
+                                    timezone,
+                                    accountName,
+                                    accountCode: caseData.exLibrisAccountNumber,
+                                    institutionCode: caseData.institutionCode,
+                                    customerId: caseData.custID,
+                                    instID: caseData.instID,
+                                    source: source
+                                });
+                                console.log('[CaseTimezoneResolver] Timezone saved to storage from InstitutionTimezoneManager');
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.warn('[CaseTimezoneResolver] Error checking InstitutionTimezoneManager:', error);
+                    // Continue to address resolution fallback
+                }
+            }
+
+            // STEP 2: Fallback to address resolution if InstitutionTimezoneManager didn't find it
+            if (!timezone) {
+                console.log('[CaseTimezoneResolver] InstitutionTimezoneManager lookup failed, falling back to address resolution');
+                
+                // Resolve timezone using AddressTimezoneResolver
+                if (typeof AddressTimezoneResolver !== 'undefined') {
+                    timezone = await AddressTimezoneResolver.resolveTimezone(address);
+                } else if (typeof AccountAddressExtractor !== 'undefined' && AccountAddressExtractor.resolveTimezoneFromAddress) {
+                    timezone = await AccountAddressExtractor.resolveTimezoneFromAddress(address);
+                } else {
+                    console.warn('[CaseTimezoneResolver] No timezone resolver available');
+                }
+
+                if (timezone) {
+                    source = 'case_address_hover';
+                    console.log('[CaseTimezoneResolver] Timezone resolved from address:', timezone);
+
+                    // SAVE TO STORAGE (CRITICAL - ONLY WRITE LOCATION)
+                    if (typeof TimezoneStorage !== 'undefined') {
+                        // Try to get case data for better storage
+                        let caseData = null;
+                        if (typeof CasePageDataExtractor !== 'undefined') {
+                            caseData = CasePageDataExtractor.getLastExtractedData();
+                        }
+
+                        await TimezoneStorage.storeTimezone({
+                            timezone,
+                            accountName,
+                            accountCode: caseData ? caseData.exLibrisAccountNumber : null,
+                            institutionCode: caseData ? caseData.institutionCode : null,
+                            customerId: caseData ? caseData.custID : null,
+                            instID: caseData ? caseData.instID : null,
+                            source: source
+                        });
+                        console.log('[CaseTimezoneResolver] Timezone saved to storage from address resolution');
+                    } else {
+                        console.warn('[CaseTimezoneResolver] TimezoneStorage not available, cannot save');
+                    }
+                }
             }
 
             if (!timezone) {
-                console.warn('[CaseTimezoneResolver] Could not resolve timezone');
+                console.warn('[CaseTimezoneResolver] Could not resolve timezone from any source');
                 return;
-            }
-
-            console.log('[CaseTimezoneResolver] Timezone resolved:', timezone);
-
-            // SAVE TO STORAGE (CRITICAL - ONLY WRITE LOCATION)
-            if (typeof TimezoneStorage !== 'undefined') {
-                await TimezoneStorage.storeTimezone({
-                    timezone,
-                    accountName,
-                    source: 'case_address_hover'
-                });
-                console.log('[CaseTimezoneResolver] Timezone saved to storage');
-            } else {
-                console.warn('[CaseTimezoneResolver] TimezoneStorage not available, cannot save');
             }
 
             // Update UI
@@ -577,6 +684,13 @@ const CaseTimezoneResolver = {
 
         } catch (error) {
             console.error('[CaseTimezoneResolver] Error resolving timezone:', error);
+            // Show error state to user
+            if (this.targetDiv) {
+                this.targetDiv.style.backgroundColor = this.COLORS.ERROR;
+            }
+            if (this.accountNamePElement) {
+                this.accountNamePElement.textContent = 'Error: Could not resolve timezone';
+            }
         }
     },
 

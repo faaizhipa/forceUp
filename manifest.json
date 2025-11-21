@@ -23,6 +23,14 @@
       },
       {
          "js": [
+            "modules/fetchDataCache.js",
+            "modules/fetchInterceptor.js"
+         ],
+         "matches": [ "https://proquestllc.lightning.force.com/*" ],
+         "run_at": "document_start"
+      },
+      {
+         "js": [
             "content_script.js",
             "modules/debounceUtils.js",
             "modules/logger.js",
@@ -41,7 +49,6 @@
             "modules/contextMenuHandler.js",
             "modules/multiTabSync.js",
             "modules/caseCommentMemory.js",
-            "modules/dynamicMenu.js",
             "modules/characterCounter.js",
             "modules/shadowTextExtractor.js",
             "modules/eventSimulator.js",
@@ -58,8 +65,8 @@
             "modules/userPreferences.js",
             "modules/timezoneUtils.js",
             "modules/timezoneConverter.js",
+            "modules/dynamicMenu.js",
             "modules/configurationWarningBanner.js",
-            "modules/persistentBanner.js",
             "modules/implementationStatus.js",
             "modules/flexipagePanelInjector.js",
             "content_script_exlibris.js"
@@ -70,6 +77,13 @@
             "modules/styles/injected-panel.css",
             "modules/styles/persistent-banner.css"
          ]
+      },
+      {  
+         "js": [
+            "modules/persistentBanner.js"
+         ],
+         "matches": [ "https://proquestllc.lightning.force.com/*" ],
+         "run_at": "document_idle"
       },
       {
          "js": [
@@ -101,7 +115,7 @@
    "name": "Penang CoE Salesforce and Docs Extension",
    "permissions": [ "storage", "tabs", "activeTab", "contextMenus" ],
    "update_url": "https://clients2.google.com/service/update2/crx",
-   "version": "7.1",
+   "version": "7.2",
    "web_accessible_resources": [
       {
          "resources": [

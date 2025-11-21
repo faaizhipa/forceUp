@@ -43,12 +43,16 @@
       timezone: null, // null = auto-detect
       highlightingEnabled: true
     },
+    initialLoadDelayMs: 600,
+    postLoadSettlingDelayMs: 300,
 
     /**
      * Initializes the extension
      */
     async init() {
       console.log('[ExLibris Extension] Initializing...');
+
+      await this.waitForSalesforceShellReady();
 
       // Initialize Logger first
       if (typeof Logger !== 'undefined') {
@@ -120,10 +124,12 @@
         console.warn('[ExLibris Extension] KeyboardShortcuts not loaded');
       }
 
-      // Initialize PersistentBanner
+      // Initialize PersistentBanner (deferred until post-load to avoid interfering with Salesforce refresh)
       if (typeof PersistentBanner !== 'undefined') {
-        PersistentBanner.init();
-        console.log('[ExLibris Extension] PersistentBanner initialized');
+        setTimeout(() => {
+          PersistentBanner.init();
+          console.log('[ExLibris Extension] PersistentBanner initialized');
+        }, this.initialLoadDelayMs);
       } else {
         console.warn('[ExLibris Extension] PersistentBanner not loaded');
       }
@@ -645,6 +651,32 @@
     },
 
     /**
+     * Wait for Salesforce shell to finish loading after a refresh
+     */
+    async waitForSalesforceShellReady() {
+      if (document.readyState !== 'complete') {
+        await new Promise((resolve) => {
+          const onLoad = () => {
+            window.removeEventListener('load', onLoad);
+            resolve();
+          };
+          window.addEventListener('load', onLoad);
+        });
+      }
+
+      await this.waitForNextFrame();
+      await this.delay(this.postLoadSettlingDelayMs);
+    },
+
+    waitForNextFrame() {
+      return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    },
+
+    delay(ms = 0) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    },
+
+    /**
      * Resolve the active timezone based on settings or browser detection
      * @param {string|null} preferred
      * @returns {string|null}
@@ -985,13 +1017,26 @@
 
   // ========== INITIALIZATION ==========
 
-  // Wait for DOM to be ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      ExLibrisExtension.init();
-    });
+  const scheduleInitialInit = (() => {
+    let scheduled = false;
+    return () => {
+      if (scheduled) {
+        return;
+      }
+      scheduled = true;
+      const delay = ExLibrisExtension.initialLoadDelayMs || 0;
+      setTimeout(() => {
+        ExLibrisExtension.init();
+      }, delay);
+    };
+  })();
+
+  if (document.readyState === 'complete') {
+    scheduleInitialInit();
   } else {
-    ExLibrisExtension.init();
+    window.addEventListener('load', () => {
+      scheduleInitialInit();
+    }, { once: true });
   }
 
   // Make available globally for debugging

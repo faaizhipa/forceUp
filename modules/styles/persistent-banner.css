@@ -3,21 +3,26 @@
  * Salesforce Lightning & MV3 CSP compliant
  */
 
+:root {
+    --exl-banner-collapsed-height: 3rem;
+    --exl-banner-expanded-height: 420px;
+}
+
 /* Salesforce page adjustments for banner space */
 /* These styles load early to prevent layout shifts */
 
 /* Push Salesforce global header down to make room for extension banner */
-#oneHeader > div.slds-global-header.slds-grid.slds-grid_align-spread {
+#oneHeader>div.slds-global-header.slds-grid.slds-grid_align-spread {
     margin-top: 45px;
 }
 
 /* Push Salesforce tab bar down to accommodate both global header and extension banner */
-body > div.desktop.container.forceStyle.oneOne.navexDesktopLayoutContainer.lafAppLayoutHost.forceAccess > div.viewport > section > div.workspaceManager.navexWorkspaceManager > div > div.tabsetHeader.slds-context-bar.slds-context-bar--tabs.slds-no-print {
+body>div.desktop.container.forceStyle.oneOne.navexDesktopLayoutContainer.lafAppLayoutHost.forceAccess>div.viewport>section>div.workspaceManager.navexWorkspaceManager>div>div.tabsetHeader.slds-context-bar.slds-context-bar--tabs.slds-no-print {
     top: 95px;
 }
 
 /* Push Document view toolbar down to accommodate both global header and extension banner */
-div.toolbar.top.fadeOut.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar, 
+div.toolbar.top.fadeOut.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar,
 div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar {
     top: 45px;
 }
@@ -36,13 +41,25 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     font-family: 'Salesforce Sans', Arial, sans-serif;
     font-size: 11px;
     border-bottom: 1px solid #0070d2;
-    height: 3rem;
-    overflow: hidden;
+    max-height: var(--exl-banner-expanded-height);
+    min-height: var(--exl-banner-collapsed-height);
+    padding: 4px 0;
+    overflow: visible;
+    transition: max-height 0.25s ease;
+}
+
+#exl-persistent-banner.exl-banner-tight:not(.exl-banner-expanded),
+#exl-persistent-banner.exl-banner-hovering:not(.exl-banner-expanded) {
+    max-height: var(--exl-banner-collapsed-height);
+}
+
+#exl-persistent-banner.exl-banner-expanded {
+    max-height: var(--exl-banner-expanded-height);
 }
 
 .exl-banner-container {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     gap: 12px;
     padding: 0 12px;
     max-width: 100%;
@@ -56,42 +73,103 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 .exl-banner-section {
     display: flex;
     flex-direction: row;
-    align-items: center;
+    align-items: flex-start;
+    flex-wrap: wrap;
     gap: 6px;
     min-width: 0;
     flex-shrink: 0;
-    height: 100%;
+    height: auto;
     padding: 0 8px;
     border-right: 1px solid rgba(255, 255, 255, 0.1);
+    position: relative;
+    max-height: none;
+    overflow: visible;
+    transition: max-height 0.25s ease, padding-bottom 0.2s ease;
 }
 
 .exl-banner-section:last-child {
     border-right: none;
 }
 
-.exl-banner-label {
-    font-size: 10px;
+#exl-persistent-banner.exl-banner-tight .exl-banner-section,
+#exl-persistent-banner.exl-banner-hovering .exl-banner-section:not(.exl-section-expanded) {
+    max-height: var(--exl-banner-collapsed-height);
+    overflow: hidden;
+}
+
+.exl-banner-section.exl-overflow {
+    overflow: hidden;
+}
+
+.exl-banner-section.exl-overflow::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 18px;
+    background: linear-gradient(180deg, rgba(26, 26, 46, 0) 0%, rgba(22, 33, 62, 0.95) 100%);
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.2s ease;
+}
+
+#exl-persistent-banner .exl-banner-section.exl-section-expanded,
+#exl-persistent-banner.exl-banner-tight .exl-banner-section.exl-overflow:hover,
+#exl-persistent-banner.exl-banner-hovering .exl-banner-section.exl-overflow:hover {
+    max-height: var(--exl-banner-expanded-height);
+    overflow: visible;
+    padding-bottom: 8px;
+}
+
+.exl-banner-section.exl-section-expanded::after,
+.exl-banner-section.exl-overflow:hover::after {
+    opacity: 0;
+}
+
+.exl-section-label {
+    font-size: 9px;
     text-transform: uppercase;
-    letter-spacing: 0.3px;
-    color: #a0a0a0;
+    letter-spacing: 0.35px;
+    color: rgba(255, 255, 255, 0.65);
     font-weight: 600;
     white-space: nowrap;
-    margin-right: 4px;
+}
+
+.exl-page-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 4px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    min-width: 60px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.exl-case-pill {
+    background-color: rgba(0, 112, 210, 0.25);
+    border-color: rgba(0, 112, 210, 0.45);
 }
 
 /* Page info section */
 .exl-banner-page-info {
     flex: 0 0 auto;
     min-width: auto;
+    flex-direction: column;
+    gap: 2px;
 }
 
 .exl-banner-page-type {
     font-size: 13px;
     font-weight: 700;
-    padding: 4px 10px;
-    border-radius: 3px;
-    background-color: rgba(255, 255, 255, 0.1);
-    border-left: 3px solid #0070d2;
+    padding: 4px 14px;
+    border-radius: 999px;
+    border-left: none;
     white-space: nowrap;
 }
 
@@ -138,28 +216,172 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 
 /* Metadata section */
 .exl-banner-metadata {
-    flex: 0 1 auto;
-    min-width: auto;
+    flex: 0 1 25%;
+    min-width: 240px;
+    max-width: 25%;
 }
 
 .exl-banner-metadata-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto;
+    gap: 6px 12px;
+    width: 100%;
+    align-items: stretch;
+}
+
+.exl-metadata-primary {
     display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    grid-row: 1 / span 2;
+}
+
+/* Style case number to match history items */
+.exl-case-pill {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+    border-left: 2px solid var(--status-color, rgba(0, 112, 210, 0.5));
+    font-size: 11px;
+    font-weight: 600;
+    color: #ffffff;
+    white-space: nowrap;
+    min-height: 26px;
+    transition: all 0.2s ease;
+    cursor: default;
+}
+
+.exl-case-pill:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-left-color: var(--status-color, #0070d2);
+}
+
+/* Status-based colors for case number (matching history items) */
+.exl-case-pill[data-status-category="red"] {
+    --status-color: rgb(107, 9, 40);
+}
+
+.exl-case-pill[data-status-category="orange"] {
+    --status-color: rgb(103, 28, 1);
+}
+
+.exl-case-pill[data-status-category="purple"] {
+    --status-color: rgb(60, 29, 107);
+}
+
+.exl-case-pill[data-status-category="green"] {
+    --status-color: rgb(0, 60, 0);
+}
+
+.exl-case-pill[data-status-category="blue"] {
+    --status-color: rgb(8, 50, 104);
+}
+
+.exl-case-pill[data-status-category="yellow"] {
+    --status-color: rgb(105, 58, 3);
+}
+
+.exl-case-pill[data-status-category="gray"] {
+    --status-color: rgb(103, 103, 103);
+}
+
+.exl-metadata-body {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    align-items: flex-start;
     flex-wrap: nowrap;
-    gap: 10px;
-    padding: 0;
-    background-color: transparent;
-    border-radius: 0;
+}
+
+.exl-metadata-fields {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(120px, 1fr));
+    grid-auto-rows: auto;
+    gap: 4px 12px;
+    align-content: start;
+}
+
+.exl-metadata-issue {
+    flex: 0 0 32%;
+    max-width: 32%;
+    min-width: 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 10px;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-left: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+}
+
+.exl-banner-metadata .exl-metadata-more-hint {
+    display: none;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.65);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    align-items: center;
+    gap: 4px;
 }
 
 .exl-banner-meta-item {
-    font-size: 11px;
+    font-size: 10px;
     color: #d0d0d0;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.3;
+    transition: color 0.2s ease;
 }
 
 .exl-banner-meta-item strong {
     color: #ffffff;
-    margin-left: 0px;
+    margin-left: 4px;
+    font-weight: 500;
+}
+
+.exl-banner-meta-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.exl-metadata-issue strong,
+#exl-banner-issue {
+    display: block;
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.35;
+    margin-left: 0;
+    color: #ffffff;
+    max-height: none;
+}
+
+.exl-banner-tight .exl-banner-metadata:not(.exl-section-expanded) {
+    flex: 0 0 30%;
+    min-width: 30%;
+    max-width: 30%;
+}
+
+.exl-banner-tight .exl-banner-metadata:not(.exl-section-expanded) .exl-meta-extra-field,
+.exl-banner-tight .exl-banner-metadata:not(.exl-section-expanded) .exl-metadata-issue {
+    display: none;
+}
+
+.exl-banner-tight .exl-banner-metadata:not(.exl-section-expanded) .exl-metadata-more-hint {
+    display: inline-flex;
+}
+
+.exl-banner-tight .exl-banner-metadata:not(.exl-section-expanded) .exl-metadata-fields {
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
 }
 
 /* Actions section */
@@ -167,7 +389,28 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     flex: 0 0 auto;
     flex-direction: row;
     align-items: center;
+    gap: 8px;
+}
+
+.exl-actions-toggle {
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+.exl-actions-list {
+    display: flex;
+    flex-wrap: nowrap;
     gap: 6px;
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-width 0.3s ease, opacity 0.2s ease;
+}
+
+.exl-banner-actions.exl-section-expanded .exl-actions-list {
+    max-width: 500px;
+    opacity: 1;
 }
 
 .exl-banner-btn {
@@ -200,6 +443,9 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     flex: 0 1 auto;
     min-width: auto;
     max-width: none;
+    flex-direction: column;
+    gap: 4px;
+    position: relative;
 }
 
 .exl-banner-history-list {
@@ -212,6 +458,38 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     padding: 0;
     background-color: transparent;
     border-radius: 0;
+    transition: flex-direction 0.2s ease;
+}
+
+/* When history section is hovered, stack items vertically */
+.exl-banner-history:hover .exl-banner-history-list {
+    flex-direction: column;
+    gap: 4px;
+    max-height: 21rem; /* 3 items × 7rem */
+    overflow-y: auto;
+    overflow-x: hidden;
+    align-items: stretch;
+    padding-right: 4px; /* Space for scrollbar */
+}
+
+/* Smooth scrollbar for expanded history */
+.exl-banner-history:hover .exl-banner-history-list::-webkit-scrollbar {
+    display: block;
+    width: 4px;
+}
+
+.exl-banner-history:hover .exl-banner-history-list::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 2px;
+}
+
+.exl-banner-history:hover .exl-banner-history-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+}
+
+.exl-banner-history:hover .exl-banner-history-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
 }
 
 .exl-banner-history-placeholder {
@@ -229,14 +507,54 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     background-color: rgba(255, 255, 255, 0.05);
     border-radius: 3px;
     cursor: pointer;
-    transition: all 0.15s ease;
-    border-left: 2px solid transparent;
+    transition: all 0.2s ease;
+    border-left: 2px solid var(--status-color, rgba(0, 112, 210, 0.5));
     white-space: nowrap;
+    position: relative;
+    overflow: hidden;
+    min-height: 26px;
+    max-height: 26px;
+}
+
+/* Expanded state when history section is hovered */
+.exl-banner-history:hover .exl-banner-history-item {
+    flex-direction: column;
+    align-items: flex-start;
+    white-space: normal;
+    max-height: 7rem;
+    min-height: auto;
+    padding: 6px 8px;
+    border-left-width: 3px;
 }
 
 .exl-banner-history-item:hover {
     background-color: rgba(255, 255, 255, 0.15);
-    border-left-color: #0070d2;
+    border-left-color: var(--status-color, #0070d2);
+}
+
+/* Collapsed content (default visible) */
+.exl-history-item-collapsed-content {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: 100%;
+}
+
+/* Expanded content (hidden by default, shown on hover) */
+.exl-history-item-expanded-content {
+    display: none;
+    width: 100%;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Show expanded content when history section is hovered */
+.exl-banner-history:hover .exl-history-item-collapsed-content {
+    display: none;
+}
+
+.exl-banner-history:hover .exl-history-item-expanded-content {
+    display: flex;
 }
 
 .exl-history-number {
@@ -246,30 +564,114 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: rgba(0, 112, 210, 0.3);
+    background-color: var(--status-color, rgba(0, 112, 210, 0.3));
     border-radius: 50%;
     font-size: 10px;
     font-weight: 700;
     color: #ffffff;
 }
 
-.exl-history-type {
+.exl-history-case-number {
     flex: 0 0 auto;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 600;
-    color: #a0d8f7;
-    text-transform: uppercase;
-    min-width: 50px;
+    color: #ffffff;
 }
 
-.exl-history-details {
-    flex: 0 1 auto;
-    font-size: 11px;
+.exl-history-instcode {
+    flex: 0 0 auto;
+    font-size: 10px;
+    font-weight: 500;
+    color: #a0d8f7;
+    opacity: 0.8;
+}
+
+/* Expanded content styles */
+.exl-history-item-header {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: 100%;
+    margin-bottom: 4px;
+}
+
+.exl-history-item-body {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    width: 100%;
+    overflow: hidden;
+}
+
+.exl-history-subject,
+.exl-history-issue {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 10px;
+    line-height: 1.3;
+}
+
+.exl-history-label {
+    font-weight: 600;
+    color: #a0d8f7;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.exl-history-value {
     color: #d0d0d0;
-    white-space: nowrap;
+    font-size: 10px;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 200px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.3;
+}
+
+.exl-history-subject .exl-history-value {
+    -webkit-line-clamp: 1;
+}
+
+.exl-history-issue .exl-history-value {
+    -webkit-line-clamp: 2;
+}
+
+/* Status-based accent colors */
+.exl-banner-history-item[data-status-category="red"] {
+    --status-color: rgb(107, 9, 40);
+}
+
+.exl-banner-history-item[data-status-category="orange"] {
+    --status-color: rgb(103, 28, 1);
+}
+
+.exl-banner-history-item[data-status-category="purple"] {
+    --status-color: rgb(60, 29, 107);
+}
+
+.exl-banner-history-item[data-status-category="green"] {
+    --status-color: rgb(0, 60, 0);
+}
+
+.exl-banner-history-item[data-status-category="blue"] {
+    --status-color: rgb(8, 50, 104);
+}
+
+.exl-banner-history-item[data-status-category="yellow"] {
+    --status-color: rgb(105, 58, 3);
+}
+
+.exl-banner-history-item[data-status-category="gray"] {
+    --status-color: rgb(103, 103, 103);
+}
+
+/* Message width constraint */
+#exl-banner-messages {
+    flex: 0 1 25%;
+    max-width: 25%;
 }
 
 /* Scrollbar styling for history */
@@ -300,23 +702,32 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
         gap: 10px;
         padding: 0 10px;
     }
-    
-    .exl-history-details {
-        max-width: 150px;
-    }
+
 }
 
 @media (max-width: 1024px) {
     .exl-banner-section {
         padding: 0 6px;
     }
-    
-    .exl-history-details {
-        max-width: 120px;
+
+    .exl-banner-metadata {
+        flex: 1 1 100%;
+        max-width: 100%;
     }
-    
-    .exl-banner-metadata-grid {
-        gap: 8px;
+
+    .exl-metadata-body {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .exl-metadata-fields {
+        grid-template-columns: repeat(2, minmax(140px, 1fr));
+    }
+
+    .exl-metadata-issue {
+        flex: 0 0 auto;
+        max-width: 100%;
+        width: 100%;
     }
 }
 
@@ -326,6 +737,7 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
         transform: translateX(400px);
         opacity: 0;
     }
+
     to {
         transform: translateX(0);
         opacity: 1;
@@ -337,23 +749,22 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
         transform: translateX(0);
         opacity: 1;
     }
+
     to {
         transform: translateX(400px);
         opacity: 0;
     }
 }
 
-/* Environment toggle button styles */
-.exl-banner-env-toggle {
-    display: flex;
+/* Environment section */
+.exl-banner-env {
+    flex: 0 0 auto;
     flex-direction: row;
     align-items: center;
-    gap: 6px;
-    flex: 0 0 auto;
-    min-width: auto;
+    gap: 8px;
 }
 
-.exl-banner-env-toggle-btn {
+.exl-env-toggle {
     background-color: #0070d2;
     color: #ffffff;
     border: none;
@@ -368,31 +779,28 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     line-height: 1;
 }
 
-.exl-banner-env-toggle-btn:hover {
+.exl-env-toggle:hover {
     background-color: #005fb2;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
-.exl-banner-env-toggle-btn:active {
+.exl-env-toggle:active {
     background-color: #00396b;
 }
 
-/* Environment buttons styles */
-.exl-banner-environment {
+.exl-env-list {
     display: flex;
-    flex-direction: row;
-    align-items: center;
+    flex-wrap: nowrap;
     gap: 6px;
-    flex: 0 0 auto;
-    min-width: auto;
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-width 0.3s ease, opacity 0.2s ease;
 }
 
-.exl-env-buttons-container {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
+.exl-banner-env.exl-section-expanded .exl-env-list {
+    max-width: 800px;
+    opacity: 1;
 }
 
 .exl-env-btn {
@@ -443,6 +851,7 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     align-items: center;
     gap: 12px;
     justify-content: space-between;
+    flex-wrap: wrap;
 }
 
 .exl-banner-message-content {
@@ -453,7 +862,8 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     justify-content: center;
     gap: 0;
     padding: 0 8px;
-    max-width: calc(100% - 120px); /* Reserve space for navigation */
+    max-width: calc(100% - 120px);
+    /* Reserve space for navigation */
 }
 
 .message-line {
@@ -533,4 +943,287 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     min-width: 40px;
     text-align: center;
     padding: 0 4px;
+}
+
+/* Hover image popup */
+.exl-hover-image-popup {
+    position: fixed;
+    z-index: 10000;
+    background: #ffffff;
+    border: 2px solid #0070d2;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    padding: 8px;
+    max-width: 400px;
+    max-height: 400px;
+    pointer-events: none;
+}
+
+.exl-hover-image-popup img {
+    max-width: 100%;
+    max-height: 100%;
+    display: block;
+    border-radius: 2px;
+}
+
+/* Context menu */
+.exl-message-context-menu {
+    position: fixed;
+    z-index: 10001;
+    background: #ffffff;
+    border: 1px solid #d0d0d0;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    min-width: 180px;
+    padding: 4px 0;
+    font-size: 13px;
+}
+
+.exl-context-menu-item {
+    padding: 8px 16px;
+    cursor: pointer;
+    color: #333333;
+    transition: background-color 0.15s ease;
+}
+
+.exl-context-menu-item:hover {
+    background-color: #f0f0f0;
+}
+
+/* Edit message modal */
+.exl-edit-message-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10002;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.exl-modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.exl-modal-content {
+    position: relative;
+    background: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    max-width: 400px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    z-index: 1;
+}
+
+.exl-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.exl-modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #333333;
+}
+
+.exl-modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    color: #666666;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 0.15s ease;
+}
+
+.exl-modal-close:hover {
+    background-color: #f0f0f0;
+}
+
+.exl-modal-body {
+    padding: 16px;
+}
+
+.exl-modal-body label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #333333;
+    font-size: 13px;
+}
+
+.exl-modal-body textarea {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #d0d0d0;
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: inherit;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+.exl-modal-body textarea:focus {
+    outline: none;
+    border-color: #0070d2;
+    box-shadow: 0 0 0 2px rgba(0, 112, 210, 0.1);
+}
+
+.exl-hover-image-preview {
+    margin-top: 12px;
+    padding: 8px;
+    background: #f5f5f5;
+    border-radius: 4px;
+}
+
+.exl-hover-image-preview img {
+    max-width: 100%;
+    max-height: 200px;
+    display: block;
+    border-radius: 2px;
+}
+
+.exl-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 16px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.exl-btn-primary,
+.exl-btn-secondary {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.exl-btn-primary {
+    background: #0070d2;
+    color: #ffffff;
+}
+
+.exl-btn-primary:hover {
+    background: #005fb2;
+}
+
+.exl-btn-secondary {
+    background: #f0f0f0;
+    color: #333333;
+}
+
+.exl-btn-secondary:hover {
+    background: #e0e0e0;
+}
+
+/* View image modal */
+.exl-view-image-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10002;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.exl-view-image-modal .exl-modal-content.exl-image-content {
+    max-width: 90%;
+    max-height: 90%;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.exl-view-image-modal .exl-modal-close {
+    align-self: flex-end;
+    margin-bottom: 8px;
+}
+
+.exl-view-image-modal img {
+    max-width: 100%;
+    max-height: calc(90vh - 80px);
+    border-radius: 4px;
+}
+
+/* Collapsible section for case pages */
+.exl-banner-collapse-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 3px;
+    transition: background-color 0.15s ease;
+    flex: 0 0 auto;
+}
+
+.exl-banner-collapse-toggle:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.exl-banner-collapse-arrow {
+    font-size: 12px;
+    color: #ffffff;
+    font-weight: 600;
+    user-select: none;
+}
+
+.exl-banner-collapse-arrow.up {
+    transform: rotate(0deg);
+}
+
+.exl-banner-collapse-arrow.down {
+    transform: rotate(180deg);
+}
+
+/* Case page collapsible layout */
+.exl-banner-case-collapsible {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.exl-banner-case-collapsible .exl-banner-metadata {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.exl-banner-case-collapsible .exl-banner-messages {
+    flex: 0 0 25%;
+    max-width: 25%;
+    min-width: 0;
+}
+
+@media (max-width: 1024px) {
+    .exl-banner-case-collapsible .exl-banner-messages {
+        flex: 0 0 30%;
+        max-width: 30%;
+    }
 }
