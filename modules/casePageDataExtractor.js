@@ -211,7 +211,8 @@ const CasePageDataExtractor = {
   },
 
   /**
-   * Wait for page elements to be present
+   * Wait for visible page elements to be present
+   * Checks for visible elements to ensure we wait for actual page content, not hidden/cached DOM nodes
    * @returns {Promise<void>}
    */
   waitForPageLoad(token = null) {
@@ -226,11 +227,33 @@ const CasePageDataExtractor = {
         }
 
         attempts++;
-        const hasRecordLayout = document.querySelector('records-record-layout-item');
-        const hasFlexipageField = document.querySelector('flexipage-field');
+        
+        // Check for visible record layout items
+        let hasVisibleRecordLayout = false;
+        const recordLayoutCandidates = document.querySelectorAll('records-record-layout-item');
+        if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+          hasVisibleRecordLayout = CaseDomUtils.getFirstVisibleElement(recordLayoutCandidates) !== null;
+        } else if (recordLayoutCandidates.length > 0) {
+          // Fallback: if CaseDomUtils not available, check first candidate
+          hasVisibleRecordLayout = recordLayoutCandidates.length > 0;
+        }
+        
+        // Check for visible flexipage fields
+        let hasVisibleFlexipageField = false;
+        const flexipageCandidates = document.querySelectorAll('flexipage-field');
+        if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+          hasVisibleFlexipageField = CaseDomUtils.getFirstVisibleElement(flexipageCandidates) !== null;
+        } else if (flexipageCandidates.length > 0) {
+          // Fallback: if CaseDomUtils not available, check first candidate
+          hasVisibleFlexipageField = flexipageCandidates.length > 0;
+        }
 
-        if (hasRecordLayout || hasFlexipageField || attempts >= maxAttempts) {
-          console.log('[CasePageDataExtractor] Page elements ready (attempt ' + attempts + ')');
+        if (hasVisibleRecordLayout || hasVisibleFlexipageField || attempts >= maxAttempts) {
+          if (hasVisibleRecordLayout || hasVisibleFlexipageField) {
+            console.log('[CasePageDataExtractor] Visible page elements ready (attempt ' + attempts + ')');
+          } else {
+            console.log('[CasePageDataExtractor] Max attempts reached, proceeding anyway (attempt ' + attempts + ')');
+          }
           resolve();
         } else {
           setTimeout(checkElements, 200);
