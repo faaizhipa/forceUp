@@ -57,7 +57,7 @@ All modules log initialization:
 [Logger] Logger initialized
 [ExLibris Extension] SettingsManager initialized
 [ExLibris Extension] CustomerDataManager initialized
-[ExLibris Extension] CacheManager initialized
+[ExLibris Extension] CaseContextWatcher initialized
 [NavigationObserver] Started navigation monitoring
 [PageIdentifier] Page identified: { type: 'case_page', caseId: '...' }
 ```

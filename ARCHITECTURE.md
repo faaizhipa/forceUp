@@ -46,6 +46,14 @@ content_script_exlibris.js (Main Controller)
             │   └─► Monitors URL changes
             │   └─► Detects page type
             │
+            ├─► CaseContextWatcher
+            │   └─► Waits 500 ms post-navigation and confirms caseId/caseNumber from head
+            │   └─► Emits context changes to subscribers
+            │
+            ├─► CaseDataStore
+            │   └─► Keeps the current case payload in memory
+            │   └─► Broadcasts updates to PersistentBanner & tools
+            │
             ├─► CaseDataExtractor
             │   └─► Reads Salesforce fields
             │   └─► Derives computed values
@@ -90,21 +98,20 @@ content_script_exlibris.js (Main Controller)
    ├─► Returns: {type: "case_page", caseId: "500QO..."}
    │
    ▼
-3. ExLibrisExtension.handlePageChange()
+3. CaseContextWatcher (+ CaseDataStore)
    │
-   ├─► Checks cache for case data
-   │   │
-   │   ├─ Cache HIT: Check if last_modified matches
-   │   │   │
-   │   │   ├─ MATCH: Use cached data ✓
-   │   │   └─ NO MATCH: Extract fresh data
-   │   │
-   │   └─ Cache MISS: Extract fresh data
+   ├─► Wait 500ms for Lightning head to settle
+   │   └─► document.title + window.location.href → {caseId, caseNumber}
+   │
+   └─► CaseDataStore checked for in-memory payload (single-case)
+       │
+       ├─ HIT: Broadcast existing data to subscribers
+       └─ MISS: Trigger fresh extraction
    │
    ▼
-4. CaseDataExtractor.getData()
+4. CaseDataExtractor / CasePageDataExtractor
    │
-   ├─► Query DOM for fields:
+   ├─► Query DOM for fields (visible highlights panel selectors):
    │   ├─ Ex Libris Account #
    │   ├─ Affected Environment
    │   ├─ Product/Service Name
@@ -118,7 +125,9 @@ content_script_exlibris.js (Main Controller)
    │   └─ Server Region (uppercase, e.g., "AP")
    │
    ▼
-5. Cache case data (with last_modified as key)
+5. CaseDataStore.setCurrentData()
+   │
+   └─► Notifies PersistentBanner, FlexipagePanelInjector, controller consumers
    │
    ▼
 6. Initialize Features in Parallel
@@ -192,13 +201,10 @@ content_script_exlibris.js (Main Controller)
 │  └─────────────────────────────────────────────────────┘    │
 │                                                               │
 │  ┌─────────────────────────────────────────────────────┐    │
-│  │ caseDataCache:                                       │    │
-│  │   "500QO000001":                                     │    │
-│  │     exLibrisAccountNumber: "61SCU"                   │    │
-│  │     institutionCode: "61SCU_INST"                    │    │
-│  │     server: "ap02"                                   │    │
-│  │     serverRegion: "AP"                               │    │
-│  │     lastModifiedDate: "2025-10-14 10:30 AM"          │    │
+│  │ (Runtime) CaseDataStore                              │    │
+│  │   • In-memory only (per tab)                         │    │
+│  │   • Holds one `{caseId, caseNumber, ...}` payload    │    │
+│  │   • Cleared on navigation/context mismatch           │    │
 │  └─────────────────────────────────────────────────────┘    │
 │                                                               │
 │  ┌─────────────────────────────────────────────────────┐    │
@@ -234,6 +240,20 @@ content_script_exlibris.js (Main Controller)
 │  └─────────────────────────────────────────────────────┘    │
 └───────────────────────────────────────────────────────────────┘
 ```
+
+### Workspace Persistence & Transfer
+
+- **Workspace keys (chrome.storage.local)**:  
+  - Highlights: `exl_highlights_v{n}_<layer>_<url>` + `exl_highlighter_storage_version`  
+  - Notes: `exl_notes_v{n}_<layer>_<url>` + `exl_notes_storage_version`  
+  - Bookmarks: `exl_bookmark_collections(_v{n})`, `exl_bookmarks(_v{n})`, `exl_bookmark_storage_version`  
+  - Layers: `exl_layers_<url>`, `exl_active_layer_<url>`
+
+- **Automatic backups**: `DataMigration.createBackup()` snapshots all workspace keys into `exl_highlighter_backup_<timestamp>` whenever migrations run or the background worker handles an update. Only the latest 5 backups are retained.
+
+- **Automatic restore**: On every update, the background worker calls `DataMigration.restoreLatestBackupIfMissing()` to repopulate highlights/notes/bookmarks/layers if Chrome unexpectedly clears them.
+
+- **Export/import**: The popup export action now collects workspace data (including backups) so users can transfer their workspace between browsers. Imports clear the existing workspace keys before applying the snapshot to avoid stale collisions.
 
 ---
 

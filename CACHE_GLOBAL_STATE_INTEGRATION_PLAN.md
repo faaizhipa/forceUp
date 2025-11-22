@@ -326,12 +326,12 @@ async function shouldAcceptCacheEntry(caseId, caseNumber, data) {
   - ❌ Should NOT handle caching directly
   - ❌ Should NOT validate cache entries
 
-- **Cache Manager Module** (CacheManager)
-  - ✅ Validate identifiers
-  - ✅ Verify data integrity
-  - ✅ Handle cache storage
-  - ✅ Manage cache locks
-  - ✅ Coordinate with global state
+- **CaseContextWatcher + CaseDataStore**
+  - ✅ Validate identifiers (head-derived)
+  - ✅ Keep a single in-memory payload per tab
+  - ✅ Notify subscribers (banner, panel, controller)
+  - ❌ No chrome.storage writes
+  - ❌ No multi-case caching
 
 - **Controller/Orchestrator** (content_script_exlibris.js)
   - ✅ Coordinate extraction and caching
@@ -345,31 +345,34 @@ async function shouldAcceptCacheEntry(caseId, caseNumber, data) {
 /**
  * Recommended extraction and caching flow
  */
-async function extractAndCacheCaseData(caseId) {
-  // Step 1: Update global state (immediate)
+async function extractAndStoreCaseData(caseId) {
+  // Step 1: Wait for head confirmation
+  const context = await CaseContextWatcher.getStableContext({ requireCase: true });
+  if (!context || context.caseId !== caseId) {
+    console.warn('[Extraction] Context mismatch, aborting');
+    return null;
+  }
+
   window.ExLibrisExtension.currentCaseId = caseId;
   window.ExLibrisExtension.isExtracting = true;
   
   try {
     // Step 2: Extract data (extraction module responsibility)
-    const rawData = await CaseDataExtractor.getData();
+    const rawData = await CaseDataExtractor.getData({ force: true });
     
-    // Step 3: Extract identifiers from multiple sources
-    const identifiers = {
-      caseId: extractCaseIdFromUrl(),
-      caseNumber: extractCaseNumberFromPage(),
-      dataCaseId: rawData.caseId,
-      dataCaseNumber: rawData.caseNumber
-    };
+    // Step 3: Verify identifiers against watcher context
+    const verification = verifyCaseIdentifiers({
+      ...rawData,
+      caseId: context.caseId,
+      caseNumber: rawData.caseNumber || context.caseNumber
+    });
     
-    // Step 4: Verify identifiers
-    const verification = verifyCaseIdentifiers(rawData);
     if (!verification.valid) {
       console.error('[Extraction] Identifier verification failed:', verification.reason);
       return null;
     }
     
-    // Step 5: Ensure data contains identifiers
+    // Step 4: Normalize payload
     const normalizedData = {
       ...rawData,
       caseId: verification.caseId,
@@ -377,24 +380,10 @@ async function extractAndCacheCaseData(caseId) {
       extractedAt: Date.now()
     };
     
-    // Step 6: Validate before caching (cache manager responsibility)
-    const cacheValidation = await shouldAcceptCacheEntry(
-      verification.caseId,
-      verification.caseNumber,
-      normalizedData
-    );
+    // Step 5: Store in CaseDataStore (single-entry, in-memory)
+    await CaseDataStore.setCurrentData(normalizedData, 'extractAndStoreCaseData');
     
-    if (!cacheValidation.accept) {
-      console.warn('[Extraction] Cache validation failed:', cacheValidation.reason);
-      // Still return data for immediate use, but don't cache
-      window.ExLibrisExtension.caseToolkit.caseData = normalizedData;
-      return normalizedData;
-    }
-    
-    // Step 7: Cache validated data (cache manager responsibility)
-    await CacheManager.set(verification.caseId, normalizedData);
-    
-    // Step 8: Update global state with cached data
+    // Step 6: Update in-memory toolkit for backwards compatibility
     window.ExLibrisExtension.caseToolkit.caseData = normalizedData;
     window.ExLibrisExtension.caseToolkit.prepared = false;
     
@@ -466,11 +455,11 @@ async function extractAndCacheCaseData(caseId) {
 
 **Extraction modules should NOT:**
 
-- ❌ Call `CacheManager.set()` directly
-- ❌ Validate cache entries
-- ❌ Handle cache locks
-- ❌ Update global state (except through return values)
-- ❌ Make decisions about caching
+- ❌ Bypass `CaseContextWatcher` (never trust DOM before it resolves)
+- ❌ Write directly to `chrome.storage`
+- ❌ Maintain their own caches
+- ❌ Manage UI/global state (beyond returning data)
+- ❌ Assume persistence across cases (CaseDataStore is per-tab/per-case)
 
 ## 5. Complete Integration Pattern
 
@@ -478,86 +467,65 @@ async function extractAndCacheCaseData(caseId) {
 
 ```javascript
 /**
- * Complete pattern: Global state + Cache integration
+ * Complete pattern: Global state + CaseDataStore integration
  */
 const ExLibrisExtension = {
-  // Global State (immediate, session-only)
   currentCaseId: null,
   currentCaseNumber: null,
   currentPage: null,
   isExtracting: false,
   
-  // Validated Data (from cache or extraction)
   caseToolkit: {
     caseData: null,
     metadata: null,
     prepared: false
   },
   
-  /**
-   * Get case data with global state + cache integration
-   */
   async getCaseData(caseId, options = {}) {
     const { forceRefresh = false } = options;
     
-    // Step 1: Update global state immediately
-    this.currentCaseId = caseId;
-    const currentCaseNumber = extractCaseNumberFromPage();
-    this.currentCaseNumber = currentCaseNumber;
-    
-    // Step 2: Check global state first (fastest)
-    if (!forceRefresh && 
-        this.caseToolkit.caseData && 
-        this.caseToolkit.caseData.caseId === caseId &&
-        this.caseToolkit.caseData.caseNumber === currentCaseNumber) {
-      console.log('[Extension] Using global state data');
-      return this.caseToolkit.caseData;
+    // Step 1: Wait for CaseContextWatcher
+    const context = await CaseContextWatcher.getStableContext({ requireCase: true });
+    if (!context || context.caseId !== caseId) {
+      throw new Error('Case context mismatch');
     }
     
-    // Step 3: Check cache (persistent)
+    this.currentCaseId = context.caseId;
+    this.currentCaseNumber = context.caseNumber;
+    
+    // Step 2: Reuse CaseDataStore if possible
     if (!forceRefresh) {
-      const cached = await CacheManager.get(caseId);
-      if (cached) {
-        // Validate cached data matches current case number
-        if (cached.caseNumber === currentCaseNumber) {
-          console.log('[Extension] Using cached data');
-          this.caseToolkit.caseData = cached;
-          return cached;
-        } else {
-          console.warn('[Extension] Cached case number mismatch, invalidating');
-          await CacheManager.clear(caseId);
-        }
+      const stored = CaseDataStore.getCurrentData();
+      if (stored && stored.caseId === caseId) {
+        this.caseToolkit.caseData = stored;
+        return stored;
       }
     }
     
-    // Step 4: Extract with lock (prevents concurrent extractions)
+    // Step 3: Extract fresh data
     this.isExtracting = true;
     try {
-      const data = await CacheManager.extractWithLock(caseId, async () => {
-        // Extract data
-        const rawData = await CaseDataExtractor.getData();
-        
-        // Verify identifiers
-        const verification = verifyCaseIdentifiers(rawData);
-        if (!verification.valid) {
-          throw new Error(`Identifier verification failed: ${verification.reason}`);
-        }
-        
-        // Normalize with verified identifiers
-        return {
-          ...rawData,
-          caseId: verification.caseId,
-          caseNumber: verification.caseNumber,
-          extractedAt: Date.now()
-        };
+      const rawData = await CaseDataExtractor.getData({ force: true });
+      const verification = verifyCaseIdentifiers({
+        ...rawData,
+        caseId: context.caseId,
+        caseNumber: rawData.caseNumber || context.caseNumber
       });
       
-      // Step 5: Update global state
-      if (data) {
-        this.caseToolkit.caseData = data;
+      if (!verification.valid) {
+        throw new Error(`Identifier verification failed: ${verification.reason}`);
       }
       
-      return data;
+      const normalized = {
+        ...rawData,
+        caseId: verification.caseId,
+        caseNumber: verification.caseNumber,
+        extractedAt: Date.now()
+      };
+      
+      await CaseDataStore.setCurrentData(normalized, 'getCaseData');
+      this.caseToolkit.caseData = normalized;
+      return normalized;
     } finally {
       this.isExtracting = false;
     }
@@ -603,7 +571,7 @@ const ExLibrisExtension = {
 2. **Cache**: Use for validated, persistent data
 3. **Dual Validation**: Always validate both case ID and case number
 4. **Multi-Source Verification**: Verify identifiers from URL, DOM, and data
-5. **Separation of Concerns**: Extractors extract, CacheManager caches, Controller orchestrates
+5. **Separation of Concerns**: Extractors extract, CaseContextWatcher/CaseDataStore guard state, controller orchestrates
 6. **Identifier Consensus**: All sources must agree before caching
 7. **Data Binding**: Verify data truly belongs to claimed identifiers
 8. **Navigation Awareness**: Always check if still on correct page

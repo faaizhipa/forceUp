@@ -15,6 +15,8 @@ const CaseCommentMemory = {
   currentUrl: null,
   observers: [],
   isInitialized: false,
+  characterCounterObserver: null,
+  currentStorageKey: null,
 
   init() {
     // Prevent duplicate initialization
@@ -60,14 +62,17 @@ const CaseCommentMemory = {
       return;
     }
 
+    const resolvedIdentifier = this.resolveCaseIdentifier(caseNumber);
+
     // Cleanup previous state before handling new page
     this.cleanup();
     this.currentUrl = url;
-    this.currentCaseId = caseNumber;
+    this.currentCaseId = resolvedIdentifier || caseNumber;
+    this.currentStorageKey = null;
     
     // Determine page type and handle accordingly
     const pageType = isCommentView ? 'comment_full_view' : 'case_view';
-    await this.checkPageAndLoadMemory({ type: pageType, caseNumber });
+    await this.checkPageAndLoadMemory({ type: pageType, caseNumber: this.currentCaseId });
   },
 
   extractCaseNumber(url) {
@@ -84,6 +89,40 @@ const CaseCommentMemory = {
     const urlMatch = url.match(/\/Case\/([^\/]+)/);
     if (urlMatch) return urlMatch[1];
     return null;
+  },
+
+  getCaseIdFromUrl() {
+    const pathMatch = window.location.pathname.match(/\/Case\/([a-zA-Z0-9]{15,18})/i);
+    if (pathMatch) return pathMatch[1];
+    const lightningMatch = window.location.pathname.match(/\/lightning\/r\/Case\/([a-zA-Z0-9]{15,18})/i);
+    if (lightningMatch) return lightningMatch[1];
+    return null;
+  },
+
+  resolveCaseIdentifier(fallback) {
+    const caseId = this.getCaseIdFromUrl();
+    if (caseId && caseId !== fallback) {
+      console.log(`[CaseCommentMemory] Using case ID from URL (${caseId}) instead of fallback (${fallback})`);
+      return caseId;
+    }
+    return fallback;
+  },
+
+  async resolveHistory(caseIdentifier) {
+    const allData = await this.getAllData();
+    const urlCaseId = this.getCaseIdFromUrl();
+    const candidates = [];
+    if (urlCaseId) candidates.push(urlCaseId);
+    if (caseIdentifier && !candidates.includes(caseIdentifier)) {
+      candidates.push(caseIdentifier);
+    }
+    for (const key of candidates) {
+      if (key && allData[key]) {
+        return { key, history: allData[key] };
+      }
+    }
+    const primaryKey = candidates[0] || caseIdentifier || urlCaseId || null;
+    return { key: primaryKey, history: primaryKey && allData[primaryKey] ? allData[primaryKey] : [] };
   },
 
   async checkPageAndLoadMemory(pageInfo) {
@@ -208,8 +247,147 @@ const CaseCommentMemory = {
     return rect.width > 0 && rect.height > 0;
   },
 
+  findCaseCommentsContainer() {
+    const explicitTableSelector = '#tab-12 > slot > flexipage-component2:nth-child(2) > slot > lst-related-list-single-container > laf-progressive-container > slot > lst-related-list-single-aura-wrapper > div > div > div > div > div > div > div.slds-col.slds-no-space.forceListViewManagerPrimaryDisplayManager > div.autoHeight.col-3-wrap.hideSelection.forceListViewManagerGrid > div.listViewContent.slds-table--header-fixed_container.slds-table_header-fixed_container > div.uiScroller.scroller-wrapper.scroll-bidirectional.native > div > div > table';
+    const explicitTable = document.querySelector(explicitTableSelector);
+    if (explicitTable && this.isElementVisible(explicitTable)) {
+      return explicitTable.closest('div.forceListViewManager') ||
+             explicitTable.closest('lst-related-list-single-container') ||
+             explicitTable.closest('.slds-card') ||
+             explicitTable.parentElement;
+    }
+
+    const selectors = [
+      'div.forceListViewManager',
+      'div.test-listViewManager',
+      'lst-list-view-manager',
+      'lst-related-list-single-container',
+      'div.forceRelatedListSingleContainer',
+      'div[aria-label*="Case Comments"]',
+      '.related_list_container[id*="CaseComments"]',
+      '.slds-card',
+      '.listViewContent'
+    ];
+
+    const matchesCaseComments = (element) => {
+      if (!element) return false;
+      const sources = [
+        element.getAttribute('title'),
+        element.getAttribute('aria-label'),
+        element.getAttribute('data-label'),
+        element.textContent ? element.textContent.substring(0, 500) : ''
+      ].filter(Boolean).map(str => str.trim().toLowerCase());
+      return sources.some(text => text.includes('case comments'));
+    };
+
+    for (const selector of selectors) {
+      const candidates = document.querySelectorAll(selector);
+      for (const candidate of candidates) {
+        if (!this.isElementVisible(candidate)) continue;
+        if (matchesCaseComments(candidate)) {
+          return candidate;
+        }
+      }
+    }
+
+    return null;
+  },
+
+  findCaseCommentsActionContainer(container = null) {
+    const root = container || this.findCaseCommentsContainer();
+    if (!root) return null;
+
+    const selectors = [
+      '.branding-actions.slds-button-group',
+      '.actionsWrapper .branding-actions',
+      '.slds-button-group.forceActionsContainer',
+      '.slds-button-group[data-target-selection-name]',
+      '.slds-card__header .slds-button-group',
+      '.slds-page-header .slds-button-group',
+      'lst-list-view-manager-header .slds-button-group'
+    ];
+
+    const searchRoots = [
+      root,
+      root.parentElement,
+      root.closest('.slds-card'),
+      root.closest('.container'),
+      root.closest('flexipage-component2')
+    ].filter(Boolean);
+
+    for (const searchRoot of searchRoots) {
+      for (const selector of selectors) {
+        const nodes = searchRoot.querySelectorAll(selector);
+        for (const node of nodes) {
+          if (!this.isElementVisible(node)) continue;
+          return node;
+        }
+      }
+    }
+
+    return null;
+  },
+
+  findCaseCommentsLayoutContext() {
+    const container = this.findCaseCommentsContainer();
+    if (!container) return null;
+    const textarea = this.getTextarea();
+    const buttonContainer = this.findCaseCommentsActionContainer(container);
+    if (textarea && this.isElementVisible(textarea) && buttonContainer) {
+      return { container, textarea, buttonContainer };
+    }
+    return null;
+  },
+
+  async trySetupFromCharacterCounter(caseNumber) {
+    const counter = document.querySelector('.case-comment-character-counter');
+    if (counter && this.isElementVisible(counter)) {
+      await this.setupFromCharacterCounter(counter, caseNumber);
+      return true;
+    }
+
+    if (this.characterCounterObserver) {
+      this.characterCounterObserver.disconnect();
+    }
+
+    this.characterCounterObserver = new MutationObserver(async () => {
+      const detected = document.querySelector('.case-comment-character-counter');
+      if (detected && this.isElementVisible(detected)) {
+        if (this.characterCounterObserver) {
+          this.characterCounterObserver.disconnect();
+          this.characterCounterObserver = null;
+        }
+        await this.setupFromCharacterCounter(detected, caseNumber);
+      }
+    });
+
+    this.characterCounterObserver.observe(document.body, { childList: true, subtree: true });
+    return false;
+  },
+
+  async setupFromCharacterCounter(counterElement, caseNumber) {
+    const lightningButton = counterElement.closest('lightning-button') || counterElement.parentElement;
+    const addNewButton = lightningButton?.querySelector('button');
+    const layoutContext = {
+      textarea: this.getTextarea(),
+      buttonContainer: lightningButton || counterElement.parentElement || this.findCaseCommentsActionContainer()
+    };
+
+    if (!layoutContext.buttonContainer) {
+      console.warn('[CaseCommentMemory] Character counter detected but no button container found');
+      return;
+    }
+
+    console.log('[CaseCommentMemory] Character counter detected, initializing restore button via counter context');
+    await this.handleAddNewCommentButton(caseNumber, addNewButton || null, layoutContext);
+  },
+
   async findButtonsAndAttachObserver(caseNumber) {
     console.log('[CaseCommentMemory] Step 4: Finding buttons');
+
+    if (await this.trySetupFromCharacterCounter(caseNumber)) {
+      return;
+    }
     
     // Check for "Create new..." button (with visibility check)
     let createNewButton = null;
@@ -254,14 +432,23 @@ const CaseCommentMemory = {
     if (addNewCommentButton) {
       console.log('[CaseCommentMemory] Found Add New Comment button');
       await this.handleAddNewCommentButton(caseNumber, addNewCommentButton);
-    } else {
-      console.warn('[CaseCommentMemory] No visible buttons found, will retry');
-      setTimeout(() => this.findButtonsAndAttachObserver(caseNumber), 1000);
+      return;
     }
+
+    const layoutContext = this.findCaseCommentsLayoutContext();
+    if (layoutContext) {
+      console.log('[CaseCommentMemory] Using Case Comments layout context as fallback');
+      await this.handleAddNewCommentButton(caseNumber, null, layoutContext);
+      return;
+    }
+
+    console.warn('[CaseCommentMemory] No visible buttons found, will retry');
+    setTimeout(() => this.findButtonsAndAttachObserver(caseNumber), 1000);
   },
 
   findAddNewCommentButton() {
-    const buttons = document.querySelectorAll('button[type="submit"]');
+    const scope = this.findCaseCommentsContainer() || document;
+    const buttons = scope.querySelectorAll('button[type="submit"], lightning-button button');
     for (const button of buttons) {
       if (this.isElementVisible(button) && button.textContent.includes('Add New Comment')) {
         return button;
@@ -288,8 +475,9 @@ const CaseCommentMemory = {
     console.log('[CaseCommentMemory] Observer attached to button');
   },
 
-  async handleAddNewCommentButton(caseNumber, addNewButton) {
-    const textarea = this.getTextarea();
+  async handleAddNewCommentButton(caseNumber, addNewButton, layoutContext = null) {
+    const context = layoutContext || this.findCaseCommentsLayoutContext();
+    const textarea = context?.textarea || this.getTextarea();
     if (!textarea) {
       console.warn('[CaseCommentMemory] Textarea not found');
       return;
@@ -299,17 +487,23 @@ const CaseCommentMemory = {
       return;
     }
     textarea.dataset.caseCommentMemoryInitialized = 'true';
-    console.log('[CaseCommentMemory] Setting up character count and restore button');
-    this.insertCharacterCounter(textarea);
-    const history = await this.getHistory(caseNumber);
+    const resolvedCaseId = this.resolveCaseIdentifier(caseNumber) || caseNumber;
+    console.log('[CaseCommentMemory] Preparing restore controls');
+    const buttonContainer = this.getButtonContainer(textarea, addNewButton, context);
+    if (!buttonContainer) {
+      console.warn('[CaseCommentMemory] Unable to locate button container');
+      return;
+    }
+    this.ensureButtonContainerLayout(buttonContainer);
+    const history = await this.getHistory(resolvedCaseId, true);
     if (history.length > 0) {
       console.log(`[CaseCommentMemory] Memory exists (${history.length} entries)`);
-      await this.addRestoreButton(caseNumber, addNewButton);
+      await this.addRestoreButton(resolvedCaseId, buttonContainer);
     } else {
       console.log('[CaseCommentMemory] No memory exists');
-      this.addDisabledRestoreButton(addNewButton);
+      this.addDisabledRestoreButton(buttonContainer);
     }
-    await this.monitorTextarea(caseNumber, textarea);
+    await this.monitorTextarea(resolvedCaseId, textarea);
   },
 
   getTextarea() {
@@ -318,42 +512,73 @@ const CaseCommentMemory = {
            document.querySelector('textarea[id*=\"input-\"]');
   },
 
-  insertCharacterCounter(textarea) {
-    if (document.querySelector('.exl-character-counter')) {
-      console.log('[CaseCommentMemory] Character counter already exists');
-      return;
+  getButtonContainer(textarea, actionButton, layoutContext) {
+    if (layoutContext?.buttonContainer) {
+      return layoutContext.buttonContainer;
     }
-    const buttonContainer = textarea.closest('.slds-form-element__control')?.nextElementSibling ||
-                           textarea.parentElement?.querySelector('.slds-col_bump-left');
-    if (!buttonContainer) {
-      console.warn('[CaseCommentMemory] Could not find button container');
-      return;
+    if (actionButton && actionButton.parentElement) {
+      return actionButton.parentElement;
     }
-    const counter = document.createElement('div');
-    counter.className = 'exl-character-counter';
-    counter.style.cssText = 'margin-left: 10px; font-size: 12px; color: #706e6b;';
-    counter.textContent = `Characters: ${textarea.value.length}`;
-    buttonContainer.insertBefore(counter, buttonContainer.firstChild);
-    
-    // Debounce counter updates to avoid excessive DOM manipulation
-    const updateCounter = DebounceUtils.throttle(() => {
-      counter.textContent = `Characters: ${textarea.value.length}`;
-    }, 100); // Update at most every 100ms
-    
-    textarea.addEventListener('input', updateCounter);
-    console.log('[CaseCommentMemory] Character counter inserted');
+    const fallback =
+      textarea.closest('.slds-form-element__control')?.nextElementSibling ||
+      textarea.parentElement?.querySelector('.slds-col_bump-left') ||
+      textarea.closest('.slds-grid')?.querySelector('.slds-grid_align-end') ||
+      textarea.parentElement?.parentElement ||
+      textarea.parentElement;
+
+    if (fallback) {
+      return fallback;
+    }
+
+    return this.findCaseCommentsActionContainer();
   },
 
-  addDisabledRestoreButton(addNewButton) {
-    if (document.querySelector('.exl-restore-button')) return;
-    const buttonContainer = addNewButton.parentElement;
-    const restoreBtn = document.createElement('button');
-    restoreBtn.type = 'button';
-    restoreBtn.className = 'slds-button slds-button_neutral exl-restore-button';
-    restoreBtn.textContent = 'Restore Comment';
-    restoreBtn.disabled = true;
-    restoreBtn.style.marginLeft = '8px';
-    buttonContainer.insertBefore(restoreBtn, addNewButton);
+  ensureButtonContainerLayout(container) {
+    if (!container || container.tagName === 'UL' || container.tagName === 'OL') return;
+    const computed = window.getComputedStyle(container);
+    if (computed.display !== 'flex') {
+      container.style.display = 'flex';
+      container.style.alignItems = 'center';
+      container.style.gap = '8px';
+    }
+  },
+
+  createRestoreButtonElements(buttonContainer) {
+    const isList = buttonContainer && (buttonContainer.tagName === 'UL' || buttonContainer.tagName === 'OL');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'slds-button slds-button_neutral exl-restore-button';
+    button.style.marginLeft = isList ? '0' : '8px';
+
+    let wrapper;
+    if (isList) {
+      wrapper = document.createElement('li');
+      wrapper.className = 'slds-button slds-button_neutral exl-restore-button-wrapper';
+      wrapper.appendChild(button);
+    } else {
+      wrapper = button;
+      wrapper.classList.add('exl-restore-button-wrapper');
+    }
+
+    return { wrapper, button };
+  },
+
+  insertRestoreElement(buttonContainer, element) {
+    if (!buttonContainer || !element) return;
+    if (buttonContainer.firstChild) {
+      buttonContainer.insertBefore(element, buttonContainer.firstChild);
+    } else {
+      buttonContainer.appendChild(element);
+    }
+  },
+
+  addDisabledRestoreButton(buttonContainer) {
+    if (!buttonContainer) return;
+    if (buttonContainer.querySelector('.exl-restore-button-wrapper')) return;
+    const { wrapper, button } = this.createRestoreButtonElements(buttonContainer);
+    button.textContent = 'Restore Comment';
+    button.disabled = true;
+    this.insertRestoreElement(buttonContainer, wrapper);
     console.log('[CaseCommentMemory] Disabled restore button added');
   },
 
@@ -460,19 +685,24 @@ const CaseCommentMemory = {
 
   async saveToHistory(caseNumber, text) {
     if (!text.trim()) return;
+    const caseKey = this.currentStorageKey || this.resolveCaseIdentifier(caseNumber) || caseNumber;
+    if (!caseKey) return;
     const allData = await this.getAllData();
-    if (!allData[caseNumber]) allData[caseNumber] = [];
-    allData[caseNumber].unshift({ text: text, timestamp: Date.now(), id: Date.now().toString() });
-    if (allData[caseNumber].length > this.maxHistoryPerCase) {
-      allData[caseNumber] = allData[caseNumber].slice(0, this.maxHistoryPerCase);
+    if (!allData[caseKey]) allData[caseKey] = [];
+    allData[caseKey].unshift({ text: text, timestamp: Date.now(), id: Date.now().toString() });
+    if (allData[caseKey].length > this.maxHistoryPerCase) {
+      allData[caseKey] = allData[caseKey].slice(0, this.maxHistoryPerCase);
     }
     await this.saveAllData(allData);
-    console.log(`[CaseCommentMemory] Saved to history for case ${caseNumber}`);
+    console.log(`[CaseCommentMemory] Saved to history for case ${caseKey}`);
   },
 
-  async getHistory(caseNumber) {
-    const allData = await this.getAllData();
-    return allData[caseNumber] || [];
+  async getHistory(caseIdentifier, trackKey = false) {
+    const resolved = await this.resolveHistory(caseIdentifier);
+    if (trackKey && resolved.key) {
+      this.currentStorageKey = resolved.key;
+    }
+    return resolved.history;
   },
 
   async getAllData() {
@@ -489,26 +719,28 @@ const CaseCommentMemory = {
     });
   },
 
-  async addRestoreButton(caseNumber, addNewButton) {
-    const existing = document.querySelector('.exl-restore-button');
-    if (existing) {
-      console.log('[CaseCommentMemory] Restore button already exists');
-      return;
-    }
+  async addRestoreButton(caseNumber, buttonContainer) {
+    if (!buttonContainer) return;
     const history = await this.getHistory(caseNumber);
     if (history.length === 0) {
-      this.addDisabledRestoreButton(addNewButton);
+      this.addDisabledRestoreButton(buttonContainer);
       return;
     }
-    const buttonContainer = addNewButton.parentElement;
-    const restoreBtn = document.createElement('button');
-    restoreBtn.type = 'button';
-    restoreBtn.className = 'slds-button slds-button_neutral exl-restore-button';
+
+    let wrapper = buttonContainer.querySelector('.exl-restore-button-wrapper');
+    let restoreBtn = wrapper?.querySelector('.exl-restore-button');
+
+    if (!wrapper || !restoreBtn) {
+      const created = this.createRestoreButtonElements(buttonContainer);
+      wrapper = created.wrapper;
+      restoreBtn = created.button;
+      restoreBtn.addEventListener('click', () => this.showRestoreDialog(caseNumber));
+      this.insertRestoreElement(buttonContainer, wrapper);
+    }
+
+    restoreBtn.disabled = false;
     restoreBtn.textContent = `Restore Comment (${history.length})`;
-    restoreBtn.style.marginLeft = '8px';
-    restoreBtn.addEventListener('click', () => this.showRestoreDialog(caseNumber));
-    buttonContainer.insertBefore(restoreBtn, addNewButton);
-    console.log('[CaseCommentMemory] Restore button added');
+    console.log('[CaseCommentMemory] Restore button added/updated');
   },
 
   async showRestoreDialog(caseNumber) {
@@ -536,8 +768,6 @@ const CaseCommentMemory = {
         if (textarea) {
           textarea.value = entry.text;
           textarea.dispatchEvent(new Event('input', { bubbles: true }));
-          const counter = document.querySelector('.exl-character-counter');
-          if (counter) counter.textContent = `Characters: ${entry.text.length}`;
         }
         document.body.removeChild(modal);
       });
@@ -569,6 +799,11 @@ const CaseCommentMemory = {
     this.activeEntries.forEach((entry, caseId) => {
       if (entry.timerId) clearTimeout(entry.timerId);
     });
+    if (this.characterCounterObserver) {
+      this.characterCounterObserver.disconnect();
+      this.characterCounterObserver = null;
+    }
+    this.currentStorageKey = null;
   }
 };
 

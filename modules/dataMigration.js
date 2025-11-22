@@ -10,6 +10,124 @@ const DataMigration = (function() {
   const BACKUP_PREFIX = 'exl_highlighter_backup_';
   const MAX_BACKUPS = 5;
   const STORAGE_QUOTA_WARNING_THRESHOLD = 0.8; // 80% of quota
+  const WORKSPACE_PREFIXES = [
+    'exl_highlights_',
+    'exl_notes_',
+    'exl_bookmark_',
+    'exl_layers_',
+    'exl_active_layer'
+  ];
+  const WORKSPACE_VERSION_KEYS = [
+    'exl_highlighter_storage_version',
+    'exl_notes_storage_version',
+    'exl_bookmark_storage_version'
+  ];
+
+  function isWorkspaceKey(key, options = {}) {
+    const includeBackups = options.includeBackups === true;
+    if (WORKSPACE_PREFIXES.some(prefix => key.startsWith(prefix))) {
+      return true;
+    }
+    if (WORKSPACE_VERSION_KEYS.includes(key)) {
+      return true;
+    }
+    if (includeBackups && key.startsWith(BACKUP_PREFIX)) {
+      return true;
+    }
+    return false;
+  }
+
+  async function getAllStorageItems() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(null, (items) => {
+        if (chrome.runtime.lastError) {
+          console.error('[DataMigration] Error loading storage items:', chrome.runtime.lastError);
+          resolve({});
+          return;
+        }
+        resolve(items || {});
+      });
+    });
+  }
+
+  async function getWorkspaceSnapshot(options = {}) {
+    const includeBackups = options.includeBackups === true;
+    const allData = await getAllStorageItems();
+    const snapshot = {};
+
+    Object.keys(allData).forEach((key) => {
+      if (isWorkspaceKey(key, { includeBackups })) {
+        snapshot[key] = allData[key];
+      }
+    });
+
+    return snapshot;
+  }
+
+  async function hasWorkspaceData() {
+    const snapshot = await getWorkspaceSnapshot();
+    return Object.keys(snapshot).length > 0;
+  }
+
+  async function clearWorkspaceData(options = {}) {
+    const includeBackups = options.includeBackups === true;
+    const allData = await getAllStorageItems();
+    const keysToRemove = Object.keys(allData).filter((key) => isWorkspaceKey(key, { includeBackups }));
+
+    if (keysToRemove.length === 0) {
+      return;
+    }
+
+    await new Promise((resolve) => {
+      chrome.storage.local.remove(keysToRemove, () => {
+        if (chrome.runtime.lastError) {
+          console.error('[DataMigration] Error clearing workspace data:', chrome.runtime.lastError);
+        }
+        resolve();
+      });
+    });
+  }
+
+  async function getLatestBackupMeta() {
+    const allData = await getAllStorageItems();
+    const backups = Object.entries(allData)
+      .filter(([key]) => key.startsWith(BACKUP_PREFIX))
+      .map(([key, value]) => ({
+        key,
+        payload: value,
+        timestamp: value?.timestamp || parseInt(key.substring(BACKUP_PREFIX.length), 10) || 0
+      }))
+      .sort((a, b) => b.timestamp - a.timestamp);
+
+    return backups[0] || null;
+  }
+
+  async function restoreLatestBackupIfMissing() {
+    const exists = await hasWorkspaceData();
+    if (exists) {
+      return { restored: false, reason: 'data_present' };
+    }
+
+    const latest = await getLatestBackupMeta();
+    if (!latest || !latest.payload?.data) {
+      console.warn('[DataMigration] No backup available to restore');
+      return { restored: false, reason: 'no_backup' };
+    }
+
+    await clearWorkspaceData({ includeBackups: false });
+    await new Promise((resolve) => {
+      chrome.storage.local.set(latest.payload.data, () => {
+        if (chrome.runtime.lastError) {
+          console.error('[DataMigration] Error restoring backup:', chrome.runtime.lastError);
+        } else {
+          console.log('[DataMigration] Restored workspace data from backup', latest.key);
+        }
+        resolve();
+      });
+    });
+
+    return { restored: true, backupKey: latest.key };
+  }
 
   /**
    * Find all old-format storage keys (without version)
@@ -306,25 +424,10 @@ const DataMigration = (function() {
     try {
       console.log('[DataMigration] Creating backup...');
 
-      // Get all highlighter-related data
-      const allData = await new Promise((resolve) => {
-        chrome.storage.local.get(null, (items) => {
-          if (chrome.runtime.lastError) {
-            console.error('[DataMigration] Error loading data for backup:', chrome.runtime.lastError);
-            resolve({});
-            return;
-          }
-          resolve(items);
-        });
-      });
-
-      // Filter to only highlighter-related keys
-      const backupData = {};
-      const prefixes = ['exl_highlights_', 'exl_notes_', 'exl_bookmark_'];
-      for (const key in allData) {
-        if (prefixes.some(prefix => key.startsWith(prefix))) {
-          backupData[key] = allData[key];
-        }
+      const backupData = await getWorkspaceSnapshot();
+      if (Object.keys(backupData).length === 0) {
+        console.log('[DataMigration] No workspace data found; backup skipped');
+        return null;
       }
 
       const backup = {
@@ -358,32 +461,16 @@ const DataMigration = (function() {
    * Export all highlighter data to JSON
    * @returns {Promise<Object>} Exported data
    */
-  async function exportAllData() {
+  async function exportAllData(options = {}) {
     try {
-      const allData = await new Promise((resolve) => {
-        chrome.storage.local.get(null, (items) => {
-          if (chrome.runtime.lastError) {
-            console.error('[DataMigration] Error loading data for export:', chrome.runtime.lastError);
-            resolve({});
-            return;
-          }
-          resolve(items);
-        });
-      });
-
-      // Filter to only highlighter-related keys
-      const exportData = {};
-      const prefixes = ['exl_highlights_', 'exl_notes_', 'exl_bookmark_'];
-      for (const key in allData) {
-        if (prefixes.some(prefix => key.startsWith(prefix))) {
-          exportData[key] = allData[key];
-        }
-      }
+      const includeBackups = options.includeBackups !== false;
+      const exportData = await getWorkspaceSnapshot({ includeBackups });
 
       return {
         timestamp: Date.now(),
         version: 1,
-        data: exportData
+        data: exportData,
+        backupCount: includeBackups ? Object.keys(exportData).filter((key) => key.startsWith(BACKUP_PREFIX)).length : 0
       };
     } catch (error) {
       console.error('[DataMigration] Error exporting data:', error);
@@ -398,21 +485,25 @@ const DataMigration = (function() {
    */
   async function importAllData(data) {
     try {
-      if (!data || !data.data) {
+      const payload = data?.workspace || data?.data;
+      if (!payload || Object.keys(payload).length === 0) {
         console.error('[DataMigration] Invalid import data format');
         return false;
       }
 
       console.log('[DataMigration] Importing data...');
 
+      // Remove existing workspace data before importing
+      await clearWorkspaceData({ includeBackups: true });
+
       await new Promise((resolve) => {
-        chrome.storage.local.set(data.data, () => {
+        chrome.storage.local.set(payload, () => {
           if (chrome.runtime.lastError) {
             console.error('[DataMigration] Error importing data:', chrome.runtime.lastError);
             resolve(false);
             return;
           }
-          console.log('[DataMigration] Imported', Object.keys(data.data).length, 'keys');
+          console.log('[DataMigration] Imported', Object.keys(payload).length, 'workspace keys');
           resolve(true);
         });
       });
@@ -592,7 +683,10 @@ const DataMigration = (function() {
     importAllData,
     cleanupOldVersions,
     cleanupOldBackups,
-    checkStorageQuota
+    checkStorageQuota,
+    hasWorkspaceData,
+    restoreLatestBackupIfMissing,
+    clearWorkspaceData
   };
 })();
 

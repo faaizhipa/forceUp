@@ -28,9 +28,11 @@
             "modules/logger.js",
             "modules/pageContextValidator.js",
             "modules/pageIdentifier.js",
+            "modules/caseDomUtils.js",
+            "modules/caseContextWatcher.js",
+            "modules/caseDataStore.js",
             "modules/settingsManager.js",
             "modules/customerDataManager.js",
-            "modules/cacheManager.js",
             "modules/caseDataExtractor.js",
             "modules/caseCommentExtractor.js",
             "modules/casePageDataExtractor.js",
@@ -101,7 +103,7 @@
    "name": "Penang CoE Salesforce and Docs Extension",
    "permissions": [ "storage", "tabs", "activeTab", "contextMenus" ],
    "update_url": "https://clients2.google.com/service/update2/crx",
-   "version": "7.1",
+   "version": "7.2",
    "web_accessible_resources": [
       {
          "resources": [

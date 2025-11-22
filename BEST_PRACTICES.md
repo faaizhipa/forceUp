@@ -2361,241 +2361,37 @@ window.ExLibrisExtension = {
 
 **Location**: `timezoneConverter.js`, `dynamicMenu.js` (createTimezoneConverter)
 
-## Cache Management Best Practices
+## Case Data Consistency (Head Checks + In-Memory Store)
 
-### Critical Issues in SPA Environments
+Salesforce Lightning is an SPA, so DOM fragments for *previous* cases remain in the page even after navigation. We now rely on two primitives:
 
-**The Problem:**
-In Single Page Applications (SPAs) like Salesforce Lightning, cache operations can suffer from:
-1. **Race Conditions**: Multiple modules extracting/saving simultaneously
-2. **Stale Data Pollution**: Data from one case saved with another case's ID
-3. **Timing Issues**: Cache operations happening during page navigation
-4. **Signature Mismatch**: Signatures built from wrong page state
-5. **Async Storage Conflicts**: Multiple saves overwriting each other
+1. **CaseContextWatcher** – waits 500 ms after every navigation, then reads `document.title` and `window.location.href` to determine `{caseId, caseNumber}`.
+2. **CaseDataStore** – holds a single validated payload per tab and notifies subscribers (PersistentBanner, Flexipage panel, controller).
 
-### Cache Data Integrity Principles
+### Head-First Rules
 
-#### 1. Always Validate Case ID Before Caching
+1. **Always wait for the watcher.** Call `await CaseContextWatcher.getStableContext({ requireCase: true })` before touching the DOM. This guarantees the head has resolved to the visible record.
+2. **Treat DOM as untrusted until then.** Hidden tabs keep their markup mounted; querying too early almost always returns stale numbers.
+3. **Re-check after every await.** SPA navigations can finish while you are awaiting `waitForPageLoad()` or other async helpers. Bail out if `CaseContextWatcher.getCurrentContext()` no longer matches.
 
-**Problem:**
-```javascript
-// ❌ BAD: No validation - data from Case A could be saved with Case B's ID
-async set(caseId, data) {
-  const signature = buildSignature(); // From current DOM
-  memoryCache.set(caseId, { signature, data });
-  await persistToStorage();
-}
-```
+### CaseDataStore Rules
 
-**Solution:**
-```javascript
-// ✅ GOOD: Validate case ID matches current page
-async set(caseId, data) {
-  // Validate case ID matches current page
-  const currentCaseId = extractCaseIdFromUrl();
-  if (caseId !== currentCaseId) {
-    console.warn(`[CacheManager] Case ID mismatch: ${caseId} !== ${currentCaseId}, skipping cache`);
-    return;
-  }
-  
-  // Validate data contains matching case ID
-  if (data.caseId && data.caseId !== caseId) {
-    console.warn(`[CacheManager] Data case ID mismatch: ${data.caseId} !== ${caseId}`);
-    return;
-  }
-  
-  // Build signature from the data being cached, not current DOM
-  const signature = buildSignatureFromData(data);
-  
-  memoryCache.set(caseId, { signature, data, timestamp: Date.now() });
-  await persistToStorage();
-}
-```
+1. **One record at a time.** The store replaces `CacheManager`; it never persists to `chrome.storage` and never keeps multiple cases.
+2. **Validate before writing.** Reject payloads whose `caseId` does not match `CaseContextWatcher.getCurrentContext()?.caseId`.
+3. **Subscribe, don’t poll.** UI modules call `CaseDataStore.subscribe()` and react to push updates instead of re-running extractors.
+4. **Clear on mismatch.** When the watcher emits a different `{caseId, caseNumber}`, immediately clear UI state and wait for the next store payload.
 
-#### 2. Build Signatures from Data, Not DOM
+### Fallback When the Store Is Missing
 
-**Problem:**
-```javascript
-// ❌ BAD: Signature from current DOM (may be wrong case)
-async get(caseId) {
-  const cached = memoryCache.get(caseId);
-  const currentSignature = buildSignature(); // From current DOM - wrong!
-  if (cached.signature === currentSignature) {
-    return cached.data;
-  }
-  return null;
-}
-```
+If a feature cannot load `CaseDataStore`:
 
-**Solution:**
-```javascript
-// ✅ GOOD: Build signature from cached data, validate against current page
-async get(caseId) {
-  // Validate we're on the correct case page
-  const currentCaseId = extractCaseIdFromUrl();
-  if (caseId !== currentCaseId) {
-    console.warn(`[CacheManager] Requested case ${caseId} but on case ${currentCaseId}`);
-    return null;
-  }
-  
-  const cached = memoryCache.get(caseId);
-  if (!cached) return null;
-  
-  // Build signature from current page state
-  const currentSignature = buildSignature();
-  
-  // Compare signatures
-  if (cached.signature === currentSignature) {
-    return cached.data;
-  }
-  
-  // Signature mismatch - cache is stale
-  console.log(`[CacheManager] Cache invalid: signature mismatch`);
-  return null;
-}
+1. Wait for `CaseContextWatcher` as above.
+2. Use `CaseDataExtractor.getData({ force: true })` for a fresh scrape.
+3. Broadcast via `casePageDataExtracted` so PersistentBanner and other listeners stay in sync.
+4. Never write your own cache or hit `chrome.storage`—that path is removed.
 
-// Build signature from data object (for saving)
-function buildSignatureFromData(data) {
-  return [
-    data.status || '',
-    data.subStatus || '',
-    data.category || '',
-    data.subCategory || '',
-    data.analysisNote || ''
-  ].map(v => v.toLowerCase()).join('|');
-}
-```
-
-#### 3. Implement Cache Locking to Prevent Race Conditions
-
-**Problem:**
-```javascript
-// ❌ BAD: Multiple modules can extract/save simultaneously
-async getCaseData(caseId) {
-  const cached = await CacheManager.get(caseId);
-  if (cached) return cached;
-  
-  // Multiple modules might extract simultaneously here
-  const data = await CaseDataExtractor.getData();
-  await CacheManager.set(caseId, data); // Race condition!
-  return data;
-}
-```
-
-**Solution:**
-```javascript
-// ✅ GOOD: Lock mechanism prevents concurrent operations
-const CacheManager = (function() {
-  const extractionLocks = new Map(); // caseId -> Promise
-  
-  return {
-    async get(caseId) {
-      // Check if extraction is in progress
-      if (extractionLocks.has(caseId)) {
-        console.log(`[CacheManager] Extraction in progress for ${caseId}, waiting...`);
-        await extractionLocks.get(caseId);
-        // Re-check cache after extraction completes
-        return memoryCache.get(caseId)?.data || null;
-      }
-      
-      // Normal cache lookup
-      const cached = memoryCache.get(caseId);
-      if (cached && this.isValid(cached, caseId)) {
-        return cached.data;
-      }
-      return null;
-    },
-    
-    async set(caseId, data) {
-      // Validate case ID
-      const currentCaseId = extractCaseIdFromUrl();
-      if (caseId !== currentCaseId) {
-        console.warn(`[CacheManager] Case ID mismatch, skipping cache`);
-        return;
-      }
-      
-      // Create lock if not exists
-      if (!extractionLocks.has(caseId)) {
-        extractionLocks.set(caseId, Promise.resolve());
-      }
-      
-      const signature = buildSignatureFromData(data);
-      memoryCache.set(caseId, { signature, data, timestamp: Date.now() });
-      
-      // Debounced save to storage
-      await this.debouncedPersist();
-    },
-    
-    async extractWithLock(caseId, extractFn) {
-      // Check if already extracting
-      if (extractionLocks.has(caseId)) {
-        return await extractionLocks.get(caseId);
-      }
-      
-      // Create extraction promise
-      const extractionPromise = (async () => {
-        try {
-          const data = await extractFn();
-          if (data && data.caseId === caseId) {
-            await this.set(caseId, data);
-          }
-          return data;
-        } finally {
-          extractionLocks.delete(caseId);
-        }
-      })();
-      
-      extractionLocks.set(caseId, extractionPromise);
-      return await extractionPromise;
-    }
-  };
-})();
-```
-
-#### 4. Debounce Storage Persistence
-
-**Problem:**
-```javascript
-// ❌ BAD: Every set() triggers immediate storage write
-async set(caseId, data) {
-  memoryCache.set(caseId, entry);
-  await persistToStorage(); // Immediate write - can cause race conditions
-}
-```
-
-**Solution:**
-```javascript
-// ✅ GOOD: Debounced persistence batches writes
-const CacheManager = (function() {
-  let persistTimer = null;
-  const PERSIST_DEBOUNCE_MS = 500;
-  
-  return {
-    async set(caseId, data) {
-      // Update memory cache immediately
-      memoryCache.set(caseId, entry);
-      
-      // Debounce storage persistence
-      this.debouncedPersist();
-    },
-    
-    debouncedPersist() {
-      clearTimeout(persistTimer);
-      persistTimer = setTimeout(async () => {
-        await this.persistToStorage();
-      }, PERSIST_DEBOUNCE_MS);
-    },
-    
-    async persistToStorage() {
-      const cacheData = {};
-      memoryCache.forEach((entry, caseId) => {
-        cacheData[caseId] = entry;
-      });
-      await saveToStorage(cacheData);
-    }
-  };
-})();
-```
+> **Legacy Reference (Deprecated)**  
+> The guidance below documents the retired `CacheManager` module. New development MUST follow the CaseContextWatcher + CaseDataStore rules above and treat this section as historical context only.
 
 #### 5. Validate Data Before Caching
 

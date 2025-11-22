@@ -372,42 +372,13 @@
    const signature = buildSignatureFromDOM();
    ```
 
-### Cache Locking
+### Case Data Storage (Interim)
 
-1. **Prevent race conditions**
-   - Use lock mechanism during cache updates
-   - Queue concurrent requests
-   - Debounce persistence operations
-
-2. **Pattern**
-   ```javascript
-   const CacheManager = {
-     _lock: false,
-     _queue: [],
-     
-     async get(caseId) {
-       if (this._lock) {
-         // Wait for lock
-         return this._waitForLock(caseId);
-       }
-       // Proceed with cache read
-     }
-   };
-   ```
-
-### Cache Invalidation
-
-1. **When to invalidate**
-   - Navigation to different case
-   - Case ID mismatch detected
-   - Case number mismatch detected
-   - Signature mismatch detected
-   - TTL expired
-
-2. **Clear immediately**
-   - Don't keep stale cache entries
-   - Clear on navigation
-   - Clear on validation failure
+- The legacy cache layer has been removed. Until `CaseDataStore` is available, **always**:
+  - Wait for `CaseContextWatcher` to confirm the active case.
+  - Extract fresh data (no persistence to `chrome.storage`).
+  - Broadcast results via `casePageDataExtracted`.
+- Future state: `CaseDataStore` will own locking, signatures, and invalidation. All locking rules from the previous cache will migrate there.
 
 ---
 

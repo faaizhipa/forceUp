@@ -31,9 +31,13 @@ CustomerDataManager
 ├── No dependencies
 └── Used by: CaseDataExtractor, CasePageDataExtractor, CaseDetailExtractor, TimezoneStorage, UnknownCustomerManager
 
-CacheManager
-├── No dependencies
-└── Used by: content_script_exlibris.js, CaseDataExtractor
+CaseContextWatcher
+├── Depends on: NavigationObserver, PageContextValidator
+└── Used by: content_script_exlibris.js, CasePageDataExtractor, CaseDataExtractor, PersistentBanner
+
+CaseDataStore
+├── Depends on: CaseContextWatcher
+└── Used by: content_script_exlibris.js, CasePageDataExtractor, CaseDataExtractor, PersistentBanner
 
 TimezoneStorage
 ├── Depends on: CustomerDataManager
@@ -68,6 +72,10 @@ AccountAddressExtractor
 └── Used by: CaseTimezoneResolver
 
 ShadowTextExtractor
+├── No dependencies
+└── Used by: CaseDataExtractor, CasePageDataExtractor
+
+CaseDomUtils
 ├── No dependencies
 └── Used by: CaseDataExtractor, CasePageDataExtractor
 ```
@@ -269,7 +277,6 @@ chrome.storage.sync
 └── PersistentBanner (feature flags)
 
 chrome.storage.local
-├── CacheManager (case data cache)
 ├── CustomerDataManager (customer list)
 ├── TimezoneStorage (timezone data)
 ├── CaseCommentMemory (comment history)
@@ -402,7 +409,7 @@ The codebase prevents circular dependencies through:
 
 ```
 1. Core modules initialize (Logger, DebounceUtils, SettingsManager)
-2. Data managers initialize (CustomerDataManager, CacheManager)
+2. Data/context managers initialize (CustomerDataManager, CaseContextWatcher)
 3. NavigationObserver starts
 4. PageIdentifier starts monitoring
 5. Feature modules initialize based on page type

@@ -67,6 +67,13 @@ const CaseDataExtractor = {
    * @returns {string|null}
    */
   getCaseIdFromUrl() {
+    if (typeof CaseContextWatcher !== 'undefined') {
+      const context = CaseContextWatcher.getCurrentContext?.();
+      if (context?.caseId) {
+        return context.caseId;
+      }
+    }
+
     const match = window.location.pathname.match(/Case\/([a-zA-Z0-9]{15,18})/);
     return match ? match[1] : null;
   },
@@ -76,6 +83,20 @@ const CaseDataExtractor = {
    * @returns {string|null}
    */
   getCaseNumber() {
+    if (typeof CaseContextWatcher !== 'undefined') {
+      const context = CaseContextWatcher.getCurrentContext?.();
+      if (context?.caseNumber) {
+        return context.caseNumber;
+      }
+    }
+
+    if (typeof CaseDomUtils !== 'undefined') {
+      const visibleNumber = CaseDomUtils.getVisibleCaseNumber();
+      if (visibleNumber) {
+        return visibleNumber;
+      }
+    }
+
     const header = this.getHeaderText();
     if (!header) return null;
     const numberMatch = header.match(/^([0-9]{6,})/);
@@ -87,6 +108,13 @@ const CaseDataExtractor = {
    * @returns {string|null}
    */
   getSubject() {
+    if (typeof CaseDomUtils !== 'undefined') {
+      const subject = CaseDomUtils.getVisibleCaseSubject();
+      if (subject) {
+        return subject;
+      }
+    }
+
     const header = this.getHeaderText();
     if (!header) return null;
     const parts = header.split(' - ');
@@ -95,20 +123,60 @@ const CaseDataExtractor = {
 
   /**
    * Gets combined header text (case number + subject)
+   * Always reselects visible elements fresh on each call
    * @returns {string|null}
    */
   getHeaderText() {
-    const headerField = document.querySelector('slot[name="primaryField"] lightning-formatted-text, records-formula-output[slot="primaryField"] lightning-formatted-text');
+    if (typeof CaseDomUtils !== 'undefined') {
+      const header = CaseDomUtils.getVisibleCaseHeaderText();
+      if (header) {
+        return header;
+      }
+    }
+
+    // Fallback: check visibility of header field
+    const candidates = document.querySelectorAll('slot[name="primaryField"] lightning-formatted-text, records-formula-output[slot="primaryField"] lightning-formatted-text');
+    let headerField = null;
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      headerField = CaseDomUtils.getFirstVisibleElement(candidates);
+    } else if (candidates.length > 0) {
+      headerField = candidates[0];
+    }
     return headerField ? (headerField.textContent || '').trim() : null;
   },
 
   /**
    * Retrieves description content with line breaks preserved
+   * Always reselects visible elements fresh on each call
    * @returns {string|null}
    */
   getDescription() {
-    const field = document.querySelector('records-record-layout-item[field-label*="Description"] lightning-formatted-text, records-record-layout-item[field-label*="Description"] .test-id__field-value');
-    if (!field) return null;
+    const candidates = document.querySelectorAll('records-record-layout-item[field-label*="Description"]');
+    let layoutItem = null;
+    
+    // Find visible layout item
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      layoutItem = CaseDomUtils.getFirstVisibleElement(candidates);
+    } else if (candidates.length > 0) {
+      layoutItem = candidates[0];
+    }
+    
+    if (!layoutItem) {
+      return null;
+    }
+    
+    // Try to find visible field within the layout item
+    const fieldCandidates = layoutItem.querySelectorAll('lightning-formatted-text, .test-id__field-value');
+    let field = null;
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      field = CaseDomUtils.getFirstVisibleElement(fieldCandidates);
+    } else if (fieldCandidates.length > 0) {
+      field = fieldCandidates[0];
+    }
+    
+    if (!field) {
+      return null;
+    }
 
     if (field.tagName && field.tagName.toLowerCase() === 'lightning-formatted-text') {
       return field.textContent.trim();
@@ -158,6 +226,7 @@ const CaseDataExtractor = {
 
   /**
    * Generic field value lookup
+   * Always reselects visible elements fresh on each call
    * @param {string[]} matchers - label fragments
    * @returns {string|null}
    */
@@ -166,12 +235,34 @@ const CaseDataExtractor = {
       return null;
     }
 
-    const selector = matchers
-      .map((label) => `records-record-layout-item[field-label*="${label}"] .test-id__field-value, records-record-layout-item[field-label*="${label}"] lightning-formatted-text, records-record-layout-item[field-label*="${label}"] force-lookup`)
-      .join(',');
-
-    const field = document.querySelector(selector);
-    if (!field) return null;
+    // First, find visible layout items that match the label
+    let layoutItem = null;
+    for (const label of matchers) {
+      const layoutCandidates = document.querySelectorAll(`records-record-layout-item[field-label*="${label}"]`);
+      if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+        layoutItem = CaseDomUtils.getFirstVisibleElement(layoutCandidates);
+      } else if (layoutCandidates.length > 0) {
+        layoutItem = layoutCandidates[0];
+      }
+      if (layoutItem) break;
+    }
+    
+    if (!layoutItem) {
+      return null;
+    }
+    
+    // Now find visible field within the layout item
+    const fieldCandidates = layoutItem.querySelectorAll('.test-id__field-value, lightning-formatted-text, force-lookup');
+    let field = null;
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      field = CaseDomUtils.getFirstVisibleElement(fieldCandidates);
+    } else if (fieldCandidates.length > 0) {
+      field = fieldCandidates[0];
+    }
+    
+    if (!field) {
+      return null;
+    }
 
     if (field.tagName && field.tagName.toLowerCase() === 'lightning-formatted-text') {
       const text = field.textContent || '';
@@ -236,37 +327,111 @@ const CaseDataExtractor = {
 
   /**
    * Gets Asset href
+   * Always reselects visible elements fresh on each call
    * @returns {string|null}
    */
   getAssetHref() {
-    const link = document.querySelector('records-record-layout-item[field-label*="Asset"] a');
+    const layoutCandidates = document.querySelectorAll('records-record-layout-item[field-label*="Asset"]');
+    let layoutItem = null;
+    
+    // Find visible layout item
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      layoutItem = CaseDomUtils.getFirstVisibleElement(layoutCandidates);
+    } else if (layoutCandidates.length > 0) {
+      layoutItem = layoutCandidates[0];
+    }
+    
+    if (!layoutItem) {
+      return null;
+    }
+    
+    // Find visible link within the layout item
+    const linkCandidates = layoutItem.querySelectorAll('a');
+    let link = null;
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      link = CaseDomUtils.getFirstVisibleElement(linkCandidates);
+    } else if (linkCandidates.length > 0) {
+      link = linkCandidates[0];
+    }
+    
     return link ? link.href : null;
   },
 
   /**
    * Gets JIRA ID from the Jira section
+   * Always reselects visible elements fresh on each call
    * @returns {string|null}
    */
   getJiraId() {
-    const jiraSection = document.querySelector('flexipage-component2[data-component-id="flexipage_fieldSection6"]');
-    if (jiraSection) {
-      const jiraField = jiraSection.querySelector('div[data-target-selection-name*="Primary_Jira"], div[data-target-selection-name*="JIRA"]');
-      if (jiraField) {
-        const value = jiraField.querySelector('.test-id__field-value, lightning-formatted-text');
-        return value ? value.textContent.trim() : null;
+    const sectionCandidates = document.querySelectorAll('flexipage-component2[data-component-id="flexipage_fieldSection6"]');
+    let jiraSection = null;
+    
+    // Find visible section
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      jiraSection = CaseDomUtils.getFirstVisibleElement(sectionCandidates);
+    } else if (sectionCandidates.length > 0) {
+      jiraSection = sectionCandidates[0];
+    }
+    
+    if (!jiraSection) {
+      return null;
+    }
+    
+    // Double-check visibility of the section
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      if (!CaseDomUtils.isElementVisible(jiraSection)) {
+        return null;
       }
     }
-    return null;
+    
+    const fieldCandidates = jiraSection.querySelectorAll('div[data-target-selection-name*="Primary_Jira"], div[data-target-selection-name*="JIRA"]');
+    let jiraField = null;
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      jiraField = CaseDomUtils.getFirstVisibleElement(fieldCandidates);
+    } else if (fieldCandidates.length > 0) {
+      jiraField = fieldCandidates[0];
+    }
+    
+    if (!jiraField) {
+      return null;
+    }
+    
+    const valueCandidates = jiraField.querySelectorAll('.test-id__field-value, lightning-formatted-text');
+    let value = null;
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      value = CaseDomUtils.getFirstVisibleElement(valueCandidates);
+    } else if (valueCandidates.length > 0) {
+      value = valueCandidates[0];
+    }
+    
+    return value ? value.textContent.trim() : null;
   },
 
   /**
    * Gets the last modified date of the case
+   * Always reselects visible elements fresh on each call
    * @returns {string|null}
    */
   getLastModifiedDate() {
-    const field = document.querySelector('records-record-layout-item[field-label*="Last Modified"]');
+    const candidates = document.querySelectorAll('records-record-layout-item[field-label*="Last Modified"]');
+    let field = null;
+    
+    // Find visible layout item
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      field = CaseDomUtils.getFirstVisibleElement(candidates);
+    } else if (candidates.length > 0) {
+      field = candidates[0];
+    }
+    
     if (field) {
-      const value = field.querySelector('.test-id__field-value, lightning-formatted-text, lightning-formatted-date-time');
+      // Try to find visible value field within the layout item
+      const valueCandidates = field.querySelectorAll('.test-id__field-value, lightning-formatted-text, lightning-formatted-date-time');
+      let value = null;
+      if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+        value = CaseDomUtils.getFirstVisibleElement(valueCandidates);
+      } else if (valueCandidates.length > 0) {
+        value = valueCandidates[0];
+      }
       return value ? value.textContent.trim() : null;
     }
     return null;
@@ -432,9 +597,28 @@ const CaseDataExtractor = {
    * Gets complete processed case data
    * @returns {Promise<Object>}
    */
-  async getData() {
+  async getData(options = {}) {
+    const { force = false } = options;
+
+    if (!force && typeof CaseDataStore !== 'undefined') {
+      const stored = CaseDataStore.getCurrentData();
+      if (stored) {
+        return stored;
+      }
+    }
+
+    if (typeof CaseContextWatcher !== 'undefined') {
+      await CaseContextWatcher.getStableContext?.({ requireCase: true, timeout: 4000 });
+    }
+
     const rawData = this.extractCaseData();
-    return this.processData(rawData);
+    const processed = await this.processData(rawData);
+
+    if (processed && typeof CaseDataStore !== 'undefined') {
+      await CaseDataStore.setCurrentData(processed, 'CaseDataExtractor');
+    }
+
+    return processed;
   },
 
   /**

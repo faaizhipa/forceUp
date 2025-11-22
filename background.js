@@ -1,3 +1,5 @@
+importScripts('modules/dataMigration.js');
+
 // ========== CONTEXT MENU MANAGEMENT ==========
 
 let contextMenusCreated = false;
@@ -191,6 +193,22 @@ chrome.runtime.onInstalled.addListener((details) => {
     
     console.log(`[Background] Updated from ${previousVersion} to ${currentVersion}`);
     
+    if (typeof DataMigration !== 'undefined') {
+      DataMigration.createBackup?.().catch((error) => {
+        console.error('[Background] Workspace backup failed:', error);
+      });
+
+      DataMigration.restoreLatestBackupIfMissing?.().then((result) => {
+        if (result?.restored) {
+          console.log('[Background] Workspace data restored from backup', result.backupKey);
+        } else {
+          console.log('[Background] Workspace restore skipped:', result?.reason || 'unknown');
+        }
+      }).catch((error) => {
+        console.error('[Background] Workspace restore failed:', error);
+      });
+    }
+
     // Open the landing page
     chrome.tabs.create({
       url: chrome.runtime.getURL('updated.html')

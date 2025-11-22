@@ -355,35 +355,33 @@ if (pageInfo.type === PageIdentifier.pageTypes.CASE_PAGE) {
    }
    ```
 
-3. **Caching:**
-   ```javascript
-   // Build signature from data
-   const signature = this.buildSignatureFromData(data);
-   
-   // Cache with validation
-   await CacheManager.set(caseId, {
-     signature,
-     data,
-     timestamp: Date.now()
-   });
-   ```
+3. **Interim storage:**
+  ```javascript
+  // CacheManager retired — wait for CaseContextWatcher, then broadcast fresh data
+  const context = await CaseContextWatcher.getStableContext();
+  if (!context?.caseId) return null;
+  
+  const payload = {
+    ...data,
+    caseId: context.caseId,
+    caseNumber: context.caseNumber
+  };
+  
+  document.dispatchEvent(new CustomEvent('casePageDataExtracted', { detail: payload }));
+  ```
 
-4. **Cache Retrieval:**
-   ```javascript
-   // Get from cache
-   const cached = await CacheManager.get(caseId);
-   
-   // Validate cache entry
-   if (cached && this.validateCacheEntry(cached, currentSignature)) {
-     return cached.data;
-   }
-   ```
+4. **Upcoming CaseDataStore:**
+  ```javascript
+  // Placeholder API (ships after CaseDataStore lands)
+  CaseDataStore.setCurrentData(payload, 'CasePageDataExtractor');
+  const latest = CaseDataStore.getCurrentData();
+  ```
 
 #### Configuration
 
-- **Cache TTL:** 30 days (configurable in `cacheManager.js`)
-- **Cache Size Limit:** ~8MB (chrome.storage.local limit)
-- **Signature Components:** Status, Category, Sub-Category, Product
+- **Interim behavior:** No local cache; each navigation triggers a fresh extraction.
+- **Future store:** `CaseDataStore` will keep a single in-memory snapshot per visible case.
+- **Signature components (planned):** Status, Sub-Status, Category, Sub-Category, Analysis Note.
 
 #### Dependencies
 

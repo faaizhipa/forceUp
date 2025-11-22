@@ -81,14 +81,6 @@
         console.warn('[ExLibris Extension] InstitutionTimezoneManager not loaded');
       }
 
-      // Initialize CacheManager
-      if (typeof CacheManager !== 'undefined') {
-        await CacheManager.init();
-        console.log('[ExLibris Extension] CacheManager initialized');
-      } else {
-        console.warn('[ExLibris Extension] CacheManager not loaded');
-      }
-
       // Initialize NavigationObserver for SPA navigation
       if (typeof NavigationObserver !== 'undefined') {
         NavigationObserver.start();
@@ -98,6 +90,21 @@
           this.handleNavigationChange(url);
         });
         Logger?.info('NavigationObserver initialized');
+      }
+
+      // Initialize CaseContextWatcher (depends on NavigationObserver signals)
+      if (typeof CaseContextWatcher !== 'undefined') {
+        CaseContextWatcher.init();
+        console.log('[ExLibris Extension] CaseContextWatcher initialized');
+      } else {
+        console.warn('[ExLibris Extension] CaseContextWatcher not loaded');
+      }
+
+      if (typeof CaseDataStore !== 'undefined') {
+        CaseDataStore.init();
+        console.log('[ExLibris Extension] CaseDataStore initialized');
+      } else {
+        console.warn('[ExLibris Extension] CaseDataStore not loaded');
       }
 
       // Initialize ContextMenuHandler
@@ -583,18 +590,18 @@
     async getCaseData(caseId, options = {}) {
       const { forceRefresh = false } = options;
 
-      // Check CacheManager first unless forcing refresh
-      if (!forceRefresh && typeof CacheManager !== 'undefined') {
-        // CacheManager internally validates last-modified; only pass caseId
-        const cached = await CacheManager.get(caseId);
-
-        if (cached) {
-          console.log('[ExLibris Extension] Using cached case data from CacheManager');
-          return cached;
+      if (!forceRefresh && typeof CaseDataStore !== 'undefined') {
+        const stored = CaseDataStore.getCurrentData();
+        if (stored && (!caseId || stored.caseId === caseId)) {
+          console.log('[ExLibris Extension] Using CaseDataStore data');
+          return stored;
         }
       }
 
-      // Extract fresh data
+      if (typeof CaseContextWatcher !== 'undefined') {
+        await CaseContextWatcher.getStableContext?.({ requireCase: true, timeout: 4000 });
+      }
+
       if (typeof CaseDataExtractor === 'undefined') {
         console.warn('[ExLibris Extension] CaseDataExtractor module not loaded');
         return null;
@@ -603,9 +610,8 @@
       console.log('[ExLibris Extension] Extracting case data...');
       const caseData = await CaseDataExtractor.getData();
 
-      // Cache it in CacheManager
-      if (typeof CacheManager !== 'undefined' && caseData) {
-        await CacheManager.set(caseId, caseData);
+      if (caseData && typeof CaseDataStore !== 'undefined') {
+        await CaseDataStore.setCurrentData(caseData, 'content-script');
       }
 
       return caseData;
@@ -953,9 +959,6 @@
       // Cleanup all modules
       if (typeof CustomerDataManager !== 'undefined' && CustomerDataManager.cleanup) {
         CustomerDataManager.cleanup();
-      }
-      if (typeof CacheManager !== 'undefined' && CacheManager.cleanup) {
-        CacheManager.cleanup();
       }
       if (typeof CaseCommentMemory !== 'undefined' && CaseCommentMemory.cleanup) {
         CaseCommentMemory.cleanup();

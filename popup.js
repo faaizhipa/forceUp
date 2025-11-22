@@ -794,22 +794,22 @@ document.addEventListener("DOMContentLoaded", async () => {
   
   // Export button
   document.getElementById('exportButton').addEventListener('click', async () => {
-    // Get settings from chrome.storage.sync
+    const manifest = chrome.runtime.getManifest();
     const syncData = currentSettings;
-    
-    // Get all data from chrome.storage.local (includes highlights, notes, bookmarks)
-    const localData = await new Promise((resolve) => {
-      chrome.storage.local.get(null, (result) => resolve(result));
-    });
-    
-    // Combine both into export package
+
+    let workspacePayload = null;
+    if (typeof DataMigration !== 'undefined' && DataMigration.exportAllData) {
+      workspacePayload = await DataMigration.exportAllData({ includeBackups: true });
+    }
+
     const exportData = {
-      version: '4.0',
+      version: manifest?.version || 'unknown',
       exportDate: new Date().toISOString(),
       settings: syncData,
-      data: localData
+      workspace: workspacePayload?.data || {},
+      workspaceBackupCount: workspacePayload?.backupCount || 0
     };
-    
+
     const json = JSON.stringify(exportData, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -818,7 +818,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     a.download = 'cforce-extension-settings.json';
     a.click();
     URL.revokeObjectURL(url);
-    showSuccess('Settings and data exported');
+    showSuccess('Workspace data exported (highlights, notes, bookmarks, layers).');
   });
   
   // Import button
@@ -834,24 +834,24 @@ document.addEventListener("DOMContentLoaded", async () => {
       reader.onload = async (event) => {
         try {
           const importData = JSON.parse(event.target.result);
-          
-          // Handle legacy format (just settings) or new format (settings + data)
-          if (importData.settings && importData.data) {
-            // New format with both settings and data
-            await saveSettings(importData.settings);
-            
-            // Restore all local data (highlights, notes, bookmarks, cache, etc.)
+
+          const settingsPayload = importData.settings || (importData.exlibris ? importData : null);
+          if (settingsPayload) {
+            await saveSettings(settingsPayload);
+            populateUI(settingsPayload);
+          }
+
+          const workspacePayload = importData.workspace || importData.data;
+          if (workspacePayload && Object.keys(workspacePayload).length > 0) {
+            if (typeof DataMigration !== 'undefined' && DataMigration.clearWorkspaceData) {
+              await DataMigration.clearWorkspaceData({ includeBackups: true });
+            }
             await new Promise((resolve) => {
-              chrome.storage.local.set(importData.data, () => resolve());
+              chrome.storage.local.set(workspacePayload, () => resolve());
             });
-            
-            populateUI(importData.settings);
-            showSuccess('Settings and data imported successfully');
-          } else {
-            // Legacy format (just settings)
-            await saveSettings(importData);
-            populateUI(importData);
-            showSuccess('Settings imported successfully');
+            showSuccess('Workspace data imported. Refresh Salesforce to reload highlights.');
+          } else if (!importData.settings) {
+            alert('Import file does not contain workspace or settings data.');
           }
         } catch (error) {
           alert('Error importing settings: Invalid JSON file');

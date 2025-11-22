@@ -28,7 +28,7 @@ Modules (in `modules/`):
 - `settingsManager.js` — Default settings, deep-merge, get/set by path, export/import, cache clearing, change listeners.
 - `pageIdentifier.js` — Classifies current page (CASE_PAGE, CASE_COMMENTS, CASES_LIST) via URL/DOM; watches SPA mutations and popstate.
 - `customerDataManager.js` — Customer dataset (default list + stubs for scraping); exposes IDs/names.
-- `cacheManager.js` — Case data cache with versioning: in-memory Map plus `chrome.storage.local`; validates by last-modified date from DOM.
+- `caseContextWatcher.js` — Waits 500 ms after navigation, re-reads `document.title` + `window.location.href`, and emits a stable `{ caseId, caseNumber }` payload for all consumers.
 - `caseDataExtractor.js` — Extracts core case fields and derives institution/server/region; integrates with `customerDataManager`.
 - `fieldHighlighter.js` — Highlights key fields (e.g., empty fields red); MutationObserver with debounce; cleanup supported.
 - `urlBuilder.js` — Builds Live View/Back Office/Sandbox/Tools/SQL/etc. URLs; DC→Kibana mapping; analytics refresh info; JIRA link.
@@ -54,7 +54,7 @@ This ensures legacy features (e.g., case list/status highlighting) are available
    - Read: `SettingsManager.init()` reads/merges defaults with `chrome.storage.sync` values.
    - Update: Popup writes to `chrome.storage.sync` → content side can listen for changes or be manually refreshed.
 - Case data lifecycle
-   - `content_script_exlibris.js` calls `getCaseData(caseId)` → checks `CacheManager.get(caseId)` first (internal last-modified validation) → if missing/stale, calls `CaseDataExtractor.getData()` → `CacheManager.set(caseId, data)` stores in Map + local storage.
+   - `CaseContextWatcher` waits for a stable head context → `content_script_exlibris.js` calls `CaseDataExtractor.getData()` (always fresh until `CaseDataStore` ships) → extracted payload is broadcast via `casePageDataExtracted` for downstream consumers.
 - UI lifecycle per page type
    - `PageIdentifier.monitorPageChanges(cb)` drives `handlePageChange`:
       - CASE_PAGE: wait for DOM readiness → field highlighting → email From validation (legacy `handleAnchors`) → dynamic menu injection → comment memory → character counter → multi-tab sync.
@@ -73,21 +73,17 @@ sequenceDiagram
    participant PI as PageIdentifier
    participant EX as content_script_exlibris
    participant SM as SettingsManager
-   participant CM as CacheManager
+   participant CW as CaseContextWatcher
    participant DE as CaseDataExtractor
    participant FH as FieldHighlighter
    participant DM as DynamicMenu
 
    PI->>EX: on page change (CASE_PAGE)
    EX->>SM: init() and get()
-   EX->>CM: get(caseId)
-   alt cache hit
-      CM-->>EX: cached data
-   else cache miss/stale
-      EX->>DE: getData()
-      DE-->>EX: caseData
-      EX->>CM: set(caseId, caseData)
-   end
+   EX->>CW: getStableContext()
+   CW-->>EX: {caseId, caseNumber}
+   EX->>DE: getData()
+   DE-->>EX: caseData (fresh)
    EX->>FH: init()
    EX->>DM: build + inject buttons
    EX->>EX: observe comments tab, add memory + counter + multi-tab sync
@@ -96,13 +92,13 @@ sequenceDiagram
 ## Dependencies
 
 - Chrome APIs: `contextMenus`, `runtime`, `tabs`, `storage`, `activeTab`.
-- Storage: `chrome.storage.sync` (user settings) and `chrome.storage.local` (cache/history).
+- Storage: `chrome.storage.sync` (user settings). `chrome.storage.local` is currently used only for legacy history features; the retired cache will be replaced by the in-memory `CaseDataStore`.
 - SPA handling: MutationObserver + `popstate` watchers.
 - No external NPM dependencies; everything is vanilla JS modules loaded via manifest.
 
 ## Critical Logic Highlights
 
-- Cache validation is tied to the case page’s “Last Modified” date parsed from DOM. `CacheManager.get(caseId)` performs this internally; callers should not pass timestamps.
+- Case identity validation is now centralized in `CaseContextWatcher`, which reads the head elements (title + URL) after navigation settles. All extractors must wait for this signal before touching the DOM.
 - Legacy feature reuse: On ProQuest, `content_script.js` must be included to provide `handleCases`, `handleStatus`, and `handleAnchors` used by the controller.
 - Dynamic Menu composition is driven by `UrlBuilder.buildAllButtons(caseData, style, timezone)`, then injected by `DynamicMenu` into configurable locations.
 - Context formatting is centralized: background builds menus; content side applies transformations through `TextFormatter` with robust style/case conversions.
@@ -116,7 +112,7 @@ sequenceDiagram
 
 ## Known Flaws / Gaps (after fixes in this commit)
 
-- FIXED: `CacheManager.get(caseId, currentLastModified)` was incorrectly invoked with two arguments. The controller now calls `CacheManager.get(caseId)` only.
+- FIXED: Case data caching now defers to `CaseContextWatcher` + fresh extraction; the legacy `CacheManager` API (and its parameter issues) has been removed entirely.
 - FIXED: Popup “About” version mismatch — now set dynamically from `manifest.version`.
 - FIXED: Minor CSS typo (`h2 { h2 { ... }`) in `popup.html`.
 - OPEN: `caseCommentExtractor.js` is not included on ProQuest in `manifest.json`. If its features are desired, it needs loading and light wiring.
@@ -172,7 +168,7 @@ flowchart LR
    E --> F[settingsManager]
    E --> G[pageIdentifier]
    E --> H[customerDataManager]
-   E --> I[cacheManager]
+   E --> I[caseContextWatcher]
    E --> J[caseDataExtractor]
    E --> K[fieldHighlighter]
    E --> L[urlBuilder]
@@ -194,12 +190,12 @@ flowchart LR
    - Fixes & Successful Attempts: Add `content_script.js` to ProQuest content scripts block.
    - Lessons Learned: When reusing legacy code across domains/instances, explicitly load it.
 
-- Change/Attempt: Cache retrieval on case page
-   - Status/Outcome: Fixed — controller calls `CacheManager.get(caseId)` only.
-   - Failures Observed: API signature mismatch risk.
-   - Actual Root Cause: Outdated call site passed extra parameter.
-   - Fixes & Successful Attempts: Removed extraneous argument; rely on internal validation.
-   - Lessons Learned: Keep controller ↔ module APIs aligned; avoid leaking internal details across layers.
+- Change/Attempt: Case data caching
+   - Status/Outcome: `CacheManager` removed — controller now waits for `CaseContextWatcher` and performs a fresh extraction each time.
+   - Failures Observed: Stale cache entries and API drift.
+   - Actual Root Cause: Case ID validation lived in multiple places and could not keep up with SPA navigations.
+   - Fixes & Successful Attempts: Retire the storage-heavy cache, rely on head-based validation, and plan for the lightweight `CaseDataStore`.
+   - Lessons Learned: Centralize page validation before storing data; SPA timing breaks traditional caches quickly.
 
 - Change/Attempt: Popup About version
    - Status/Outcome: Fixed — version rendered dynamically from manifest.

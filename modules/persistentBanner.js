@@ -54,6 +54,10 @@ const PersistentBanner = {
     // Environment menu state
     envMenuVisible: false,
 
+    // Subscriptions
+    contextUnsubscribe: null,
+    storeUnsubscribe: null,
+
     // Status color mapping (based on caseStatusHighlighter)
     STATUS_COLORS: {
         // Red statuses - 2 shades darker from rgb(178, 15, 66)
@@ -121,6 +125,9 @@ const PersistentBanner = {
         
         // Start URL monitoring to detect navigation changes
         this.startUrlMonitoring();
+        
+        // Subscribe to case context + data store updates
+        this.setupContextSubscriptions();
         
         // Listen for CasePageDataExtractor events
         this.setupCaseDataListener();
@@ -193,15 +200,30 @@ const PersistentBanner = {
                     }
                     
                     if (!validation.valid) {
-                        // Only clear if case ID also mismatches (case number mismatch alone might be timing issue)
-                        if (validation.currentContext && this.displayedCaseId && this.displayedCaseId !== validation.currentContext.caseId) {
-                            console.warn('[PersistentBanner] Periodic validation failed - case ID mismatch, clearing display');
-                            this.clearCaseData();
-                            // Update UI to show cleared state
-                            this.updateBannerUI();
+                        // Case number mismatch is authoritative - always clear stale data
+                        if (validation.currentContext) {
+                            const caseIdMismatch = this.displayedCaseId && this.displayedCaseId !== validation.currentContext.caseId;
+                            const caseNumberMismatch = this.displayedCaseNumber && validation.currentContext.caseNumber && 
+                                                       this.displayedCaseNumber !== validation.currentContext.caseNumber;
+                            
+                            if (caseIdMismatch || caseNumberMismatch) {
+                                console.warn('[PersistentBanner] Periodic validation failed - stale data detected', {
+                                    caseIdMismatch,
+                                    caseNumberMismatch,
+                                    displayedCaseId: this.displayedCaseId,
+                                    displayedCaseNumber: this.displayedCaseNumber,
+                                    currentCaseId: validation.currentContext.caseId,
+                                    currentCaseNumber: validation.currentContext.caseNumber
+                                });
+                                this.clearCaseData();
+                                // Update UI to show cleared state
+                                this.updateBannerUI();
+                            }
                         } else {
-                            // Case number mismatch but case ID matches - likely timing issue, log but don't clear
-                            console.log('[PersistentBanner] Periodic validation: case number mismatch but case ID matches (likely timing issue)');
+                            // No current context - clear stale data
+                            console.warn('[PersistentBanner] Periodic validation failed - no current context, clearing display');
+                            this.clearCaseData();
+                            this.updateBannerUI();
                         }
                     }
                 }
@@ -386,6 +408,10 @@ const PersistentBanner = {
                     this.clearCaseData();
                     return;
                 }
+                if (typeof CaseDataStore !== 'undefined') {
+                    await CaseDataStore.setCurrentData(data, 'casePageDataExtractor-event');
+                    return;
+                }
             } else {
                 // Fallback: Use old validation method if new function not available
                 if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
@@ -399,8 +425,26 @@ const PersistentBanner = {
                         
                         if (!validation.valid) {
                             console.warn(`[PersistentBanner] Cannot display data: ${validation.reason}`);
-                            // Only clear if case ID also mismatches (case number mismatch might be timing issue)
-                            if (validation.currentContext && data.caseId !== validation.currentContext.caseId) {
+                            // Case number mismatch is authoritative - always clear stale data
+                            // If validation failed, it means data doesn't match current page
+                            if (validation.currentContext) {
+                                const caseIdMismatch = data.caseId && data.caseId !== validation.currentContext.caseId;
+                                const caseNumberMismatch = data.caseNumber && validation.currentContext.caseNumber && 
+                                                           data.caseNumber !== validation.currentContext.caseNumber;
+                                
+                                if (caseIdMismatch || caseNumberMismatch) {
+                                    console.warn('[PersistentBanner] Validation failed - mismatched identifiers, clearing stale data', {
+                                        caseIdMismatch,
+                                        caseNumberMismatch,
+                                        dataCaseId: data.caseId,
+                                        dataCaseNumber: data.caseNumber,
+                                        currentCaseId: validation.currentContext.caseId,
+                                        currentCaseNumber: validation.currentContext.caseNumber
+                                    });
+                                    this.clearCaseData();
+                                }
+                            } else {
+                                // No current context - clear stale data
                                 this.clearCaseData();
                             }
                             return;
@@ -412,9 +456,14 @@ const PersistentBanner = {
                     }
                 }
             }
+
+            if (typeof CaseDataStore !== 'undefined') {
+                await CaseDataStore.setCurrentData(data, 'casePageDataExtractor-event');
+                return;
+            }
             
             // Extract case ID from the data
-            const newCaseId = data.caseNumber || null;
+            const newCaseId = data.caseId || null;
             
             // Check if we've navigated to a different case
             if (this.currentCaseId && newCaseId && this.currentCaseId !== newCaseId) {
@@ -564,25 +613,111 @@ const PersistentBanner = {
     },
 
     /**
+     * Subscribe to CaseContextWatcher and CaseDataStore updates
+     */
+    setupContextSubscriptions() {
+        if (typeof CaseContextWatcher !== 'undefined') {
+            CaseContextWatcher.init?.();
+            if (this.contextUnsubscribe) {
+                this.contextUnsubscribe();
+            }
+            this.contextUnsubscribe = CaseContextWatcher.subscribe(({ context }) => {
+                this.handleContextUpdate(context);
+            });
+        }
+
+        if (typeof CaseDataStore !== 'undefined') {
+            CaseDataStore.init();
+            if (this.storeUnsubscribe) {
+                this.storeUnsubscribe();
+            }
+            this.storeUnsubscribe = CaseDataStore.subscribe(({ data, source }) => {
+                this.handleStoreDataUpdate(data, source);
+            });
+        }
+    },
+
+    /**
+     * Handle context watcher updates
+     * @param {Object|null} context
+     */
+    handleContextUpdate(context) {
+        if (!context || !context.caseId) {
+            console.log('[PersistentBanner] Context indicates non-case page, clearing state');
+            this.clearCaseData();
+            this.currentPage = {
+                type: 'Unknown',
+                caseNumber: null,
+                subject: null,
+                status: null,
+                subStatus: null,
+                url: window.location.href,
+                timestamp: new Date().toISOString()
+            };
+            this.updateBannerUI();
+            return;
+        }
+
+        const caseChanged = context.caseId !== this.currentCaseId;
+        this.currentCaseId = context.caseId;
+
+        if (context.caseNumber) {
+            this.currentPage.caseNumber = context.caseNumber;
+        }
+
+        if (caseChanged) {
+            console.log(`[PersistentBanner] Case context changed to ${context.caseNumber || 'unknown'} (${context.caseId})`);
+            this.clearCaseData(true);
+        }
+    },
+
+    /**
+     * Handle CaseDataStore data updates
+     * @param {Object|null} data
+     * @param {string} source
+     */
+    handleStoreDataUpdate(data, source = 'unknown') {
+        if (!data) {
+            if (source !== 'immediate') {
+                console.log('[PersistentBanner] CaseDataStore cleared data (source:', source, ')');
+                this.clearCaseData(true);
+                this.updateBannerUI();
+            }
+            return;
+        }
+
+        if (data.caseId && this.currentCaseId && data.caseId !== this.currentCaseId) {
+            console.warn('[PersistentBanner] Ignoring store data for different case', data.caseId, this.currentCaseId);
+            return;
+        }
+
+        this.displayedCaseId = data.caseId || this.currentCaseId || null;
+        this.displayedCaseNumber = data.caseNumber || this.displayedCaseNumber;
+
+        this.currentPage.caseNumber = data.caseNumber || this.currentPage.caseNumber;
+        this.currentPage.subject = data.subject || this.currentPage.subject;
+        this.currentPage.status = data.status || this.currentPage.status;
+        this.currentPage.subStatus = data.subStatus || this.currentPage.subStatus;
+        this.currentPage.type = 'case_page';
+        this.currentPage.displayType = this.getPageTypeDisplayName('case_page');
+
+        this.customerMetadata = {
+            customerId: data.custID || data.customerId || null,
+            institutionId: data.instID || data.institutionId || null,
+            server: data.server || this.customerMetadata.server,
+            productServiceName: data.productServiceName || this.customerMetadata.productServiceName,
+            institutionCode: data.institutionCode || data.exLibrisAccountNumber || this.customerMetadata.institutionCode
+        };
+
+        this.updateBannerUI();
+    },
+
+    /**
      * Handle URL change - reset current page data
      * @param {string} newUrl
      */
     handleUrlChange(newUrl) {
         console.log('[PersistentBanner] Handling URL change, resetting current page data');
-        
-        // Detect case ID change and clear cache for old case ID
-        const oldCaseId = this.currentCaseId;
-        const newCaseId = this.getCaseIdFromUrl();
-        
-        if (oldCaseId && newCaseId && oldCaseId !== newCaseId) {
-            console.log(`[PersistentBanner] Case ID changed from ${oldCaseId} to ${newCaseId}, clearing cache for old case`);
-            // Clear cache for the old case ID to prevent stale data
-            if (typeof CacheManager !== 'undefined' && typeof CacheManager.clear === 'function') {
-                CacheManager.clear(oldCaseId).catch(err => {
-                    console.warn(`[PersistentBanner] Error clearing cache for case ${oldCaseId}:`, err);
-                });
-            }
-        }
         
         // Clear case-specific data when navigating away
         this.clearCaseData();
@@ -608,11 +743,13 @@ const PersistentBanner = {
     /**
      * Clear case-specific data (called when navigating to a different case or non-case page)
      */
-    clearCaseData() {
+    clearCaseData(preserveContext = false) {
         console.log('[PersistentBanner] Clearing case-specific data');
         
         // Clear current case ID
-        this.currentCaseId = null;
+        if (!preserveContext) {
+            this.currentCaseId = null;
+        }
         
         // Clear displayed case tracking
         this.displayedCaseId = null;
@@ -626,6 +763,14 @@ const PersistentBanner = {
             productServiceName: null,
             institutionCode: null
         };
+
+        // Reset displayed page metadata
+        if (this.currentPage) {
+            this.currentPage.caseNumber = null;
+            this.currentPage.subject = null;
+            this.currentPage.status = null;
+            this.currentPage.subStatus = null;
+        }
         
         // Reset environment menu state
         this.envMenuVisible = false;
@@ -709,16 +854,29 @@ const PersistentBanner = {
                 }
                 
                 if (!validation.valid) {
-                    // Only clear if case ID mismatches (case number mismatch might be stale cache)
-                    // If case ID matches but case number doesn't, allow update - fresh extraction will provide correct data
-                    if (validation.currentContext && caseId !== validation.currentContext.caseId) {
-                        console.warn(`[PersistentBanner] Cannot update page: ${validation.reason} (case ID mismatch)`);
+                    // Case number mismatch is authoritative - always clear stale data
+                    if (validation.currentContext) {
+                        const caseIdMismatch = caseId && caseId !== validation.currentContext.caseId;
+                        const caseNumberMismatch = pageData.caseNumber && validation.currentContext.caseNumber && 
+                                                   pageData.caseNumber !== validation.currentContext.caseNumber;
+                        
+                        if (caseIdMismatch || caseNumberMismatch) {
+                            console.warn(`[PersistentBanner] Cannot update page: ${validation.reason}`, {
+                                caseIdMismatch,
+                                caseNumberMismatch,
+                                pageDataCaseId: caseId,
+                                pageDataCaseNumber: pageData.caseNumber,
+                                currentCaseId: validation.currentContext.caseId,
+                                currentCaseNumber: validation.currentContext.caseNumber
+                            });
+                            this.clearCaseData();
+                            return;
+                        }
+                    } else {
+                        // No current context - clear stale data
+                        console.warn(`[PersistentBanner] Cannot update page: ${validation.reason} (no current context)`);
                         this.clearCaseData();
                         return;
-                    } else {
-                        // Case number mismatch but case ID matches - likely stale cache, allow update
-                        // Fresh extraction will provide correct data
-                        console.warn(`[PersistentBanner] Case number mismatch (likely stale cache): ${validation.reason}. Allowing update - extraction will provide correct data.`);
                     }
                 }
             }

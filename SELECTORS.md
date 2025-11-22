@@ -6,6 +6,7 @@ This document catalogs all DOM selectors used in the codebase, organized by modu
 
 | Selector | Module | Page Type | Purpose | Stability | Last Verified |
 |----------|--------|-----------|---------|-----------|---------------|
+| `section.tabContent.active .forcegenerated-record-layout2[style*="display: block"] div.highlights .slds-page-header__title lightning-formatted-text` | CaseDomUtils, CaseDataExtractor, CasePageDataExtractor | CASE_PAGE | Visible case header (active tab only) | Evergreen | 2025-11 |
 | `slot[name="primaryField"] lightning-formatted-text` | CaseDataExtractor, CasePageDataExtractor | CASE_PAGE | Get case header (number + subject) | Stable | Current |
 | `records-formula-output[slot="primaryField"] lightning-formatted-text` | CaseDataExtractor, CasePageDataExtractor | CASE_PAGE | Fallback for case header | Stable | Current |
 | `records-record-layout-item[field-label*="Description"]` | CaseDataExtractor, CasePageDataExtractor | CASE_PAGE | Get description field | Stable | Current |
@@ -58,6 +59,7 @@ This document catalogs all DOM selectors used in the codebase, organized by modu
 **Selectors**:
 ```javascript
 // Header (case number + subject)
+'section.tabContent.active .forcegenerated-record-layout2[style*="display: block"] div.highlights .slds-page-header__title lightning-formatted-text'
 'slot[name="primaryField"] lightning-formatted-text'
 'records-formula-output[slot="primaryField"] lightning-formatted-text'
 
@@ -105,6 +107,7 @@ This document catalogs all DOM selectors used in the codebase, organized by modu
 'flexipage-field'
 
 // Header
+'section.tabContent.active .forcegenerated-record-layout2[style*="display: block"] div.highlights .slds-page-header__title lightning-formatted-text'
 'slot[name="primaryField"] lightning-formatted-text'
 'records-formula-output[slot="primaryField"] lightning-formatted-text'
 
@@ -132,6 +135,20 @@ This document catalogs all DOM selectors used in the codebase, organized by modu
 **Anchored vs Non-Anchored Fields**:
 - **Anchored** (lookup fields): Extract from `a > span` chain
 - **Non-Anchored** (text fields): Extract from `lightning-formatted-text`
+
+### CaseDomUtils
+
+**Purpose**: Provide stable helpers for selecting the *visible* highlights panel
+
+**Selectors**:
+```javascript
+'section.tabContent.active .forcegenerated-record-layout2[style*="display: block"] div.highlights'
+'section.tabContent.active .forcegenerated-record-layout2[style*="display: block"] div.highlights .slds-page-header__title lightning-formatted-text'
+```
+
+**Usage Notes**:
+- Always scope header lookups through `CaseDomUtils` before falling back to slot selectors.
+- The `[style*="display: block"]` filter ensures hidden tabs are ignored.
 
 ### FieldHighlighter
 

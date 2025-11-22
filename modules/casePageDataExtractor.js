@@ -11,6 +11,7 @@ const CasePageDataExtractor = {
   isExtracting: false, // Track if extraction is in progress
   extractionQueue: [], // Queue for pending extractions
   retryTimeoutId: null, // Track retry timeout for cleanup
+  currentExtractionToken: null,
 
   /**
    * Initialize the module and start monitoring page changes
@@ -23,6 +24,14 @@ const CasePageDataExtractor = {
 
     console.log('[CasePageDataExtractor] Module initializing');
     this.isInitialized = true;
+
+    if (typeof CaseContextWatcher !== 'undefined') {
+      CaseContextWatcher.init?.();
+    }
+
+    if (typeof CaseDataStore !== 'undefined') {
+      CaseDataStore.init();
+    }
 
     // Use PageIdentifier to monitor page changes
     if (typeof PageIdentifier !== 'undefined' && typeof PageIdentifier.monitorPageChanges === 'function') {
@@ -42,38 +51,32 @@ const CasePageDataExtractor = {
   async handlePageChange(pageInfo) {
     // Only handle case detail pages (PageIdentifier returns 'case_page')
     if (pageInfo.type !== 'case_page') {
-      // Not a case page, cleanup and clear current data
-      this.cleanup();
+      this.cleanup('non-case-page');
       return;
     }
 
-    const caseId = pageInfo.caseId;
+    if (typeof CaseContextWatcher !== 'undefined') {
+      await CaseContextWatcher.init?.();
+    }
+
+    const context = (typeof CaseContextWatcher !== 'undefined')
+      ? await CaseContextWatcher.getStableContext({ requireCase: true, timeout: 4000 })
+      : null;
+
+    const caseId = context?.caseId || pageInfo.caseId;
+    const contextCaseNumber = context?.caseNumber || pageInfo.caseNumber || null;
+
     if (!caseId) {
       console.warn('[CasePageDataExtractor] Case page detected but no case ID found');
+      this.cleanup('missing-case-id');
       return;
     }
 
-    // If case changed, cleanup previous state including retry timeout
     if (this.currentCaseId && this.currentCaseId !== caseId) {
       console.log(`[CasePageDataExtractor] Case changed from ${this.currentCaseId} to ${caseId}, cleaning up...`);
-      // Clear retry timeout if active
-      if (this.retryTimeoutId) {
-        clearTimeout(this.retryTimeoutId);
-        this.retryTimeoutId = null;
-      }
+      this.cleanup('case-switch');
     }
 
-    // Check if cache is valid for this case
-    const cacheValidation = this.isCacheValid(caseId);
-    if (cacheValidation.valid) {
-      console.log('[CasePageDataExtractor] Using cached data:', cacheValidation.reason);
-      return;
-    } else {
-      console.log('[CasePageDataExtractor] Cache invalid, re-extracting:', cacheValidation.reason);
-      this.lastExtractedData = null; // Clear stale cache
-    }
-
-    // Check if extraction is already in progress for this case
     if (this.isExtracting && this.currentCaseId === caseId) {
       console.log('[CasePageDataExtractor] Extraction already in progress for case:', caseId);
       return;
@@ -81,14 +84,28 @@ const CasePageDataExtractor = {
 
     console.log('[CasePageDataExtractor] Extracting data for case:', caseId);
     this.currentCaseId = caseId;
+
+    const extractionToken = Symbol(`case-extraction-${caseId}-${Date.now()}`);
+    this.currentExtractionToken = extractionToken;
     this.isExtracting = true;
 
     try {
-      // Wait for page to fully load
-      await this.waitForPageLoad();
+      await this.waitForPageLoad(extractionToken);
 
-      // Extract all case data
-      const data = await this.extractAllCaseData();
+      if (!this.isTokenActive(extractionToken)) {
+        console.log('[CasePageDataExtractor] Navigation changed during wait, aborting extraction');
+        return;
+      }
+
+      const data = await this.extractAllCaseData({
+        caseId,
+        caseNumber: contextCaseNumber
+      });
+
+      if (!this.isTokenActive(extractionToken)) {
+        console.log('[CasePageDataExtractor] Token no longer active after extraction, aborting');
+        return;
+      }
       
       // Validate extracted data matches current page context before using
       // Note: validatePageContextBeforeDisplay may return a Promise if waiting for title update
@@ -111,7 +128,7 @@ const CasePageDataExtractor = {
           
           // Retry validation after a delay if case IDs matched (title might update later)
           if (validation.currentContext && data.caseId === validation.currentContext.caseId) {
-            console.log('[CasePageDataExtractor] Case IDs match but case numbers don't. Retrying validation after delay...');
+            console.log('[CasePageDataExtractor] Case IDs match but case numbers don\'t. Retrying validation after delay...');
             
             // Clear any existing retry timeout
             if (this.retryTimeoutId) {
@@ -146,6 +163,9 @@ const CasePageDataExtractor = {
                     }
                   }
                   this.lastExtractedData = data;
+                  if (typeof CaseDataStore !== 'undefined') {
+                    await CaseDataStore.setCurrentData(data, 'CasePageDataExtractor');
+                  }
                   await this.dispatchDataExtractedEvent(data);
                 } else {
                   console.warn(`[CasePageDataExtractor] Retry validation also failed: ${retryResult.reason}`);
@@ -173,13 +193,19 @@ const CasePageDataExtractor = {
 
       console.log('[CasePageDataExtractor] Extracted case data (validated):', data);
 
+      if (typeof CaseDataStore !== 'undefined') {
+        await CaseDataStore.setCurrentData(data, 'CasePageDataExtractor');
+      }
+
       // Trigger custom event for other modules to consume (only if validated)
       await this.dispatchDataExtractedEvent(data);
     } catch (error) {
       console.error('[CasePageDataExtractor] Error during extraction:', error);
     } finally {
-      // Mark extraction as complete
-      this.isExtracting = false;
+      if (this.currentExtractionToken === extractionToken) {
+        this.isExtracting = false;
+        this.currentExtractionToken = null;
+      }
       console.log('[CasePageDataExtractor] Extraction complete for case:', caseId);
     }
   },
@@ -188,12 +214,17 @@ const CasePageDataExtractor = {
    * Wait for page elements to be present
    * @returns {Promise<void>}
    */
-  waitForPageLoad() {
+  waitForPageLoad(token = null) {
     return new Promise((resolve) => {
       const maxAttempts = 20;
       let attempts = 0;
 
       const checkElements = () => {
+        if (token && !this.isTokenActive(token)) {
+          resolve();
+          return;
+        }
+
         attempts++;
         const hasRecordLayout = document.querySelector('records-record-layout-item');
         const hasFlexipageField = document.querySelector('flexipage-field');
@@ -211,13 +242,39 @@ const CasePageDataExtractor = {
   },
 
   /**
+   * Checks if the provided extraction token is still active
+   * @param {symbol} token
+   * @returns {boolean}
+   */
+  isTokenActive(token) {
+    return Boolean(token && this.currentExtractionToken === token);
+  },
+
+  /**
    * Gets the last modified date of the case
+   * Always reselects visible elements fresh on each call
    * @returns {string|null}
    */
   getLastModifiedDate() {
-    const field = document.querySelector('records-record-layout-item[field-label*="Last Modified"]');
+    const candidates = document.querySelectorAll('records-record-layout-item[field-label*="Last Modified"]');
+    let field = null;
+    
+    // Find visible layout item
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      field = CaseDomUtils.getFirstVisibleElement(candidates);
+    } else if (candidates.length > 0) {
+      field = candidates[0];
+    }
+    
     if (field) {
-      const value = field.querySelector('.test-id__field-value, lightning-formatted-text, lightning-formatted-date-time');
+      // Try to find visible value field within the layout item
+      const valueCandidates = field.querySelectorAll('.test-id__field-value, lightning-formatted-text, lightning-formatted-date-time');
+      let value = null;
+      if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+        value = CaseDomUtils.getFirstVisibleElement(valueCandidates);
+      } else if (valueCandidates.length > 0) {
+        value = valueCandidates[0];
+      }
       return value ? value.textContent.trim() : null;
     }
     return null;
@@ -251,11 +308,17 @@ const CasePageDataExtractor = {
    * Extract all case data fields
    * @returns {Object} - Extracted case data
    */
-  async extractAllCaseData() {
+  async extractAllCaseData(contextSnapshot = null) {
+    const snapshot = contextSnapshot || (typeof CaseContextWatcher !== 'undefined'
+      ? CaseContextWatcher.getCurrentContext?.()
+      : null);
+    const contextCaseId = snapshot?.caseId || this.currentCaseId;
+    const contextCaseNumber = snapshot?.caseNumber || null;
+
     const data = {
       // Basic case info
-      caseId: this.currentCaseId,
-      caseNumber: this.getCaseNumber(),
+      caseId: contextCaseId,
+      caseNumber: contextCaseNumber || this.getCaseNumber(),
       subject: this.getSubject(),
       description: this.getDescription(),
 
@@ -342,6 +405,13 @@ const CasePageDataExtractor = {
    * @returns {string|null}
    */
   getCaseNumber() {
+    if (typeof CaseDomUtils !== 'undefined') {
+      const visibleNumber = CaseDomUtils.getVisibleCaseNumber();
+      if (visibleNumber) {
+        return visibleNumber;
+      }
+    }
+
     const header = this.getHeaderText();
     if (header) {
       const numberMatch = header.match(/^([0-9]{6,})/);
@@ -373,6 +443,13 @@ const CasePageDataExtractor = {
    * @returns {string|null}
    */
   getSubject() {
+    if (typeof CaseDomUtils !== 'undefined') {
+      const visibleSubject = CaseDomUtils.getVisibleCaseSubject();
+      if (visibleSubject) {
+        return visibleSubject;
+      }
+    }
+
     const header = this.getHeaderText();
     if (!header) return null;
     const parts = header.split(' - ');
@@ -381,20 +458,60 @@ const CasePageDataExtractor = {
 
   /**
    * Get combined header text (case number + subject)
+   * Always reselects visible elements fresh on each call
    * @returns {string|null}
    */
   getHeaderText() {
-    const headerField = document.querySelector('slot[name="primaryField"] lightning-formatted-text, records-formula-output[slot="primaryField"] lightning-formatted-text');
+    if (typeof CaseDomUtils !== 'undefined') {
+      const header = CaseDomUtils.getVisibleCaseHeaderText();
+      if (header) {
+        return header;
+      }
+    }
+
+    // Fallback: check visibility of header field
+    const candidates = document.querySelectorAll('slot[name="primaryField"] lightning-formatted-text, records-formula-output[slot="primaryField"] lightning-formatted-text');
+    let headerField = null;
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      headerField = CaseDomUtils.getFirstVisibleElement(candidates);
+    } else if (candidates.length > 0) {
+      headerField = candidates[0];
+    }
     return headerField ? (headerField.textContent || '').trim() : null;
   },
 
   /**
    * Get description field content
+   * Always reselects visible elements fresh on each call
    * @returns {string|null}
    */
   getDescription() {
-    const field = document.querySelector('records-record-layout-item[field-label*="Description"] lightning-formatted-text, records-record-layout-item[field-label*="Description"] .test-id__field-value');
-    if (!field) return null;
+    const candidates = document.querySelectorAll('records-record-layout-item[field-label*="Description"]');
+    let layoutItem = null;
+    
+    // Find visible layout item
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      layoutItem = CaseDomUtils.getFirstVisibleElement(candidates);
+    } else if (candidates.length > 0) {
+      layoutItem = candidates[0];
+    }
+    
+    if (!layoutItem) {
+      return null;
+    }
+    
+    // Try to find visible field within the layout item
+    const fieldCandidates = layoutItem.querySelectorAll('lightning-formatted-text, .test-id__field-value');
+    let field = null;
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      field = CaseDomUtils.getFirstVisibleElement(fieldCandidates);
+    } else if (fieldCandidates.length > 0) {
+      field = fieldCandidates[0];
+    }
+    
+    if (!field) {
+      return null;
+    }
 
     if (field.tagName && field.tagName.toLowerCase() === 'lightning-formatted-text') {
       return field.textContent.trim();
@@ -442,39 +559,69 @@ const CasePageDataExtractor = {
 
   /**
    * Extract text from records-record-layout-item by label
+   * Always reselects visible elements fresh on each call
    * @param {string} label - Field label to search for
    * @returns {string|null}
    */
   getRecordLayoutField(label) {
-    // Query by label attribute - try both direct and shadow DOM
-    let layoutItem = document.querySelector(`records-record-layout-item[field-label="${label}"]`);
+    // Get all candidates and filter by visibility
+    const candidates = document.querySelectorAll(`records-record-layout-item[field-label="${label}"]`);
+    let layoutItem = null;
     
-    // If not found, try shadow DOM traversal
+    // Check visibility of direct matches first
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      layoutItem = CaseDomUtils.getFirstVisibleElement(candidates);
+    }
+    
+    // If no visible direct match, try shadow DOM traversal
     if (!layoutItem) {
-      layoutItem = this.queryShadowDOM(`records-record-layout-item[field-label="${label}"]`);
+      const shadowCandidates = [];
+      candidates.forEach((candidate) => {
+        const shadowMatch = this.queryShadowDOM(`records-record-layout-item[field-label="${label}"]`, candidate);
+        if (shadowMatch) {
+          shadowCandidates.push(shadowMatch);
+        }
+      });
+      if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+        layoutItem = CaseDomUtils.getFirstVisibleElement(shadowCandidates);
+      } else if (shadowCandidates.length > 0) {
+        layoutItem = shadowCandidates[0];
+      }
+    }
+    
+    // If still not found, try partial match
+    if (!layoutItem) {
+      const partialCandidates = document.querySelectorAll(`records-record-layout-item[field-label*="${label}"]`);
+      if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+        layoutItem = CaseDomUtils.getFirstVisibleElement(partialCandidates);
+      } else if (partialCandidates.length > 0) {
+        layoutItem = partialCandidates[0];
+      }
+      
+      // Try shadow DOM for partial match
+      if (!layoutItem) {
+        const shadowPartialCandidates = [];
+        partialCandidates.forEach((candidate) => {
+          const shadowMatch = this.queryShadowDOM(`records-record-layout-item[field-label*="${label}"]`, candidate);
+          if (shadowMatch) {
+            shadowPartialCandidates.push(shadowMatch);
+          }
+        });
+        if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+          layoutItem = CaseDomUtils.getFirstVisibleElement(shadowPartialCandidates);
+        } else if (shadowPartialCandidates.length > 0) {
+          layoutItem = shadowPartialCandidates[0];
+        }
+      }
     }
     
     if (!layoutItem) {
-      // Try partial match
-      const partialMatch = document.querySelector(`records-record-layout-item[field-label*="${label}"]`);
-      if (!partialMatch) {
-        // Try shadow DOM for partial match
-        const shadowPartialMatch = this.queryShadowDOM(`records-record-layout-item[field-label*="${label}"]`);
-        if (!shadowPartialMatch) {
-          console.warn(`[CasePageDataExtractor] Could not find layout item for label: "${label}"`);
-          return null;
-        }
-        const value = this.extractRecordLayoutValue(shadowPartialMatch);
-        console.log(`[CasePageDataExtractor] Extracted "${label}" from shadow DOM (partial match):`, value);
-        return value;
-      }
-      const value = this.extractRecordLayoutValue(partialMatch);
-      console.log(`[CasePageDataExtractor] Extracted "${label}" (partial match):`, value);
-      return value;
+      console.warn(`[CasePageDataExtractor] Could not find visible layout item for label: "${label}"`);
+      return null;
     }
 
     const value = this.extractRecordLayoutValue(layoutItem);
-    console.log(`[CasePageDataExtractor] Extracted "${label}":`, value);
+    console.log(`[CasePageDataExtractor] Extracted "${label}" from visible element:`, value);
     return value;
   },
 
@@ -486,6 +633,14 @@ const CasePageDataExtractor = {
    */
   extractRecordLayoutValue(layoutItem) {
     if (!layoutItem) return null;
+    
+    // Skip extraction if layout item is not visible
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      if (!CaseDomUtils.isElementVisible(layoutItem)) {
+        console.warn('[CasePageDataExtractor] Skipping extraction from non-visible layout item');
+        return null;
+      }
+    }
 
     // Common paths to the value:
     // 1. lightning-formatted-text (try both direct query and shadow DOM)
@@ -571,21 +726,67 @@ const CasePageDataExtractor = {
 
   /**
    * Extract value from flexipage-field by data-field-id
+   * Always reselects visible elements fresh on each call
+   * Prefers fields within visible tab container
    * @param {string} fieldId - The data-field-id value
    * @param {boolean} isAnchored - Whether the field contains anchor elements (lookup fields)
    * @returns {string|null}
    */
   getFlexipageField(fieldId, isAnchored = false) {
-    let field = document.querySelector(`flexipage-field[data-field-id="${fieldId}"]`);
+    // Get all candidates
+    const candidates = document.querySelectorAll(`flexipage-field[data-field-id="${fieldId}"]`);
+    let field = null;
     
-    // If not found, try shadow DOM traversal
+    // Prefer fields within visible tab container
+    const visibleTabContainer = document.querySelector('section.tabContent.active .forcegenerated-record-layout2[style*="display: block"]');
+    const visibleTabRoot = visibleTabContainer || document.body;
+    
+    // First, try to find visible field within active tab
+    if (visibleTabContainer) {
+      const tabCandidates = visibleTabContainer.querySelectorAll(`flexipage-field[data-field-id="${fieldId}"]`);
+      if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+        field = CaseDomUtils.getFirstVisibleElement(tabCandidates);
+      } else if (tabCandidates.length > 0) {
+        field = tabCandidates[0];
+      }
+    }
+    
+    // If not found in visible tab, check all candidates for visibility
     if (!field) {
-      field = this.queryShadowDOM(`flexipage-field[data-field-id="${fieldId}"]`);
+      if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+        field = CaseDomUtils.getFirstVisibleElement(candidates);
+      } else if (candidates.length > 0) {
+        field = candidates[0];
+      }
+    }
+    
+    // If still not found, try shadow DOM traversal
+    if (!field) {
+      const shadowCandidates = [];
+      candidates.forEach((candidate) => {
+        const shadowMatch = this.queryShadowDOM(`flexipage-field[data-field-id="${fieldId}"]`, candidate);
+        if (shadowMatch) {
+          shadowCandidates.push(shadowMatch);
+        }
+      });
+      if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+        field = CaseDomUtils.getFirstVisibleElement(shadowCandidates);
+      } else if (shadowCandidates.length > 0) {
+        field = shadowCandidates[0];
+      }
     }
     
     if (!field) {
-      console.warn(`[CasePageDataExtractor] Could not find flexipage-field with data-field-id: "${fieldId}"`);
+      console.warn(`[CasePageDataExtractor] Could not find visible flexipage-field with data-field-id: "${fieldId}"`);
       return null;
+    }
+    
+    // Double-check visibility of the selected field
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      if (!CaseDomUtils.isElementVisible(field)) {
+        console.warn(`[CasePageDataExtractor] Selected flexipage-field "${fieldId}" is not visible`);
+        return null;
+      }
     }
 
     if (isAnchored) {
@@ -691,104 +892,6 @@ const CasePageDataExtractor = {
   },
 
   /**
-   * Check if cached data is still valid for the given case
-   * @param {string} caseId - Case ID to validate cache for
-   * @returns {{valid: boolean, reason: string}} - Validation result
-   */
-  isCacheValid(caseId) {
-    // Check if we have cached data for this case
-    if (!this.lastExtractedData || this.currentCaseId !== caseId) {
-      return { valid: false, reason: 'No cached data for this case' };
-    }
-    
-    // Validate extraction timestamp exists and is valid
-    if (!this.lastExtractedData.extractedAt) {
-      return { valid: false, reason: 'Invalid extraction timestamp (missing)' };
-    }
-    
-    // Check TTL (Time-To-Live)
-    const CACHE_TTL_MS = 30000; // 30 seconds
-    const now = Date.now();
-    let extractedAt;
-    try {
-      extractedAt = new Date(this.lastExtractedData.extractedAt).getTime();
-      if (isNaN(extractedAt)) {
-        return { valid: false, reason: 'Invalid extraction timestamp (not a valid date)' };
-      }
-    } catch (error) {
-      return { valid: false, reason: 'Invalid extraction timestamp (parse error)' };
-    }
-    
-    if (now - extractedAt > CACHE_TTL_MS) {
-      return { valid: false, reason: `Cache expired (TTL: ${CACHE_TTL_MS}ms)` };
-    }
-    
-    // Check Last Modified Date (primary validation)
-    const currentLastModified = this.getLastModifiedDate();
-    const cachedLastModified = this.lastExtractedData.lastModifiedDate;
-    
-    if (currentLastModified && cachedLastModified) {
-      // Normalize and compare dates
-      const normalizedCurrent = this.normalizeDate(currentLastModified);
-      const normalizedCached = this.normalizeDate(cachedLastModified);
-      
-      if (normalizedCurrent && normalizedCached && normalizedCurrent !== normalizedCached) {
-        return { valid: false, reason: 'Case was modified (Last Modified Date changed)' };
-      }
-    }
-    
-    // Field-level change detection (secondary validation for rapid changes)
-    // Check critical fields that might change without Last Modified Date updating immediately
-    const fieldValidation = this.validateCriticalFields();
-    if (!fieldValidation.valid) {
-      return { valid: false, reason: fieldValidation.reason };
-    }
-    
-    return { valid: true, reason: 'Cache is valid' };
-  },
-
-  /**
-   * Validate critical fields haven't changed (field-level change detection)
-   * Useful for detecting rapid changes that might not be reflected in Last Modified Date yet
-   * @returns {{valid: boolean, reason: string}} - Validation result
-   */
-  validateCriticalFields() {
-    if (!this.lastExtractedData) {
-      return { valid: true, reason: 'No cached data to validate' };
-    }
-    
-    // Critical fields to check for changes
-    const criticalFields = [
-      { name: 'asset', extractor: () => this.getFlexipageField('RecordAsset_Line_Item_cField', true) },
-      { name: 'status', extractor: () => this.getRecordLayoutField('Status') },
-      { name: 'pageStatus', extractor: () => this.getFlexipageField('RecordStatusField', false) },
-      { name: 'category', extractor: () => this.getRecordLayoutField('Category') }
-    ];
-    
-    for (const field of criticalFields) {
-      const currentValue = field.extractor();
-      const cachedValue = this.lastExtractedData[field.name];
-      
-      // Only validate if both values exist (null/undefined means field not available)
-      if (currentValue !== null && currentValue !== undefined && 
-          cachedValue !== null && cachedValue !== undefined) {
-        // Normalize strings for comparison (trim whitespace)
-        const normalizedCurrent = typeof currentValue === 'string' ? currentValue.trim() : currentValue;
-        const normalizedCached = typeof cachedValue === 'string' ? cachedValue.trim() : cachedValue;
-        
-        if (normalizedCurrent !== normalizedCached) {
-          return { 
-            valid: false, 
-            reason: `Critical field changed: ${field.name} (${normalizedCached} → ${normalizedCurrent})` 
-          };
-        }
-      }
-    }
-    
-    return { valid: true, reason: 'Critical fields unchanged' };
-  },
-
-  /**
    * Normalize text content, converting <br> tags to newlines
    * @param {Element} node
    * @returns {string}
@@ -876,7 +979,7 @@ const CasePageDataExtractor = {
   /**
    * Cleanup method to clear timeouts and reset state
    */
-  cleanup() {
+  cleanup(reason = 'manual') {
     // Clear retry timeout if active
     if (this.retryTimeoutId) {
       clearTimeout(this.retryTimeoutId);
@@ -888,6 +991,11 @@ const CasePageDataExtractor = {
     this.lastExtractedData = null;
     this.isExtracting = false;
     this.extractionQueue = [];
+    this.currentExtractionToken = null;
+
+    if (typeof CaseDataStore !== 'undefined') {
+      CaseDataStore.clear(`casepage-cleanup:${reason}`);
+    }
   },
 
   /**
@@ -923,22 +1031,6 @@ const CasePageDataExtractor = {
     return data;
   },
 
-  /**
-   * Clear cached data for a specific case
-   * @param {string} caseId - Case ID to clear cache for (optional, clears current if not provided)
-   */
-  clearCache(caseId = null) {
-    if (caseId && this.currentCaseId === caseId) {
-      console.log('[CasePageDataExtractor] Clearing cache for case:', caseId);
-      this.lastExtractedData = null;
-    } else if (!caseId && this.currentCaseId) {
-      console.log('[CasePageDataExtractor] Clearing cache for current case:', this.currentCaseId);
-      this.lastExtractedData = null;
-    } else if (caseId && this.currentCaseId !== caseId) {
-      console.log('[CasePageDataExtractor] Case ID mismatch, cache already cleared or different case');
-    } else {
-      console.log('[CasePageDataExtractor] No cache to clear');
-    }
   }
 };
 

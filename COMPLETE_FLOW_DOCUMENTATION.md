@@ -43,7 +43,7 @@
            ├─► Core utilities (debounceUtils, logger)
            ├─► Page identification (pageIdentifier, pageContextValidator)
            ├─► Settings (settingsManager)
-           ├─► Data management (customerDataManager, cacheManager)
+          ├─► Data management (customerDataManager, caseContextWatcher)
            ├─► Data extraction (caseDataExtractor, casePageDataExtractor)
            ├─► UI utilities (fieldHighlighter, urlBuilder, textFormatter)
            ├─► Feature modules (dynamicMenu, caseCommentMemory, etc.)
@@ -61,10 +61,10 @@
            │   └─► Loads customer list from chrome.storage.local
            │   └─► Falls back to default list if missing
            │
-           ├─► CacheManager.init()
-           │   └─► Loads cache from chrome.storage.local
-           │   └─► Builds in-memory Map
-           │
+          ├─► CaseContextWatcher.init()
+          │   └─► Waits 500 ms after navigation and emits stable head context
+          │   └─► Clears context when leaving a case
+          │
            ├─► NavigationObserver.start()
            │   └─► Sets up title observer
            │   └─► Intercepts history API
