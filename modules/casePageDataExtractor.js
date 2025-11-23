@@ -328,10 +328,134 @@ const CasePageDataExtractor = {
   },
 
   /**
+   * Normalize API data to match existing case data structure
+   * Maps API field names to the structure expected by other modules
+   * @param {Object} apiData - Flattened API field map from FetchInterceptor
+   * @param {string} caseId - Current case ID
+   * @returns {Object} - Normalized case data matching extractAllCaseDataFromDOM structure
+   */
+  normalizeApiData(apiData, caseId) {
+    console.log('[CasePageDataExtractor] Normalizing API data, field count:', Object.keys(apiData).length);
+    
+    const data = {
+      // Basic case info
+      caseId: caseId,
+      caseNumber: apiData.CaseNumber || null,
+      subject: apiData.Subject || null,
+      description: apiData.Description || null,
+
+      // Contact and Account (from nested lookups)
+      accountName: apiData['Account.Name'] || null,
+      contactName: apiData['Contact.Name'] || null,
+
+      // Product/Service Information
+      platformService: apiData.PQ_Product_Group__c || apiData.Platform__c || null,
+      productServiceName: apiData['Product_Service_Name__c'] || null,
+
+      // Case categorization
+      category: apiData.Category__c || null,
+      subCategory: apiData.Sub_Category__c || null,
+      status: apiData.Status || null,
+      subStatus: apiData.Sub_Status__c || null,
+
+      // Customer data
+      exLibrisAccountNumber: apiData.Ex_Libris_Account_Number__c || null,
+      analysisNote: apiData.Analysis_Note__c || null,
+
+      // Additional fields from API
+      asset: apiData.Asset_Line_Item__c || null,
+      affectedEnvironment: apiData.bl_Affected_Environment__c || null,
+      caseOwner: apiData['Owner.Name'] || null,
+      parentCase: apiData['Parent.CaseNumber'] || null,
+      parentCaseOwner: apiData.Parent_Case_Owner__c || null,
+
+      // Additional metadata
+      escalation: apiData.Escalation__c || null,
+      caseCreatedDate: apiData.CreatedDate || null,
+      caseClosedOn: apiData.ClosedDate || null,
+      customerExLibrisAccountNumber: apiData.Ex_Libris_Account_Number__c || null,
+      pageStatus: apiData.Status || null,
+
+      // Timestamp
+      extractedAt: new Date().toISOString(),
+      lastModifiedDate: apiData.LastModifiedDate || null,
+      
+      // Metadata
+      dataSource: 'API' // Mark data source for debugging
+    };
+
+    // Enrich with customer data from CustomerDataManager
+    if (typeof CustomerDataManager !== 'undefined' && data.exLibrisAccountNumber) {
+      const customerInfo = CustomerDataManager.findByInstitutionCode(
+        data.exLibrisAccountNumber,
+        data.accountName
+      );
+      
+      if (customerInfo) {
+        data.custID = customerInfo.custID;
+        data.instID = customerInfo.instID;
+        data.server = customerInfo.server;
+        console.log('[CasePageDataExtractor] API data enriched with customer info:', customerInfo.name);
+      }
+    }
+
+    console.log('[CasePageDataExtractor] Normalized API data:', {
+      caseNumber: data.caseNumber,
+      subject: data.subject?.substring(0, 50),
+      fieldsPopulated: Object.values(data).filter(v => v !== null).length
+    });
+
+    return data;
+  },
+
+  /**
    * Extract all case data fields
+   * Primary method that checks API data first, then falls back to DOM extraction
+   * @param {Object} contextSnapshot - Optional context snapshot
    * @returns {Object} - Extracted case data
    */
   async extractAllCaseData(contextSnapshot = null) {
+    const snapshot = contextSnapshot || (typeof CaseContextWatcher !== 'undefined'
+      ? CaseContextWatcher.getCurrentContext?.()
+      : null);
+    const contextCaseId = snapshot?.caseId || this.currentCaseId;
+    const contextCaseNumber = snapshot?.caseNumber || null;
+
+    // PRIORITY 1: Try API data first (from FetchInterceptor)
+    if (window.ExLibrisExtension?.apiCaseData) {
+      const apiData = window.ExLibrisExtension.apiCaseData;
+      const apiTimestamp = window.ExLibrisExtension.apiCaseDataTimestamp;
+      
+      // Check if data is fresh (within last 5 seconds)
+      const age = Date.now() - (apiTimestamp || 0);
+      if (age < 5000) {
+        // Verify API data matches current case
+        if (apiData.CaseNumber === contextCaseNumber || !contextCaseNumber) {
+          console.log('[CasePageDataExtractor] Using fresh API data (age: ${age}ms)');
+          return this.normalizeApiData(apiData, contextCaseId);
+        } else {
+          console.warn('[CasePageDataExtractor] API data case number mismatch, falling back to DOM', {
+            apiCaseNumber: apiData.CaseNumber,
+            contextCaseNumber
+          });
+        }
+      } else {
+        console.log('[CasePageDataExtractor] API data too old (age: ${age}ms), falling back to DOM');
+      }
+    }
+
+    // PRIORITY 2: Fallback to DOM extraction
+    console.log('[CasePageDataExtractor] Extracting data from DOM');
+    return await this.extractAllCaseDataFromDOM(contextSnapshot);
+  },
+
+  /**
+   * Extract all case data fields from DOM
+   * Original DOM-based extraction method (now used as fallback)
+   * @param {Object} contextSnapshot - Optional context snapshot
+   * @returns {Object} - Extracted case data
+   */
+  async extractAllCaseDataFromDOM(contextSnapshot = null) {
     const snapshot = contextSnapshot || (typeof CaseContextWatcher !== 'undefined'
       ? CaseContextWatcher.getCurrentContext?.()
       : null);
@@ -1052,8 +1176,6 @@ const CasePageDataExtractor = {
     this.lastExtractedData = data;
     await this.dispatchDataExtractedEvent(data);
     return data;
-  },
-
   }
 };
 

@@ -25,6 +25,12 @@
     isInitialized: false,
     initializationDebounceTimer: null,
     isInitializing: false,
+    
+    // API-sourced case data (from FetchInterceptor)
+    apiCaseData: null,           // Flattened field map from API response
+    apiCaseDataTimestamp: null,  // Timestamp when data was captured
+    apiCaseDataRaw: null,        // Full API response (optional, for debugging)
+    
     caseToolkit: {
       metadata: null,
       caseData: null,

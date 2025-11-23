@@ -23,6 +23,7 @@
       },
       {
          "js": [
+            "modules/fetchInterceptor.js",
             "content_script.js",
             "modules/debounceUtils.js",
             "modules/logger.js",
@@ -73,7 +74,7 @@
             "*://*.salesforce.com/*",
             "*://*.lightning.force.com/*"
          ],
-         "run_at": "document_idle",
+         "run_at": "document_start",
          "css": [ 
             "modules/styles/injected-panel.css",
             "modules/styles/persistent-banner.css"
