@@ -32,6 +32,7 @@
             "modules/caseContextWatcher.js",
             "modules/caseDataStore.js",
             "modules/settingsManager.js",
+            "modules/siteActivationManager.js",
             "modules/customerDataManager.js",
             "modules/caseDataExtractor.js",
             "modules/caseCommentExtractor.js",
@@ -66,7 +67,12 @@
             "modules/flexipagePanelInjector.js",
             "content_script_exlibris.js"
          ],
-         "matches": [ "https://proquestllc.lightning.force.com/*" ],
+         "matches": [ "<all_urls>" ],
+         "exclude_matches": [
+            "*://*.force.com/*",
+            "*://*.salesforce.com/*",
+            "*://*.lightning.force.com/*"
+         ],
          "run_at": "document_idle",
          "css": [ 
             "modules/styles/injected-panel.css",
@@ -75,9 +81,15 @@
       },
       {
          "js": [
+            "lib/DOMPurify.min.js",
+            "lib/html2canvas.min.js",
+            "lib/fabric.min.js",
             "modules/settingsManager.js",
             "modules/layerManager.js",
+            "modules/logger.js",
             "modules/dataMigration.js",
+            "modules/storageQuotaManager.js",
+            "modules/screenshotManager.js",
             "modules/highlighter.js",
             "modules/stickyNotes.js",
             "modules/bookmarkManager.js",
@@ -101,7 +113,7 @@
    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwEtsrKbUbSe0JeeMtKca1Ka786YKcryHy5uKYPXm5Zm7QUnr/pn8YU/zGjs0ByOkO5309ro9sRsVKscYpYLfqiiQQGNvS5hnYSUh/z43QrS//ItbDHMmjlkJdryctqLO87pUVdbo97knNZ4fXAYkZNZFjjMG8UergCmOgkSt+9k6aQnSE+r1vmME+v3Tl44Wr8GOkM0TohvH1GdQODSh7tNcVpEtj3GnEmHR9NhABR95+cNLwIv9e3d/hWYpdPOm1gwf5bxWKlgbdtA93rFVALZiLcJ6HfBBElnWrXAl9vBMnqzFy+urtuF9ZJb3Qf64gdBa9IOnF0KVBDLI1DTm+wIDAQAB",
    "manifest_version": 3,
    "name": "Penang CoE Salesforce and Docs Extension",
-   "permissions": [ "storage", "tabs", "activeTab", "contextMenus" ],
+   "permissions": [ "storage", "tabs", "activeTab", "contextMenus", "clipboardWrite" ],
    "update_url": "https://clients2.google.com/service/update2/crx",
    "version": "7.2",
    "web_accessible_resources": [

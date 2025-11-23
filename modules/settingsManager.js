@@ -74,6 +74,54 @@ const SettingsManager = (function() {
       }
     },
 
+    // Highlighter & Notes settings (NEW)
+    highlighterNotes: {
+      // Feature flags
+      featureFlags: {
+        screenshots: true,
+        richTextNotes: true,
+        noteAnnotations: true
+      },
+
+      // Screenshot settings
+      screenshots: {
+        enabled: true,
+        autoCleanup: true,
+        retentionDays: 30,
+        maxSizeMB: 5,
+        jpegQuality: 0.8,
+        maxImageWidth: 800
+      },
+
+      // Sticky notes settings
+      notes: {
+        collapseMode: 'manual', // 'manual' or 'auto'
+        virtualScrollThreshold: 50,
+        lazyLoadImages: true,
+        defaultColor: 'yellow',
+        defaultSize: {
+          width: 300,
+          height: 200
+        }
+      },
+
+      // Cross-tab sync settings
+      sync: {
+        enabled: true,
+        conflictResolution: 'prompt', // 'prompt', 'local', 'remote'
+        autoResolveDelay: 10000 // milliseconds
+      },
+
+      // Multi-site banner activation (NEW)
+      activeSites: {}, // { "example.com": true/false }
+
+      // Banner dismissal settings (NEW)
+      banner: {
+        showCloseButton: true,
+        dismissalDuration: 'session' // 'session' or 'permanent'
+      }
+    },
+
     // Legacy settings (for backwards compatibility)
     savedSelection: 'EndNote'
   };

@@ -385,14 +385,23 @@ function getMessageSettingsFromUI() {
   if (customMessagesList) {
     customMessagesList.querySelectorAll('[data-message-id]').forEach(item => {
       const id = item.dataset.messageId;
-      const textarea = item.querySelector('textarea');
+      const textarea = item.querySelector('.message-textarea');
+      const descriptionArea = item.querySelector('.message-description');
       const enabledCheckbox = item.querySelector('input[type="checkbox"]');
+      const imagePreview = item.querySelector('.image-preview');
+      
       if (id && id.startsWith('custom_') && textarea) {
-        customMessages.push({
+        const message = {
           id: id,
           text: textarea.value.trim(),
-          enabled: enabledCheckbox ? enabledCheckbox.checked : true
-        });
+          enabled: enabledCheckbox ? enabledCheckbox.checked : true,
+          description: descriptionArea ? descriptionArea.value.trim() : '',
+          hoverImage: imagePreview ? imagePreview.src : null,
+          pinnedCaseNumber: item.dataset.pinnedCaseNumber || null,
+          pinnedCaseId: item.dataset.pinnedCaseId || null,
+          pinnedCaseUrl: item.dataset.pinnedCaseUrl || null
+        };
+        customMessages.push(message);
       }
     });
   }
@@ -445,26 +454,57 @@ function renderCustomMessages(messages) {
     return;
   }
   
-  container.innerHTML = messages.map(msg => `
-    <div class="message-item custom-message" data-message-id="${msg.id}">
-      <div class="message-controls">
-        <label class="message-toggle">
+  container.innerHTML = messages.map(msg => {
+    const charCount = (msg.text || '').length;
+    const hasImage = msg.hoverImage ? true : false;
+    const isPinned = msg.pinnedCaseNumber ? true : false;
+    
+    return `
+    <div class="message-item custom-message" data-message-id="${msg.id}" style="border: 2px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 15px; margin-bottom: 15px; background: rgba(255,255,255,0.05);">
+      <div class="message-controls" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <label class="message-toggle" style="display: flex; align-items: center; gap: 8px;">
           <input type="checkbox" ${msg.enabled !== false ? 'checked' : ''}>
           <span>Enabled</span>
         </label>
-        <button class="button-small delete-message-btn" data-message-id="${msg.id}" title="Delete message">Delete</button>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          ${isPinned ? `<span style="font-size: 12px; padding: 2px 8px; background: rgba(224,120,0,0.2); border-radius: 4px; color: #ffa500;">📌 ${escapeHtml(msg.pinnedCaseNumber)}</span>` : ''}
+          <button class="button-small delete-message-btn" data-message-id="${msg.id}" title="Delete message">Delete</button>
+        </div>
       </div>
-      <textarea class="message-textarea" rows="3" maxlength="240" placeholder="Enter message (max 3 lines, use Enter for new line)">${escapeHtml(msg.text)}</textarea>
+      
+      <label style="display: block; margin-bottom: 5px; font-size: 12px; opacity: 0.9;">Message Text (4000 chars max)</label>
+      <textarea class="message-textarea" rows="4" maxlength="4000" placeholder="Enter message text..." style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); color: white; font-family: inherit; resize: vertical;">${escapeHtml(msg.text || '')}</textarea>
+      <div class="char-counter" style="text-align: right; font-size: 11px; margin-top: 3px; opacity: 0.7;">${charCount}/4000</div>
+      
+      <label style="display: block; margin: 10px 0 5px 0; font-size: 12px; opacity: 0.9;">Description (optional)</label>
+      <textarea class="message-description" rows="2" placeholder="Add a description for this message..." style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); color: white; font-family: inherit; resize: vertical;">${escapeHtml(msg.description || '')}</textarea>
+      
+      <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.2);">
+        <label style="display: block; margin-bottom: 5px; font-size: 12px; opacity: 0.9;">Hover Image</label>
+        ${hasImage ? `
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+            <img class="image-preview" src="${msg.hoverImage}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px; border: 2px solid rgba(255,255,255,0.3);">
+            <div style="flex: 1; font-size: 12px; opacity: 0.8;">
+              <div>Image attached</div>
+              <div style="font-size: 10px; margin-top: 2px;">${Math.round(msg.hoverImage.length * 0.75 / 1024)} KB</div>
+            </div>
+            <button class="button-small remove-image-btn" data-message-id="${msg.id}" style="background: rgba(200,0,0,0.3); border: 1px solid rgba(255,255,255,0.3);">Remove</button>
+          </div>
+        ` : ''}
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <input type="file" class="image-upload" data-message-id="${msg.id}" accept="image/*" style="display: none;">
+          <button class="button-small upload-image-btn" data-message-id="${msg.id}" style="font-size: 11px; padding: 4px 8px;">📤 Upload</button>
+          <input type="text" class="image-url-input" data-message-id="${msg.id}" placeholder="Or paste image URL..." style="flex: 1; padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); color: white; font-size: 11px; min-width: 150px;">
+          <button class="button-small load-url-btn" data-message-id="${msg.id}" style="font-size: 11px; padding: 4px 8px;">Load URL</button>
+        </div>
+        <div class="image-status" data-message-id="${msg.id}" style="font-size: 11px; margin-top: 5px; opacity: 0.7;"></div>
+      </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
   
-  // Attach delete handlers
-  container.querySelectorAll('.delete-message-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const id = e.target.dataset.messageId;
-      deleteCustomMessage(id);
-    });
-  });
+  // Attach event handlers
+  attachMessageEventHandlers(container);
 }
 
 /**
@@ -478,23 +518,16 @@ function addCustomMessage() {
   const newMessage = {
     id: newId,
     text: '',
-    enabled: true
+    enabled: true,
+    description: '',
+    hoverImage: null,
+    pinnedCaseNumber: null,
+    pinnedCaseId: null,
+    pinnedCaseUrl: null
   };
   
-  // Get current messages
-  const currentMessages = [];
-  container.querySelectorAll('[data-message-id]').forEach(item => {
-    const id = item.dataset.messageId;
-    const textarea = item.querySelector('textarea');
-    const enabledCheckbox = item.querySelector('input[type="checkbox"]');
-    if (id && id.startsWith('custom_') && textarea) {
-      currentMessages.push({
-        id: id,
-        text: textarea.value.trim(),
-        enabled: enabledCheckbox ? enabledCheckbox.checked : true
-      });
-    }
-  });
+  // Get current messages from UI
+  const currentMessages = getCurrentMessagesFromUI();
   
   // Add new message
   currentMessages.push(newMessage);
@@ -541,16 +574,11 @@ function validateMessageText(text) {
     return { valid: false, error: 'Message cannot be empty' };
   }
   
-  const lines = text.split('\n');
-  if (lines.length > 3) {
-    return { valid: false, error: 'Message cannot exceed 3 lines' };
+  if (text.length > 4000) {
+    return { valid: false, error: 'Message cannot exceed 4000 characters' };
   }
   
-  if (text.length > 240) {
-    return { valid: false, error: 'Message cannot exceed 240 characters' };
-  }
-  
-  return { valid: true, error: null };
+  return { valid: true, error: null, length: text.length };
 }
 
 /**
@@ -562,6 +590,250 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+/**
+ * Attach event handlers for message items
+ * @param {HTMLElement} container - Container element
+ */
+function attachMessageEventHandlers(container) {
+  // Delete buttons
+  container.querySelectorAll('.delete-message-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const id = e.target.dataset.messageId;
+      deleteCustomMessage(id);
+    });
+  });
+
+  // Character counters for textareas
+  container.querySelectorAll('.message-textarea').forEach(textarea => {
+    const item = textarea.closest('[data-message-id]');
+    const counter = item.querySelector('.char-counter');
+    
+    textarea.addEventListener('input', () => {
+      if (counter) {
+        counter.textContent = `${textarea.value.length}/4000`;
+      }
+    });
+  });
+
+  // Upload image buttons
+  container.querySelectorAll('.upload-image-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const messageId = btn.dataset.messageId;
+      const fileInput = container.querySelector(`.image-upload[data-message-id="${messageId}"]`);
+      if (fileInput) {
+        fileInput.click();
+      }
+    });
+  });
+
+  // File input handlers
+  container.querySelectorAll('.image-upload').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const messageId = input.dataset.messageId;
+      const file = e.target.files[0];
+      if (file) {
+        handleImageUpload(file, messageId);
+      }
+    });
+  });
+
+  // Load URL buttons
+  container.querySelectorAll('.load-url-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const messageId = btn.dataset.messageId;
+      const urlInput = container.querySelector(`.image-url-input[data-message-id="${messageId}"]`);
+      if (urlInput && urlInput.value.trim()) {
+        handleImageUrl(urlInput.value.trim(), messageId);
+      }
+    });
+  });
+
+  // Remove image buttons
+  container.querySelectorAll('.remove-image-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const messageId = btn.dataset.messageId;
+      removeMessageImage(messageId);
+    });
+  });
+}
+
+/**
+ * Handle image file upload
+ * @param {File} file - Image file
+ * @param {string} messageId - Message ID
+ */
+function handleImageUpload(file, messageId) {
+  const statusEl = document.querySelector(`.image-status[data-message-id="${messageId}"]`);
+  
+  if (!file.type.startsWith('image/')) {
+    if (statusEl) statusEl.textContent = '❌ Please select an image file';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      if (statusEl) statusEl.textContent = '⏳ Compressing...';
+      const compressed = await compressImage(e.target.result);
+      updateMessageImage(messageId, compressed);
+      if (statusEl) statusEl.textContent = '✅ Image added successfully';
+      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+    } catch (error) {
+      console.error('Image upload error:', error);
+      if (statusEl) statusEl.textContent = '❌ Failed to process image';
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+/**
+ * Handle image URL load
+ * @param {string} url - Image URL
+ * @param {string} messageId - Message ID
+ */
+async function handleImageUrl(url, messageId) {
+  const statusEl = document.querySelector(`.image-status[data-message-id="${messageId}"]`);
+  
+  try {
+    if (statusEl) statusEl.textContent = '⏳ Loading...';
+    
+    const response = await fetch(url);
+    const blob = await response.blob();
+    
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        if (statusEl) statusEl.textContent = '⏳ Compressing...';
+        const compressed = await compressImage(e.target.result);
+        updateMessageImage(messageId, compressed);
+        if (statusEl) statusEl.textContent = '✅ Image added successfully';
+        setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+      } catch (error) {
+        console.error('Image compression error:', error);
+        if (statusEl) statusEl.textContent = '❌ Failed to compress image';
+      }
+    };
+    reader.readAsDataURL(blob);
+    
+  } catch (error) {
+    console.error('Image URL error:', error);
+    if (statusEl) statusEl.textContent = '❌ Failed to load image from URL';
+  }
+}
+
+/**
+ * Compress image to meet size requirements
+ * @param {string} base64 - Base64 image data
+ * @returns {Promise<string>} Compressed base64 image
+ */
+function compressImage(base64) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Calculate dimensions (max 700px width)
+      let width = img.width;
+      let height = img.height;
+      const maxWidth = 700;
+      
+      if (width > maxWidth) {
+        height = (height / width) * maxWidth;
+        width = maxWidth;
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // Export as JPEG with 0.85 quality
+      const compressed = canvas.toDataURL('image/jpeg', 0.85);
+      
+      // Check size (200KB limit)
+      const sizeKB = Math.round(compressed.length * 0.75 / 1024);
+      if (sizeKB > 200) {
+        reject(new Error(`Image too large: ${sizeKB} KB (max 200 KB)`));
+        return;
+      }
+      
+      resolve(compressed);
+    };
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = base64;
+  });
+}
+
+/**
+ * Update message with new image
+ * @param {string} messageId - Message ID
+ * @param {string} imageData - Base64 image data
+ */
+function updateMessageImage(messageId, imageData) {
+  const container = document.getElementById('customMessagesList');
+  if (!container) return;
+  
+  const item = container.querySelector(`[data-message-id="${messageId}"]`);
+  if (!item) return;
+  
+  // Store image data temporarily
+  item.dataset.tempImage = imageData;
+  
+  // Re-render to show preview
+  const allMessages = getCurrentMessagesFromUI();
+  const message = allMessages.find(m => m.id === messageId);
+  if (message) {
+    message.hoverImage = imageData;
+    renderCustomMessages(allMessages);
+  }
+}
+
+/**
+ * Remove image from message
+ * @param {string} messageId - Message ID
+ */
+function removeMessageImage(messageId) {
+  const allMessages = getCurrentMessagesFromUI();
+  const message = allMessages.find(m => m.id === messageId);
+  if (message) {
+    message.hoverImage = null;
+    renderCustomMessages(allMessages);
+  }
+}
+
+/**
+ * Get current messages from UI
+ * @returns {Array} Array of message objects
+ */
+function getCurrentMessagesFromUI() {
+  const container = document.getElementById('customMessagesList');
+  if (!container) return [];
+  
+  const messages = [];
+  container.querySelectorAll('[data-message-id]').forEach(item => {
+    const id = item.dataset.messageId;
+    const textarea = item.querySelector('.message-textarea');
+    const descriptionArea = item.querySelector('.message-description');
+    const enabledCheckbox = item.querySelector('input[type="checkbox"]');
+    const imagePreview = item.querySelector('.image-preview');
+    
+    if (id && textarea) {
+      messages.push({
+        id: id,
+        text: textarea.value.trim(),
+        enabled: enabledCheckbox ? enabledCheckbox.checked : true,
+        description: descriptionArea ? descriptionArea.value.trim() : '',
+        hoverImage: imagePreview ? imagePreview.src : (item.dataset.tempImage || null),
+        pinnedCaseNumber: item.dataset.pinnedCaseNumber || null,
+        pinnedCaseId: item.dataset.pinnedCaseId || null,
+        pinnedCaseUrl: item.dataset.pinnedCaseUrl || null
+      });
+    }
+  });
+  
+  return messages;
 }
 
 /**
@@ -682,6 +954,119 @@ function showSuccess(message) {
   setTimeout(() => successDiv.remove(), 2000);
 }
 
+/**
+ * Load and populate banner activation UI
+ */
+async function loadBannerActivationUI() {
+  const domainEl = document.getElementById('current-site-domain');
+  const statusEl = document.getElementById('activation-status');
+  const toggleBtn = document.getElementById('toggle-banner-btn');
+
+  if (!domainEl || !statusEl || !toggleBtn) return;
+
+  try {
+    // Get active tab
+    const tabs = await chrome.tabs.query({ currentWindow: true, active: true });
+    const activeTab = tabs[0];
+
+    if (!activeTab || !activeTab.url) {
+      domainEl.textContent = 'N/A';
+      statusEl.textContent = '●Unavailable';
+      statusEl.className = 'status-badge status-inactive';
+      toggleBtn.disabled = true;
+      return;
+    }
+
+    // Extract domain from URL
+    let domain = '';
+    try {
+      const url = new URL(activeTab.url);
+      domain = url.hostname.replace(/^www\./, '');
+    } catch (error) {
+      domainEl.textContent = 'Invalid URL';
+      statusEl.textContent = '●Error';
+      statusEl.className = 'status-badge status-inactive';
+      toggleBtn.disabled = true;
+      return;
+    }
+
+    // Display domain
+    domainEl.textContent = domain;
+
+    // Check if banner is enabled for this domain
+    const settings = await loadSettings();
+    const activeSites = settings.highlighterNotes?.activeSites || {};
+    const isEnabled = activeSites[domain] !== false; // Undefined = enabled by default
+
+    // Update UI based on status
+    updateBannerActivationUI(isEnabled);
+
+    // Attach toggle button handler
+    toggleBtn.onclick = async () => {
+      const newEnabled = !isEnabled;
+
+      // Update settings
+      if (!settings.highlighterNotes) {
+        settings.highlighterNotes = {};
+      }
+      if (!settings.highlighterNotes.activeSites) {
+        settings.highlighterNotes.activeSites = {};
+      }
+      settings.highlighterNotes.activeSites[domain] = newEnabled;
+
+      // Save settings
+      await saveSettings(settings);
+
+      // Update UI
+      updateBannerActivationUI(newEnabled);
+
+      // Send message to content script
+      chrome.tabs.sendMessage(activeTab.id, {
+        action: 'toggleBanner',
+        enabled: newEnabled
+      }, (response) => {
+        // Optional: handle response
+        if (chrome.runtime.lastError) {
+          console.warn('[Popup] Could not send message to content script:', chrome.runtime.lastError);
+        }
+      });
+
+      // Show feedback
+      showSuccess(newEnabled ? 'Banner activated for this site' : 'Banner deactivated for this site');
+    };
+
+  } catch (error) {
+    console.error('[Popup] Error loading banner activation UI:', error);
+    domainEl.textContent = 'Error';
+    statusEl.textContent = '●Error';
+    statusEl.className = 'status-badge status-inactive';
+    toggleBtn.disabled = true;
+  }
+}
+
+/**
+ * Update banner activation UI elements
+ * @param {boolean} enabled - Whether banner is enabled
+ */
+function updateBannerActivationUI(enabled) {
+  const statusEl = document.getElementById('activation-status');
+  const toggleBtn = document.getElementById('toggle-banner-btn');
+
+  if (!statusEl || !toggleBtn) return;
+
+  if (enabled) {
+    statusEl.textContent = '●Active';
+    statusEl.className = 'status-badge status-active';
+    toggleBtn.textContent = 'Deactivate Banner';
+    toggleBtn.setAttribute('data-enabled', 'true');
+  } else {
+    statusEl.textContent = '●Inactive';
+    statusEl.className = 'status-badge status-inactive';
+    toggleBtn.textContent = 'Activate Banner';
+    toggleBtn.setAttribute('data-enabled', 'false');
+  }
+}
+
 // Initialize on load
 document.addEventListener("DOMContentLoaded", async () => {
   const activeTab = await getActiveTabURL();
@@ -701,6 +1086,52 @@ document.addEventListener("DOMContentLoaded", async () => {
   const settings = await loadSettings();
   populateUI(settings);
   updateStorageInfo();
+  
+  // Load banner activation UI
+  await loadBannerActivationUI();
+  
+  // Setup storage change listener for cross-tab synchronization
+  chrome.storage.onChanged.addListener(async (changes, areaName) => {
+    // Listen for banner messages changes from other tabs
+    if (areaName === 'local' && changes.exl_bannerMessages) {
+      console.log('[Popup] Banner messages changed in another tab, updating UI...');
+      
+      // Debounced UI update to prevent rapid-fire
+      if (window.debouncedPopupUpdate) {
+        window.debouncedPopupUpdate();
+      } else {
+        // Create debounced function
+        window.debouncedPopupUpdate = (() => {
+          let timeout;
+          return () => {
+            clearTimeout(timeout);
+            timeout = setTimeout(async () => {
+              // Reload custom messages section
+              const newValue = changes.exl_bannerMessages.newValue;
+              if (newValue && newValue.customMessages) {
+                // Update the UI with new messages
+                const container = document.getElementById('customMessagesContainer');
+                if (container) {
+                  renderCustomMessages(newValue.customMessages);
+                  console.log('[Popup] UI updated with messages from another tab');
+                }
+              }
+            }, 250);
+          };
+        })();
+        window.debouncedPopupUpdate();
+      }
+    }
+    
+    // Listen for settings changes (sync storage)
+    if (areaName === 'sync') {
+      console.log('[Popup] Settings changed in another tab, reloading...');
+      const newSettings = await loadSettings();
+      populateUI(newSettings);
+    }
+  });
+  
+  console.log('[Popup] Storage change listener registered for cross-tab sync');
   
   // Tab switching
   document.querySelectorAll('.tab').forEach(tab => {

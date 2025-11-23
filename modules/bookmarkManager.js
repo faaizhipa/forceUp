@@ -32,6 +32,23 @@ const BookmarkManager = (function() {
   }
 
   /**
+   * Validate URL format
+   * Accepts any valid URL (http, https, file, ftp, etc.)
+   * @param {string} url - URL to validate
+   * @returns {boolean} True if valid URL
+   */
+  function isValidUrl(url) {
+    if (!url || !url.trim()) return false;
+    
+    try {
+      new URL(url.trim());
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
    * Get current storage version from storage
    * @returns {Promise<number>} Current storage version
    */
@@ -250,6 +267,74 @@ const BookmarkManager = (function() {
   }
 
   /**
+   * Update a bookmark
+   * @param {string} bookmarkId - Bookmark ID
+   * @param {Object} updates - Object with title, url, description fields
+   */
+  async function updateBookmark(bookmarkId, updates) {
+    if (!bookmarks[bookmarkId]) {
+      showToast('Bookmark not found');
+      return false;
+    }
+
+    if (updates.title !== undefined) {
+      bookmarks[bookmarkId].title = updates.title.trim().substring(0, 100);
+    }
+    if (updates.url !== undefined) {
+      if (!isValidUrl(updates.url)) {
+        showToast('Invalid URL format');
+        return false;
+      }
+      bookmarks[bookmarkId].url = updates.url.trim();
+    }
+    if (updates.description !== undefined) {
+      bookmarks[bookmarkId].description = updates.description.trim().substring(0, 200);
+    }
+
+    await saveBookmarks();
+    
+    // Refresh panel if it's open
+    refreshPanel();
+    
+    console.log('[BookmarkManager] Updated bookmark:', bookmarkId);
+    return true;
+  }
+
+  /**
+   * Duplicate a bookmark
+   * @param {string} bookmarkId - Bookmark ID to duplicate
+   */
+  async function duplicateBookmark(bookmarkId) {
+    const bookmark = bookmarks[bookmarkId];
+    if (!bookmark) {
+      showToast('Bookmark not found');
+      return null;
+    }
+
+    const newBookmarkId = 'bm_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    
+    bookmarks[newBookmarkId] = {
+      id: newBookmarkId,
+      title: bookmark.title + ' (Copy)',
+      url: bookmark.url,
+      description: bookmark.description,
+      collectionId: bookmark.collectionId,
+      created: Date.now()
+    };
+
+    collections[bookmark.collectionId].bookmarkIds.push(newBookmarkId);
+
+    await saveBookmarks();
+    await saveCollections();
+    
+    // Refresh panel if it's open
+    refreshPanel();
+    
+    console.log('[BookmarkManager] Duplicated bookmark:', newBookmarkId);
+    return newBookmarkId;
+  }
+
+  /**
    * Get all collections
    */
   function getCollections() {
@@ -359,12 +444,62 @@ const BookmarkManager = (function() {
   }
 
   /**
-   * Render a collection
+   * Render a collection with drag-and-drop support
    */
   function renderCollection(collection) {
     const collEl = document.createElement('div');
     collEl.className = 'exl-hl-collection';
     collEl.dataset.collectionId = collection.id;
+
+    // Drag-and-drop handlers for collection (drop target)
+    collEl.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      collEl.classList.add('exl-drop-active');
+    });
+
+    collEl.addEventListener('dragleave', (e) => {
+      // Only remove if leaving the collection element itself
+      if (e.target === collEl) {
+        collEl.classList.remove('exl-drop-active');
+      }
+    });
+
+    collEl.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      collEl.classList.remove('exl-drop-active');
+      
+      const bookmarkId = e.dataTransfer.getData('text/plain');
+      if (!bookmarkId || !bookmarks[bookmarkId]) return;
+      
+      const bookmark = bookmarks[bookmarkId];
+      const oldCollectionId = bookmark.collectionId;
+      const newCollectionId = collection.id;
+      
+      if (oldCollectionId === newCollectionId) {
+        console.log('[BookmarkManager] Bookmark already in this collection');
+        return;
+      }
+      
+      // Move bookmark to new collection
+      console.log('[BookmarkManager] Moving bookmark', bookmarkId, 'from', oldCollectionId, 'to', newCollectionId);
+      
+      // Remove from old collection
+      if (collections[oldCollectionId]) {
+        collections[oldCollectionId].bookmarkIds = collections[oldCollectionId].bookmarkIds.filter(id => id !== bookmarkId);
+      }
+      
+      // Add to new collection
+      bookmark.collectionId = newCollectionId;
+      collections[newCollectionId].bookmarkIds.push(bookmarkId);
+      
+      await saveBookmarks();
+      await saveCollections();
+      
+      refreshPanel();
+      showToast('Bookmark moved');
+    });
 
     const header = document.createElement('div');
     header.className = 'exl-hl-collection-header';
@@ -407,14 +542,33 @@ const BookmarkManager = (function() {
   }
 
   /**
-   * Render a bookmark
+   * Render a bookmark with drag-drop and action buttons
    */
   function renderBookmark(bookmark) {
     const bookmarkEl = document.createElement('div');
     bookmarkEl.className = 'exl-hl-bookmark';
     bookmarkEl.dataset.bookmarkId = bookmark.id;
+    bookmarkEl.draggable = true;
 
-    bookmarkEl.addEventListener('click', () => {
+    // Drag-and-drop handlers
+    bookmarkEl.addEventListener('dragstart', (e) => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', bookmark.id);
+      bookmarkEl.classList.add('exl-dragging');
+      console.log('[BookmarkManager] Drag started:', bookmark.id);
+    });
+
+    bookmarkEl.addEventListener('dragend', (e) => {
+      bookmarkEl.classList.remove('exl-dragging');
+      // Remove drop-active class from all collections
+      document.querySelectorAll('.exl-hl-collection').forEach(col => {
+        col.classList.remove('exl-drop-active');
+      });
+    });
+
+    const content = document.createElement('div');
+    content.className = 'exl-hl-bookmark-content';
+    content.addEventListener('click', () => {
       window.open(bookmark.url, '_blank');
     });
 
@@ -430,13 +584,57 @@ const BookmarkManager = (function() {
     url.className = 'exl-hl-bookmark-url';
     url.textContent = bookmark.url;
 
-    bookmarkEl.appendChild(title);
+    content.appendChild(title);
     if (bookmark.description) {
-      bookmarkEl.appendChild(desc);
+      content.appendChild(desc);
     }
-    bookmarkEl.appendChild(url);
+    content.appendChild(url);
 
-    // Context menu
+    // Action buttons
+    const actions = document.createElement('div');
+    actions.className = 'exl-hl-bookmark-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'exl-hl-bookmark-action-btn';
+    editBtn.innerHTML = '✏️';
+    editBtn.title = 'Edit bookmark';
+    editBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showEditBookmarkDialog(bookmark.id);
+    });
+
+    const duplicateBtn = document.createElement('button');
+    duplicateBtn.className = 'exl-hl-bookmark-action-btn';
+    duplicateBtn.innerHTML = '📋';
+    duplicateBtn.title = 'Duplicate bookmark';
+    duplicateBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      duplicateBookmark(bookmark.id).then(() => {
+        showToast('Bookmark duplicated');
+      });
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'exl-hl-bookmark-action-btn exl-hl-bookmark-delete-btn';
+    deleteBtn.innerHTML = '🗑️';
+    deleteBtn.title = 'Delete bookmark';
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (confirm(`Delete bookmark "${bookmark.title}"?`)) {
+        deleteBookmark(bookmark.id).then(() => {
+          showToast('Bookmark deleted');
+        });
+      }
+    });
+
+    actions.appendChild(editBtn);
+    actions.appendChild(duplicateBtn);
+    actions.appendChild(deleteBtn);
+
+    bookmarkEl.appendChild(content);
+    bookmarkEl.appendChild(actions);
+
+    // Context menu (legacy support)
     bookmarkEl.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -467,13 +665,18 @@ const BookmarkManager = (function() {
   function showCollectionContextMenu(x, y, collectionId) {
     const menu = createContextMenu(x, y, [
       {
+        label: '➕ Add Bookmark',
+        action: () => {
+          showAddBookmarkDialog(collectionId);
+        }
+      },
+      {
         label: '✏️ Rename',
         action: () => {
           const newName = prompt('Enter new name:', collections[collectionId].name);
           if (newName) {
             renameCollection(collectionId, newName).then(() => {
-              closePanel();
-              setTimeout(() => openPanel(), 100);
+              refreshPanel();
             });
           }
         }
@@ -488,8 +691,7 @@ const BookmarkManager = (function() {
           
           if (confirm(msg)) {
             deleteCollection(collectionId).then(() => {
-              closePanel();
-              setTimeout(() => openPanel(), 100);
+              showToast('Collection deleted');
             });
           }
         }
@@ -498,11 +700,222 @@ const BookmarkManager = (function() {
   }
 
   /**
+   * Show edit bookmark dialog
+   * @param {string} bookmarkId - Bookmark ID to edit
+   */
+  function showEditBookmarkDialog(bookmarkId) {
+    const bookmark = bookmarks[bookmarkId];
+    if (!bookmark) {
+      showToast('Bookmark not found');
+      return;
+    }
+
+    // Create modal overlay
+    const modal = document.createElement('div');
+    modal.className = 'exl-bookmark-modal';
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000002;
+    `;
+
+    const content = document.createElement('div');
+    content.className = 'exl-bookmark-modal-content';
+    content.style.cssText = `
+      background: white;
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      max-width: 500px;
+      width: 90%;
+    `;
+
+    content.innerHTML = `
+      <h3 style="margin: 0 0 1rem 0;">Edit Bookmark</h3>
+      <div style="margin-bottom: 1rem;">
+        <label style="display: block; margin-bottom: 0.25rem; font-weight: 600;">Title:</label>
+        <input type="text" id="edit-bookmark-title" value="${bookmark.title}" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;" maxlength="100">
+      </div>
+      <div style="margin-bottom: 1rem;">
+        <label style="display: block; margin-bottom: 0.25rem; font-weight: 600;">URL:</label>
+        <input type="url" id="edit-bookmark-url" value="${bookmark.url}" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
+      </div>
+      <div style="margin-bottom: 1rem;">
+        <label style="display: block; margin-bottom: 0.25rem; font-weight: 600;">Description:</label>
+        <textarea id="edit-bookmark-desc" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; resize: vertical; min-height: 80px;" maxlength="200">${bookmark.description || ''}</textarea>
+      </div>
+      <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+        <button id="edit-bookmark-cancel" style="padding: 0.5rem 1rem; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">Cancel</button>
+        <button id="edit-bookmark-save" style="padding: 0.5rem 1rem; border: none; background: #0070d2; color: white; border-radius: 4px; cursor: pointer; font-weight: 600;">Save</button>
+      </div>
+    `;
+
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+
+    // Event handlers
+    const titleInput = content.querySelector('#edit-bookmark-title');
+    const urlInput = content.querySelector('#edit-bookmark-url');
+    const descInput = content.querySelector('#edit-bookmark-desc');
+    const cancelBtn = content.querySelector('#edit-bookmark-cancel');
+    const saveBtn = content.querySelector('#edit-bookmark-save');
+
+    const closeModal = () => {
+      modal.remove();
+    };
+
+    cancelBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    saveBtn.addEventListener('click', async () => {
+      const title = titleInput.value.trim();
+      const url = urlInput.value.trim();
+      const description = descInput.value.trim();
+
+      if (!title) {
+        showToast('Title cannot be empty');
+        return;
+      }
+
+      if (!url || !isValidUrl(url)) {
+        showToast('Please enter a valid URL');
+        return;
+      }
+
+      const success = await updateBookmark(bookmarkId, { title, url, description });
+      if (success) {
+        showToast('Bookmark updated');
+        closeModal();
+      }
+    });
+  }
+
+  /**
+   * Show add bookmark dialog for a collection
+   * @param {string} collectionId - Collection ID
+   */
+  function showAddBookmarkDialog(collectionId) {
+    if (!collections[collectionId]) {
+      showToast('Collection not found');
+      return;
+    }
+
+    // Create modal overlay
+    const modal = document.createElement('div');
+    modal.className = 'exl-bookmark-modal';
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000002;
+    `;
+
+    const content = document.createElement('div');
+    content.className = 'exl-bookmark-modal-content';
+    content.style.cssText = `
+      background: white;
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      max-width: 500px;
+      width: 90%;
+    `;
+
+    content.innerHTML = `
+      <h3 style="margin: 0 0 1rem 0;">Add Bookmark to "${collections[collectionId].name}"</h3>
+      <div style="margin-bottom: 1rem;">
+        <label style="display: block; margin-bottom: 0.25rem; font-weight: 600;">Title:</label>
+        <input type="text" id="add-bookmark-title" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;" maxlength="100">
+      </div>
+      <div style="margin-bottom: 1rem;">
+        <label style="display: block; margin-bottom: 0.25rem; font-weight: 600;">URL:</label>
+        <input type="url" id="add-bookmark-url" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;" placeholder="https://example.com">
+      </div>
+      <div style="margin-bottom: 1rem;">
+        <label style="display: block; margin-bottom: 0.25rem; font-weight: 600;">Description (optional):</label>
+        <textarea id="add-bookmark-desc" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; resize: vertical; min-height: 80px;" maxlength="200"></textarea>
+      </div>
+      <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+        <button id="add-bookmark-cancel" style="padding: 0.5rem 1rem; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">Cancel</button>
+        <button id="add-bookmark-save" style="padding: 0.5rem 1rem; border: none; background: #0070d2; color: white; border-radius: 4px; cursor: pointer; font-weight: 600;">Add</button>
+      </div>
+    `;
+
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+
+    // Event handlers
+    const titleInput = content.querySelector('#add-bookmark-title');
+    const urlInput = content.querySelector('#add-bookmark-url');
+    const descInput = content.querySelector('#add-bookmark-desc');
+    const cancelBtn = content.querySelector('#add-bookmark-cancel');
+    const saveBtn = content.querySelector('#add-bookmark-save');
+
+    const closeModal = () => {
+      modal.remove();
+    };
+
+    cancelBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    saveBtn.addEventListener('click', async () => {
+      const title = titleInput.value.trim();
+      const url = urlInput.value.trim();
+      const description = descInput.value.trim();
+
+      if (!title) {
+        showToast('Title cannot be empty');
+        return;
+      }
+
+      if (!url || !isValidUrl(url)) {
+        showToast('Please enter a valid URL');
+        return;
+      }
+
+      await createBookmark(collectionId, title, url, description);
+      showToast('Bookmark added');
+      closeModal();
+    });
+  }
+
+  /**
    * Show bookmark context menu
    */
   function showBookmarkContextMenu(x, y, bookmarkId) {
     const bookmark = bookmarks[bookmarkId];
     const menu = createContextMenu(x, y, [
+      {
+        label: '✏️ Edit',
+        action: () => {
+          showEditBookmarkDialog(bookmarkId);
+        }
+      },
+      {
+        label: '📋 Duplicate',
+        action: () => {
+          duplicateBookmark(bookmarkId).then(() => {
+            showToast('Bookmark duplicated');
+          });
+        }
+      },
       {
         label: '🔗 Copy URL',
         action: () => {
@@ -515,8 +928,7 @@ const BookmarkManager = (function() {
         action: () => {
           if (confirm(`Delete bookmark "${bookmark.title}"?`)) {
             deleteBookmark(bookmarkId).then(() => {
-              closePanel();
-              setTimeout(() => openPanel(), 100);
+              showToast('Bookmark deleted');
             });
           }
         }
@@ -640,6 +1052,9 @@ const BookmarkManager = (function() {
     init,
     createCollection,
     createBookmark,
+    updateBookmark,
+    duplicateBookmark,
+    deleteBookmark,
     getCollections,
     getBookmarksByCollection,
     openPanel,

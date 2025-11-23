@@ -611,6 +611,179 @@
   word-break: break-all;
 }
 
+/* ========== BOOKMARK DRAG-DROP ========== */
+.exl-hl-bookmark-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.exl-hl-bookmark-actions {
+  display: none;
+  gap: 0.25rem;
+  margin-left: 0.5rem;
+}
+
+.exl-hl-bookmark:hover .exl-hl-bookmark-actions {
+  display: flex;
+}
+
+.exl-hl-bookmark-action-btn {
+  background: oklch(0.92 0.005 240);
+  border: 1px solid oklch(0.85 0.01 240);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 100ms ease-out;
+}
+
+.exl-hl-bookmark-action-btn:hover {
+  background: oklch(0.88 0.01 240);
+  transform: translateY(-1px);
+}
+
+.exl-hl-bookmark-delete-btn:hover {
+  background: oklch(0.60 0.15 10);
+  color: white;
+  border-color: oklch(0.55 0.15 10);
+}
+
+.exl-hl-bookmark.exl-dragging {
+  opacity: 0.5;
+  cursor: move;
+}
+
+.exl-hl-collection.exl-drop-active {
+  background: oklch(0.95 0.02 240);
+  border: 2px dashed oklch(0.55 0.15 240);
+}
+
+.exl-hl-collection.exl-drop-active .exl-hl-collection-header {
+  background: oklch(0.90 0.03 240);
+}
+
+.exl-hl-bookmark {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ========== BANNER CLOSE BUTTON ========== */
+.exl-hl-banner-close-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  background: transparent;
+  border: none;
+  color: oklch(0.99 0 0);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: all 150ms ease-out;
+  opacity: 0.7;
+  font-weight: 300;
+  z-index: 10;
+}
+
+.exl-hl-banner-close-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.15);
+  transform: scale(1.1);
+}
+
+.exl-hl-banner-close-btn:active {
+  transform: scale(0.95);
+}
+
+/* ========== UNDO NOTIFICATION ========== */
+.exl-banner-notification {
+  animation: slideInUp 0.3s ease-out;
+}
+
+@keyframes slideInUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutDown {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+.exl-banner-notification button {
+  transition: background 0.2s ease;
+}
+
+.exl-banner-notification button:hover {
+  background: oklch(0.45 0.20 230) !important;
+}
+
+.exl-banner-notification button:active {
+  transform: scale(0.95);
+}
+
+/* ========== BOOKMARK MODALS ========== */
+.exl-bookmark-modal {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.exl-bookmark-modal-content {
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.exl-bookmark-modal input,
+.exl-bookmark-modal textarea {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.875rem;
+  transition: border-color 150ms ease-out;
+}
+
+.exl-bookmark-modal input:focus,
+.exl-bookmark-modal textarea:focus {
+  outline: none;
+  border-color: oklch(0.55 0.15 240);
+  box-shadow: 0 0 0 3px oklch(0.55 0.15 240 / 0.1);
+}
+
+.exl-bookmark-modal button {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  transition: all 150ms ease-out;
+}
+
+.exl-bookmark-modal button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.exl-bookmark-modal button:active {
+  transform: translateY(0);
+}
+
 /* ========== MODAL/DIALOG ========== */
 .exl-hl-modal-overlay {
   position: fixed;
@@ -729,6 +902,206 @@
   margin-top: 0.25rem;
 }
 
+/* ========== ENHANCED STICKY NOTES (Rich Text Editor) ========== */
+
+/* Enhanced note header with title and controls */
+.exl-hl-note-header-enhanced {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem;
+  cursor: grab;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  gap: 0.5rem;
+}
+
+.exl-hl-note-header-enhanced:active {
+  cursor: grabbing;
+}
+
+/* Editable title input */
+.exl-hl-note-title-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: oklch(0.25 0.01 240);
+  outline: none;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.exl-hl-note-title-input::placeholder {
+  color: oklch(0.65 0.01 240);
+  font-weight: 400;
+}
+
+/* Header controls */
+.exl-hl-note-controls {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.exl-hl-note-control-btn {
+  background: transparent;
+  border: none;
+  color: oklch(0.45 0.01 240);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem;
+  transition: color 100ms ease-out, transform 100ms ease-out;
+  border-radius: 0.25rem;
+}
+
+.exl-hl-note-control-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  transform: scale(1.1);
+}
+
+.exl-hl-note-control-btn.exl-hl-note-delete:hover {
+  color: oklch(0.50 0.20 25);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Note body container */
+.exl-hl-note-body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Formatting toolbar */
+.exl-hl-note-toolbar {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.exl-hl-note-toolbar-btn {
+  background: transparent;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  color: oklch(0.35 0.01 240);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.25rem;
+  transition: all 100ms ease-out;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.exl-hl-note-toolbar-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: oklch(0.45 0.15 270);
+}
+
+.exl-hl-note-toolbar-btn:active {
+  transform: scale(0.95);
+}
+
+/* ContentEditable editor */
+.exl-hl-note-editor {
+  width: 100%;
+  min-height: 8rem;
+  max-height: 24rem;
+  overflow-y: auto;
+  border: none;
+  background: transparent;
+  padding: 0.75rem;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: oklch(0.25 0.01 240);
+  outline: none;
+}
+
+.exl-hl-note-editor:empty::before {
+  content: attr(data-placeholder);
+  color: oklch(0.65 0.01 240);
+  pointer-events: none;
+}
+
+.exl-hl-note-editor img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.25rem;
+  margin: 0.5rem 0;
+}
+
+.exl-hl-note-editor a {
+  color: oklch(0.45 0.15 270);
+  text-decoration: underline;
+}
+
+.exl-hl-note-editor ul,
+.exl-hl-note-editor ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+/* Lazy-loading images */
+.exl-lazy-img {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Resize handle */
+.exl-hl-note-resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.1) 50%);
+  border-bottom-right-radius: 0.5rem;
+}
+
+.exl-hl-note-resize-handle:hover {
+  background: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.2) 50%);
+}
+
+/* Conflict resolution toast */
+.exl-conflict-toast {
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
 /* ========== MOBILE RESPONSIVE ========== */
 @media (max-width: 640px) {
   .exl-hl-banner {
@@ -764,5 +1137,15 @@
   
   .exl-hl-collections-panel {
     width: 100%;
+  }
+
+  /* Enhanced notes responsive */
+  .exl-hl-note-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .exl-hl-note-toolbar-btn {
+    font-size: 0.7rem;
+    padding: 0.25rem 0.375rem;
   }
 }

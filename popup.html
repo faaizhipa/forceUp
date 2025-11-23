@@ -39,6 +39,104 @@
       border-bottom: 1px solid rgba(255, 255, 255, 0.3);
     }
 
+    /* Global Banner Activation Controls */
+    #global-controls {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 15px;
+    }
+
+    #banner-activation-section {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .activation-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+
+    .domain-label {
+      color: rgba(255, 255, 255, 0.7);
+      font-weight: 500;
+    }
+
+    .domain-value {
+      font-family: 'Courier New', monospace;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 3px 8px;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .activation-status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .status-badge {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .status-badge.status-active {
+      background: rgba(46, 132, 74, 0.3);
+      color: #4caf50;
+      border: 1px solid rgba(76, 175, 80, 0.5);
+    }
+
+    .status-badge.status-inactive {
+      background: rgba(186, 12, 47, 0.3);
+      color: #ff6b6b;
+      border: 1px solid rgba(255, 107, 107, 0.5);
+    }
+
+    .toggle-btn {
+      padding: 8px 16px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.3s;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      flex: 1;
+      max-width: 180px;
+    }
+
+    .toggle-btn[data-enabled="true"] {
+      background: rgba(46, 132, 74, 0.4);
+      color: #fff;
+    }
+
+    .toggle-btn[data-enabled="true"]:hover {
+      background: rgba(46, 132, 74, 0.6);
+      transform: translateY(-1px);
+    }
+
+    .toggle-btn[data-enabled="false"] {
+      background: rgba(186, 12, 47, 0.4);
+      color: #fff;
+    }
+
+    .toggle-btn[data-enabled="false"]:hover {
+      background: rgba(186, 12, 47, 0.6);
+      transform: translateY(-1px);
+    }
+
     .tabs {
       display: flex;
       gap: 10px;
@@ -322,6 +420,22 @@
 </head>
 <body>
   <h1>🎯 CForce Extension Settings</h1>
+
+  <!-- Global Banner Activation Controls -->
+  <div id="global-controls">
+    <div id="banner-activation-section">
+      <div class="activation-info">
+        <span class="domain-label">Current Site:</span>
+        <span id="current-site-domain" class="domain-value">Loading...</span>
+      </div>
+      <div class="activation-status-row">
+        <span id="activation-status" class="status-badge status-inactive">●Inactive</span>
+        <button id="toggle-banner-btn" class="toggle-btn" data-enabled="false">
+          Activate Banner
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- Tabs -->
   <div class="tabs">

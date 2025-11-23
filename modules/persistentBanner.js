@@ -29,6 +29,24 @@ const PersistentBanner = {
     currentMessageIndex: 0,
     activeMessages: [],
     messageSettings: null,
+    wasAutoRotating: false,
+    
+    // Cleanup tracking arrays
+    trackedTimers: [],
+    trackedListeners: [],
+    trackedObservers: [],
+    
+    // UI state for modals and overlays
+    hoverImagePopup: null,
+    hoverImageTimeout: null,
+    contextMenu: null,
+    contextMenuMessageId: null,
+    editModal: null,
+    viewImageModal: null,
+    addImageModal: null,
+    imagePreviewOverlay: null,
+    messageDropdown: null,
+    currentDisplayedMessage: null,
     
     // Current page info
     currentPage: {
@@ -95,6 +113,1646 @@ const PersistentBanner = {
     // Default banner gradient (for non-case pages)
     DEFAULT_GRADIENT: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
 
+    // =================================================================
+    // UTILITY METHODS - Image Compression & Validation
+    // =================================================================
+
+    /**
+     * Compress base64 image to specified max width while maintaining aspect ratio
+     * @param {string} base64String - Base64 image string (with or without data URI prefix)
+     * @param {number} maxWidth - Maximum width in pixels (default 700)
+     * @param {number} quality - JPEG quality 0-1 (default 0.85)
+     * @returns {Promise<string>} Compressed base64 string
+     */
+    async compressBase64Image(base64String, maxWidth = 700, quality = 0.85) {
+        return new Promise((resolve, reject) => {
+            try {
+                const img = new Image();
+                
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Calculate new dimensions maintaining aspect ratio
+                    let width = img.width;
+                    let height = img.height;
+                    
+                    if (width > maxWidth) {
+                        height = (height * maxWidth) / width;
+                        width = maxWidth;
+                    }
+                    
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    // Draw scaled image
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    // Export as JPEG base64
+                    const compressedBase64 = canvas.toDataURL('image/jpeg', quality);
+                    
+                    console.log(`[PersistentBanner] Image compressed: ${img.width}x${img.height} → ${width}x${height}, Quality: ${quality}`);
+                    
+                    resolve(compressedBase64);
+                };
+                
+                img.onerror = () => {
+                    reject(new Error('Failed to load image for compression'));
+                };
+                
+                // Handle both with and without data URI prefix
+                img.src = base64String.startsWith('data:') ? base64String : `data:image/png;base64,${base64String}`;
+                
+            } catch (error) {
+                reject(error);
+            }
+        });
+    },
+
+    /**
+     * Validate and compress image, checking size constraints
+     * @param {string} base64String - Base64 image string
+     * @returns {Promise<{valid: boolean, compressed: string|null, error: string|null, originalSize: number, compressedSize: number}>}
+     */
+    async validateAndCompressImage(base64String) {
+        try {
+            const originalSize = typeof StorageQuotaManager !== 'undefined' 
+                ? StorageQuotaManager.estimateSize(base64String) 
+                : base64String.length * 2;
+            
+            // Compress image
+            const compressed = await this.compressBase64Image(base64String, 700, 0.85);
+            
+            const compressedSize = typeof StorageQuotaManager !== 'undefined'
+                ? StorageQuotaManager.estimateSize(compressed)
+                : compressed.length * 2;
+            
+            // Check 200KB limit for compressed image
+            const MAX_IMAGE_SIZE = 200 * 1024; // 200KB
+            
+            if (compressedSize > MAX_IMAGE_SIZE) {
+                return {
+                    valid: false,
+                    compressed: null,
+                    error: `Compressed image too large: ${(compressedSize / 1024).toFixed(1)}KB (max 200KB). Try a smaller image.`,
+                    originalSize,
+                    compressedSize
+                };
+            }
+            
+            console.log(`[PersistentBanner] Image validation passed: ${(originalSize / 1024).toFixed(1)}KB → ${(compressedSize / 1024).toFixed(1)}KB`);
+            
+            return {
+                valid: true,
+                compressed,
+                error: null,
+                originalSize,
+                compressedSize
+            };
+            
+        } catch (error) {
+            console.error('[PersistentBanner] Image validation failed:', error);
+            return {
+                valid: false,
+                compressed: null,
+                error: error.message || 'Failed to process image',
+                originalSize: 0,
+                compressedSize: 0
+            };
+        }
+    },
+
+    /**
+     * Convert image URL to base64
+     * @param {string} imageUrl - Image URL
+     * @returns {Promise<string>} Base64 string
+     */
+    async imageUrlToBase64(imageUrl) {
+        return new Promise((resolve, reject) => {
+            try {
+                const img = new Image();
+                img.crossOrigin = 'Anonymous'; // Attempt to handle CORS
+                
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    resolve(canvas.toDataURL('image/jpeg', 0.9));
+                };
+                
+                img.onerror = () => {
+                    reject(new Error('Failed to load image from URL. Check CORS or URL validity.'));
+                };
+                
+                img.src = imageUrl;
+                
+            } catch (error) {
+                reject(error);
+            }
+        });
+    },
+
+    /**
+     * Extract image from clipboard paste event
+     * @param {ClipboardEvent} event - Paste event
+     * @returns {Promise<string|null>} Base64 string or null
+     */
+    async extractImageFromClipboard(event) {
+        try {
+            const items = event.clipboardData?.items;
+            if (!items) return null;
+            
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    const blob = items[i].getAsFile();
+                    return new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => resolve(e.target.result);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(blob);
+                    });
+                }
+            }
+            
+            return null;
+        } catch (error) {
+            console.error('[PersistentBanner] Clipboard extraction failed:', error);
+            return null;
+        }
+    },
+
+    /**
+     * Validate message text
+     * @param {string} text - Message text
+     * @returns {{valid: boolean, error: string|null}}
+     */
+    validateMessageText(text) {
+        if (!text || !text.trim()) {
+            return { valid: false, error: 'Message cannot be empty' };
+        }
+        
+        if (text.length > 4000) {
+            return { valid: false, error: 'Message cannot exceed 4000 characters' };
+        }
+        
+        return { valid: true, error: null };
+    },
+
+    // =================================================================
+    // STORAGE MANAGEMENT - Local Storage with Sync Preparation
+    // =================================================================
+
+    /**
+     * Migrate legacy messages from chrome.storage.sync to chrome.storage.local
+     * Called once during initialization if migration not yet complete
+     * @returns {Promise<boolean>} True if migration performed
+     */
+    async migrateLegacyMessagesFromSync() {
+        return new Promise((resolve) => {
+            // Check if migration already done
+            chrome.storage.local.get(['exl_bannerMessages_migrated'], (result) => {
+                if (result.exl_bannerMessages_migrated) {
+                    console.log('[PersistentBanner] Migration already complete, skipping');
+                    resolve(false);
+                    return;
+                }
+                
+                // Read legacy data from sync storage
+                chrome.storage.sync.get(['exlibris'], (syncResult) => {
+                    const legacyMessages = syncResult.exlibris?.persistentBanner?.messages;
+                    
+                    if (!legacyMessages) {
+                        console.log('[PersistentBanner] No legacy messages found to migrate');
+                        // Mark migration complete even if no data
+                        chrome.storage.local.set({ exl_bannerMessages_migrated: true });
+                        resolve(false);
+                        return;
+                    }
+                    
+                    // Convert to new local storage format
+                    const newFormat = {
+                        enabled: legacyMessages.enabled !== false,
+                        autoRotate: legacyMessages.autoRotate !== false,
+                        rotationInterval: legacyMessages.rotationInterval || 5000,
+                        defaultMessages: legacyMessages.defaultMessages || { enabled: true, items: [] },
+                        customMessages: legacyMessages.customMessages || [],
+                        syncEnabled: false,
+                        lastSyncTime: null,
+                        migrated: true
+                    };
+                    
+                    // Save to local storage
+                    chrome.storage.local.set({
+                        exl_bannerMessages: newFormat,
+                        exl_bannerMessages_migrated: true
+                    }, () => {
+                        console.log('[PersistentBanner] Successfully migrated messages from sync to local storage');
+                        console.log(`[PersistentBanner] Migrated ${newFormat.customMessages.length} custom messages and ${newFormat.defaultMessages.items?.length || 0} default messages`);
+                        resolve(true);
+                    });
+                });
+            });
+        });
+    },
+
+    /**
+     * Load messages from chrome.storage.local
+     * @returns {Promise<void>}
+     */
+    async loadMessagesFromLocal() {
+        return new Promise((resolve) => {
+            chrome.storage.local.get(['exl_bannerMessages'], (result) => {
+                const messagesConfig = result.exl_bannerMessages;
+                
+                if (!messagesConfig) {
+                    this.activeMessages = [];
+                    this.messageSettings = null;
+                    console.log('[PersistentBanner] No messages found in local storage');
+                    resolve();
+                    return;
+                }
+                
+                this.messageSettings = messagesConfig;
+                this.activeMessages = this.getActiveMessages(messagesConfig);
+                
+                // Check for pinned message matching current case
+                this.prioritizePinnedMessage();
+                
+                console.log(`[PersistentBanner] Loaded ${this.activeMessages.length} active messages from local storage`);
+                resolve();
+            });
+        });
+    },
+
+    /**
+     * Save messages to chrome.storage.local
+     * @param {Object} messagesConfig - Messages configuration
+     * @returns {Promise<boolean>} Success status
+     */
+    async saveMessagesToLocal(messagesConfig) {
+        return new Promise((resolve) => {
+            // Add timestamp for conflict detection
+            const configWithTimestamp = {
+                ...messagesConfig,
+                lastModified: Date.now()
+            };
+            
+            // Check quota before saving
+            if (typeof StorageQuotaManager !== 'undefined') {
+                StorageQuotaManager.canStoreBannerMessage(configWithTimestamp).then((canStore) => {
+                    if (!canStore) {
+                        console.warn('[PersistentBanner] Storage quota exceeded, cannot save messages');
+                        resolve(false);
+                        return;
+                    }
+                    
+                    chrome.storage.local.set({ exl_bannerMessages: configWithTimestamp }, () => {
+                        console.log('[PersistentBanner] Messages saved to local storage with timestamp:', configWithTimestamp.lastModified);
+                        resolve(true);
+                    });
+                });
+            } else {
+                // Fallback if StorageQuotaManager not available
+                chrome.storage.local.set({ exl_bannerMessages: configWithTimestamp }, () => {
+                    console.log('[PersistentBanner] Messages saved to local storage (quota check skipped) with timestamp:', configWithTimestamp.lastModified);
+                    resolve(true);
+                });
+            }
+        });
+    },
+
+    // =================================================================
+    // CLEANUP TRACKING UTILITIES
+    // =================================================================
+
+    /**
+     * Register a timer for cleanup tracking
+     * @param {number} timerId - Timer ID from setTimeout/setInterval
+     * @param {string} type - 'timeout' or 'interval'
+     * @returns {number} The timer ID (for chaining)
+     */
+    registerTimer(timerId, type = 'interval') {
+        this.trackedTimers.push({ id: timerId, type });
+        return timerId;
+    },
+
+    /**
+     * Register an event listener for cleanup tracking
+     * @param {Element} element - DOM element
+     * @param {string} event - Event name
+     * @param {Function} handler - Event handler
+     * @param {Object} options - Event listener options
+     */
+    registerListener(element, event, handler, options = {}) {
+        element.addEventListener(event, handler, options);
+        this.trackedListeners.push({ element, event, handler, options });
+    },
+
+    /**
+     * Register a MutationObserver for cleanup tracking
+     * @param {MutationObserver} observer - Observer instance
+     */
+    registerObserver(observer) {
+        this.trackedObservers.push(observer);
+    },
+
+    /**
+     * Clean up all tracked resources
+     */
+    cleanupTrackedResources() {
+        // Clear all timers
+        this.trackedTimers.forEach(({ id, type }) => {
+            if (type === 'interval') {
+                clearInterval(id);
+            } else {
+                clearTimeout(id);
+            }
+        });
+        this.trackedTimers = [];
+        
+        // Remove all listeners
+        this.trackedListeners.forEach(({ element, event, handler, options }) => {
+            element.removeEventListener(event, handler, options);
+        });
+        this.trackedListeners = [];
+        
+        // Disconnect all observers
+        this.trackedObservers.forEach(observer => {
+            observer.disconnect();
+        });
+        this.trackedObservers = [];
+        
+        console.log('[PersistentBanner] Cleaned up all tracked resources');
+    },
+
+    /**
+     * Setup hover image functionality for a message element
+     * @param {HTMLElement} messageElement - The message element to attach hover listeners to
+     * @param {string} hoverImage - Base64 image data URL
+     * @param {string} messageText - Message text for accessibility
+     */
+    setupHoverImage(messageElement, hoverImage, messageText = '') {
+        if (!messageElement || !hoverImage) {
+            return;
+        }
+
+        // Add cursor pointer to indicate interactivity
+        messageElement.style.cursor = 'pointer';
+        messageElement.title = 'Hover to see image';
+
+        // Mouse enter handler - show popup after 200ms delay
+        const handleMouseEnter = (event) => {
+            // Clear any existing timeout
+            if (this.hoverImageTimeout) {
+                clearTimeout(this.hoverImageTimeout);
+            }
+
+            // Set timeout for 200ms delay
+            this.hoverImageTimeout = this.registerTimer(setTimeout(() => {
+                this.showHoverImagePopup(hoverImage, event, messageText);
+            }, 200), 'timeout');
+        };
+
+        // Mouse leave handler - cleanup popup
+        const handleMouseLeave = () => {
+            // Clear timeout if mouse leaves before popup shows
+            if (this.hoverImageTimeout) {
+                clearTimeout(this.hoverImageTimeout);
+                this.hoverImageTimeout = null;
+            }
+            
+            this.cleanupHoverImagePopup();
+        };
+
+        // Register listeners for cleanup tracking
+        this.registerListener(messageElement, 'mouseenter', handleMouseEnter);
+        this.registerListener(messageElement, 'mouseleave', handleMouseLeave);
+    },
+
+    /**
+     * Show hover image popup at cursor position
+     * @param {string} imageData - Base64 image data URL
+     * @param {MouseEvent} event - Mouse event for positioning
+     * @param {string} altText - Alternative text for accessibility
+     */
+    showHoverImagePopup(imageData, event, altText = '') {
+        // Cleanup any existing popup first
+        this.cleanupHoverImagePopup();
+
+        // Create popup container
+        const popup = document.createElement('div');
+        popup.className = 'exl-hover-image-popup';
+        popup.style.cssText = `
+            position: fixed;
+            z-index: 999999;
+            background: white;
+            border: 2px solid #0070d2;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            padding: 8px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            max-width: 400px;
+        `;
+
+        // Create image element
+        const img = document.createElement('img');
+        img.src = imageData;
+        img.alt = altText || 'Hover image';
+        img.style.cssText = `
+            display: block;
+            max-width: 100%;
+            height: auto;
+            border-radius: 2px;
+        `;
+
+        popup.appendChild(img);
+        document.body.appendChild(popup);
+
+        // Position popup above cursor with 10px margin
+        const positionPopup = () => {
+            const rect = popup.getBoundingClientRect();
+            const viewportHeight = window.innerHeight;
+            const viewportWidth = window.innerWidth;
+
+            let top = event.clientY - rect.height - 10;
+            let left = event.clientX - (rect.width / 2);
+
+            // Fallback: if overflow top, position below cursor
+            if (top < 0) {
+                top = event.clientY + 10;
+            }
+
+            // Constrain to viewport horizontally
+            if (left < 0) {
+                left = 10;
+            } else if (left + rect.width > viewportWidth) {
+                left = viewportWidth - rect.width - 10;
+            }
+
+            // Constrain to viewport vertically (bottom)
+            if (top + rect.height > viewportHeight) {
+                top = viewportHeight - rect.height - 10;
+            }
+
+            popup.style.top = `${top}px`;
+            popup.style.left = `${left}px`;
+        };
+
+        // Wait for image to load before positioning
+        img.onload = () => {
+            positionPopup();
+            // Fade in
+            setTimeout(() => {
+                popup.style.opacity = '1';
+            }, 10);
+        };
+
+        // Store reference
+        this.hoverImagePopup = popup;
+    },
+
+    /**
+     * Cleanup hover image popup
+     */
+    cleanupHoverImagePopup() {
+        // Clear timeout if pending
+        if (this.hoverImageTimeout) {
+            clearTimeout(this.hoverImageTimeout);
+            this.hoverImageTimeout = null;
+        }
+
+        // Remove popup with fade out
+        if (this.hoverImagePopup) {
+            this.hoverImagePopup.style.opacity = '0';
+            
+            // Remove after fade animation completes
+            setTimeout(() => {
+                if (this.hoverImagePopup && this.hoverImagePopup.parentNode) {
+                    this.hoverImagePopup.parentNode.removeChild(this.hoverImagePopup);
+                }
+                this.hoverImagePopup = null;
+            }, 200);
+        }
+    },
+
+    /**
+     * Show context menu for message interactions
+     * @param {MouseEvent} event - Right-click event for positioning
+     * @param {string} messageId - ID of the message
+     */
+    showContextMenu(event, messageId) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        // Close any existing context menu
+        this.closeContextMenu();
+
+        // Get message data
+        const message = this.activeMessages.find(m => m.id === messageId) || this.currentDisplayedMessage;
+        if (!message) {
+            console.warn('[PersistentBanner] Cannot show context menu - message not found');
+            return;
+        }
+
+        // Get current case context for conditional pin option
+        let currentContext = null;
+        if (typeof CaseContextWatcher !== 'undefined' && typeof CaseContextWatcher.getCurrentContext === 'function') {
+            currentContext = CaseContextWatcher.getCurrentContext();
+        }
+
+        // Create menu element
+        const menu = document.createElement('div');
+        menu.className = 'exl-context-menu';
+        menu.style.cssText = `
+            position: fixed;
+            z-index: 999999;
+            background: white;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            padding: 4px 0;
+            min-width: 180px;
+        `;
+
+        // Build menu items
+        const menuItems = [];
+
+        // Edit Message
+        menuItems.push({ label: 'Edit Message', action: 'edit', icon: '✏️' });
+
+        // Image options
+        if (!message.hoverImage) {
+            menuItems.push({ label: 'Add Hover Image', action: 'addImage', icon: '🖼️' });
+        } else {
+            menuItems.push({ label: 'View Hover Image', action: 'viewImage', icon: '👁️' });
+            menuItems.push({ label: 'Remove Hover Image', action: 'removeImage', icon: '🗑️' });
+        }
+
+        // Pin/Unpin options
+        if (currentContext && currentContext.isCase) {
+            if (!message.pinnedCaseNumber) {
+                menuItems.push({ label: 'Pin to Current Case', action: 'pin', icon: '📌' });
+            } else {
+                menuItems.push({ label: 'Unpin from Case', action: 'unpin', icon: '📍' });
+            }
+        }
+
+        // Separator
+        menuItems.push({ separator: true });
+
+        // Remove Message
+        menuItems.push({ label: 'Remove Message', action: 'remove', icon: '❌' });
+
+        // Render menu items
+        menuItems.forEach(item => {
+            if (item.separator) {
+                const separator = document.createElement('div');
+                separator.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
+                menu.appendChild(separator);
+            } else {
+                const menuItem = document.createElement('div');
+                menuItem.className = 'exl-context-menu-item';
+                menuItem.style.cssText = `
+                    padding: 8px 16px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    transition: background 0.1s ease;
+                `;
+                menuItem.innerHTML = `<span>${item.icon}</span><span>${item.label}</span>`;
+
+                // Hover effect
+                menuItem.addEventListener('mouseenter', () => {
+                    menuItem.style.background = '#f0f0f0';
+                });
+                menuItem.addEventListener('mouseleave', () => {
+                    menuItem.style.background = 'transparent';
+                });
+
+                // Click handler
+                menuItem.addEventListener('click', () => {
+                    this.handleContextMenuAction(item.action, message.id);
+                    this.closeContextMenu();
+                });
+
+                menu.appendChild(menuItem);
+            }
+        });
+
+        // Position menu at click coordinates
+        menu.style.top = `${event.clientY}px`;
+        menu.style.left = `${event.clientX}px`;
+
+        // Adjust if menu would overflow viewport
+        document.body.appendChild(menu);
+        const rect = menu.getBoundingClientRect();
+        
+        if (rect.right > window.innerWidth) {
+            menu.style.left = `${window.innerWidth - rect.width - 10}px`;
+        }
+        if (rect.bottom > window.innerHeight) {
+            menu.style.top = `${window.innerHeight - rect.height - 10}px`;
+        }
+
+        // Close on outside click
+        const closeOnOutsideClick = (e) => {
+            if (!menu.contains(e.target)) {
+                this.closeContextMenu();
+                document.removeEventListener('click', closeOnOutsideClick);
+            }
+        };
+        setTimeout(() => {
+            document.addEventListener('click', closeOnOutsideClick);
+        }, 0);
+
+        // Store references
+        this.contextMenu = menu;
+        this.contextMenuMessageId = message.id;
+    },
+
+    /**
+     * Close context menu
+     */
+    closeContextMenu() {
+        if (this.contextMenu) {
+            this.contextMenu.remove();
+            this.contextMenu = null;
+            this.contextMenuMessageId = null;
+        }
+    },
+
+    /**
+     * Handle context menu action
+     * @param {string} action - Action to perform
+     * @param {string} messageId - Message ID
+     */
+    async handleContextMenuAction(action, messageId) {
+        console.log(`[PersistentBanner] Context menu action: ${action} for message ${messageId}`);
+
+        switch (action) {
+            case 'edit':
+                this.showEditModal(messageId);
+                break;
+            case 'addImage':
+                this.showAddImageModal(messageId);
+                break;
+            case 'viewImage':
+                this.showViewImageModal(messageId);
+                break;
+            case 'removeImage':
+                await this.removeMessageImage(messageId);
+                break;
+            case 'pin':
+                await this.pinMessageToCase(messageId);
+                break;
+            case 'unpin':
+                await this.unpinMessageFromCase(messageId);
+                break;
+            case 'remove':
+                await this.removeMessage(messageId);
+                break;
+            default:
+                console.warn(`[PersistentBanner] Unknown context menu action: ${action}`);
+        }
+    },
+
+    /**
+     * Remove hover image from message
+     * @param {string} messageId - Message ID
+     */
+    async removeMessageImage(messageId) {
+        const messagesConfig = await this.loadMessagesFromLocal();
+        const message = messagesConfig.customMessages.find(m => m.id === messageId);
+        
+        if (message) {
+            message.hoverImage = null;
+            
+            const saved = await this.saveMessagesToLocal(messagesConfig);
+            if (saved) {
+                this.showNotification('Hover image removed', 'success');
+                // Reload messages to update display
+                await this.loadAndDisplayMessages();
+            }
+        }
+    },
+
+    /**
+     * Remove message
+     * @param {string} messageId - Message ID
+     */
+    async removeMessage(messageId) {
+        const messagesConfig = await this.loadMessagesFromLocal();
+        messagesConfig.customMessages = messagesConfig.customMessages.filter(m => m.id !== messageId);
+        
+        const saved = await this.saveMessagesToLocal(messagesConfig);
+        if (saved) {
+            this.showNotification('Message removed', 'success');
+            // Reload messages to update display
+            await this.loadAndDisplayMessages();
+        }
+    },
+
+    /**
+     * Pin message to current case
+     * @param {string} messageId - Message ID to pin
+     */
+    async pinMessageToCase(messageId) {
+        // Get current case context
+        if (typeof CaseContextWatcher === 'undefined' || typeof CaseContextWatcher.getCurrentContext !== 'function') {
+            this.showNotification('Cannot pin - CaseContextWatcher not available', 'error');
+            return;
+        }
+
+        const context = CaseContextWatcher.getCurrentContext();
+        if (!context || !context.isCase) {
+            this.showNotification('Cannot pin - not on a case page', 'error');
+            return;
+        }
+
+        if (!context.caseNumber) {
+            this.showNotification('Cannot pin - case number not available', 'error');
+            return;
+        }
+
+        // Load messages
+        const messagesConfig = await this.loadMessagesFromLocal();
+        
+        // Check if case already has a pinned message (one-per-case rule)
+        const existingPinned = messagesConfig.customMessages.find(
+            m => m.pinnedCaseNumber === context.caseNumber && m.id !== messageId
+        );
+        
+        if (existingPinned) {
+            this.showNotification(`Case ${context.caseNumber} already has a pinned message`, 'error');
+            return;
+        }
+
+        // Find and update message
+        const message = messagesConfig.customMessages.find(m => m.id === messageId);
+        if (!message) {
+            this.showNotification('Message not found', 'error');
+            return;
+        }
+
+        // Pin message
+        message.pinnedCaseNumber = context.caseNumber;
+        message.pinnedCaseId = context.caseId;
+        message.pinnedCaseUrl = context.url || window.location.href;
+
+        // Save
+        const saved = await this.saveMessagesToLocal(messagesConfig);
+        if (saved) {
+            this.showNotification(`Message pinned to case ${context.caseNumber}`, 'success');
+            // Reload messages to update display
+            await this.loadAndDisplayMessages();
+        }
+    },
+
+    /**
+     * Unpin message from case
+     * @param {string} messageId - Message ID to unpin
+     */
+    async unpinMessageFromCase(messageId) {
+        const messagesConfig = await this.loadMessagesFromLocal();
+        const message = messagesConfig.customMessages.find(m => m.id === messageId);
+        
+        if (!message) {
+            this.showNotification('Message not found', 'error');
+            return;
+        }
+
+        const pinnedCaseNumber = message.pinnedCaseNumber;
+
+        // Unpin message
+        message.pinnedCaseNumber = null;
+        message.pinnedCaseId = null;
+        message.pinnedCaseUrl = null;
+
+        // Save
+        const saved = await this.saveMessagesToLocal(messagesConfig);
+        if (saved) {
+            this.showNotification(`Message unpinned from case ${pinnedCaseNumber}`, 'success');
+            // Reload messages to update display
+            await this.loadAndDisplayMessages();
+        }
+    },
+
+    /**
+     * Prioritize pinned message for current case
+     * If on a case page and a message is pinned to this case, move it to front and display immediately
+     */
+    prioritizePinnedMessage() {
+        // Get current case context
+        if (typeof CaseContextWatcher === 'undefined' || typeof CaseContextWatcher.getCurrentContext !== 'function') {
+            return;
+        }
+
+        const context = CaseContextWatcher.getCurrentContext();
+        if (!context || !context.isCase || !context.caseNumber) {
+            return;
+        }
+
+        // Search for pinned message matching this case
+        const pinnedIndex = this.activeMessages.findIndex(m => m.pinnedCaseNumber === context.caseNumber);
+        
+        if (pinnedIndex !== -1) {
+            // Move pinned message to front
+            const [pinnedMessage] = this.activeMessages.splice(pinnedIndex, 1);
+            this.activeMessages.unshift(pinnedMessage);
+            
+            // Set current index to 0 to display pinned message
+            this.currentMessageIndex = 0;
+            
+            console.log(`[PersistentBanner] Prioritized pinned message for case ${context.caseNumber}`);
+        }
+    },
+
+    /**
+     * Load and display messages (used after updates)
+     */
+    async loadAndDisplayMessages() {
+        await this.loadMessagesFromLocal();
+        this.updateMessageDisplay();
+    },
+
+    /**
+     * Show edit modal for message
+     * @param {string} messageId - Message ID to edit
+     */
+    async showEditModal(messageId) {
+        const messagesConfig = await this.loadMessagesFromLocal();
+        const message = messagesConfig.customMessages.find(m => m.id === messageId);
+        
+        if (!message) {
+            this.showNotification('Message not found', 'error');
+            return;
+        }
+
+        // Create modal overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'exl-modal-overlay';
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(3px);
+            z-index: 999998;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.2s ease;
+        `;
+
+        // Create modal content
+        const modal = document.createElement('div');
+        modal.className = 'exl-edit-modal';
+        modal.style.cssText = `
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            animation: slideIn 0.3s ease;
+        `;
+
+        modal.innerHTML = `
+            <h2 style="margin: 0 0 16px 0; font-size: 20px; color: #333;">Edit Message</h2>
+            
+            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333;">
+                Message Text <span style="color: #999;">(4000 chars max)</span>
+            </label>
+            <textarea 
+                class="exl-edit-message-text"
+                style="width: 100%; min-height: 150px; padding: 12px; border: 1px solid #d0d0d0; border-radius: 4px; font-family: inherit; font-size: 14px; resize: vertical;"
+                maxlength="4000"
+            >${message.text || ''}</textarea>
+            <div class="exl-char-counter" style="text-align: right; font-size: 12px; color: #666; margin-top: 4px;">
+                ${(message.text || '').length}/4000
+            </div>
+            
+            <label style="display: block; margin: 16px 0 8px 0; font-weight: 600; color: #333;">
+                Description <span style="color: #999;">(optional)</span>
+            </label>
+            <textarea 
+                class="exl-edit-message-description"
+                style="width: 100%; min-height: 80px; padding: 12px; border: 1px solid #d0d0d0; border-radius: 4px; font-family: inherit; font-size: 14px; resize: vertical;"
+                placeholder="Add a description for this message..."
+            >${message.description || ''}</textarea>
+            
+            <div style="display: flex; gap: 12px; margin-top: 24px; justify-content: flex-end;">
+                <button class="exl-modal-cancel" style="padding: 10px 24px; border: 1px solid #d0d0d0; background: white; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                    Cancel
+                </button>
+                <button class="exl-modal-save" style="padding: 10px 24px; border: none; background: #0070d2; color: white; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600;">
+                    Save Changes
+                </button>
+            </div>
+        `;
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        // Get elements
+        const textArea = modal.querySelector('.exl-edit-message-text');
+        const descArea = modal.querySelector('.exl-edit-message-description');
+        const charCounter = modal.querySelector('.exl-char-counter');
+        const cancelBtn = modal.querySelector('.exl-modal-cancel');
+        const saveBtn = modal.querySelector('.exl-modal-save');
+
+        // Character counter
+        textArea.addEventListener('input', () => {
+            charCounter.textContent = `${textArea.value.length}/4000`;
+        });
+
+        // Cancel handler
+        const closeModal = () => {
+            overlay.style.animation = 'fadeOut 0.2s ease';
+            setTimeout(() => overlay.remove(), 200);
+            this.editModal = null;
+        };
+
+        cancelBtn.addEventListener('click', closeModal);
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeModal();
+        });
+
+        // ESC key handler
+        const handleEsc = (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+                document.removeEventListener('keydown', handleEsc);
+            }
+        };
+        document.addEventListener('keydown', handleEsc);
+
+        // Save handler
+        saveBtn.addEventListener('click', async () => {
+            const newText = textArea.value.trim();
+            
+            if (!newText) {
+                this.showNotification('Message text cannot be empty', 'error');
+                return;
+            }
+
+            // Validate text length
+            const validation = this.validateMessageText(newText);
+            if (!validation.valid) {
+                this.showNotification(validation.error, 'error');
+                return;
+            }
+
+            // Update message
+            message.text = newText;
+            message.description = descArea.value.trim();
+
+            // Save
+            const saved = await this.saveMessagesToLocal(messagesConfig);
+            if (saved) {
+                this.showNotification('Message updated', 'success');
+                closeModal();
+                await this.loadAndDisplayMessages();
+            }
+        });
+
+        // Store reference
+        this.editModal = overlay;
+    },
+
+    /**
+     * Show add image modal with 3 input methods
+     * @param {string} messageId - Message ID to add image to
+     */
+    async showAddImageModal(messageId) {
+        const messagesConfig = await this.loadMessagesFromLocal();
+        const message = messagesConfig.customMessages.find(m => m.id === messageId);
+        
+        if (!message) {
+            this.showNotification('Message not found', 'error');
+            return;
+        }
+
+        // Create modal overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'exl-modal-overlay';
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(3px);
+            z-index: 999998;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.2s ease;
+        `;
+
+        // Create modal content
+        const modal = document.createElement('div');
+        modal.className = 'exl-add-image-modal';
+        modal.style.cssText = `
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            animation: slideIn 0.3s ease;
+        `;
+
+        modal.innerHTML = `
+            <h2 style="margin: 0 0 16px 0; font-size: 20px; color: #333;">Add Hover Image</h2>
+            
+            <div class="exl-image-tabs" style="display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 2px solid #e0e0e0;">
+                <button class="exl-tab-btn active" data-tab="upload" style="padding: 10px 20px; border: none; background: transparent; cursor: pointer; font-size: 14px; font-weight: 600; color: #666; border-bottom: 3px solid transparent; margin-bottom: -2px;">
+                    📤 Upload
+                </button>
+                <button class="exl-tab-btn" data-tab="url" style="padding: 10px 20px; border: none; background: transparent; cursor: pointer; font-size: 14px; font-weight: 600; color: #666; border-bottom: 3px solid transparent; margin-bottom: -2px;">
+                    🔗 URL
+                </button>
+                <button class="exl-tab-btn" data-tab="paste" style="padding: 10px 20px; border: none; background: transparent; cursor: pointer; font-size: 14px; font-weight: 600; color: #666; border-bottom: 3px solid transparent; margin-bottom: -2px;">
+                    📋 Paste
+                </button>
+            </div>
+            
+            <div class="exl-tab-content">
+                <!-- Upload Tab -->
+                <div class="exl-tab-panel" data-panel="upload" style="display: block;">
+                    <input type="file" accept="image/*" class="exl-image-upload" style="width: 100%; padding: 12px; border: 2px dashed #d0d0d0; border-radius: 4px; cursor: pointer;">
+                </div>
+                
+                <!-- URL Tab -->
+                <div class="exl-tab-panel" data-panel="url" style="display: none;">
+                    <input type="text" class="exl-image-url" placeholder="https://example.com/image.jpg" style="width: 100%; padding: 12px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 14px;">
+                    <button class="exl-load-url-btn" style="margin-top: 12px; padding: 10px 24px; background: #0070d2; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">
+                        Load Image
+                    </button>
+                </div>
+                
+                <!-- Paste Tab -->
+                <div class="exl-tab-panel" data-panel="paste" style="display: none;">
+                    <div style="padding: 40px; border: 2px dashed #d0d0d0; border-radius: 4px; text-align: center; color: #666;">
+                        <p style="margin: 0 0 8px 0; font-size: 16px;">📋</p>
+                        <p style="margin: 0;">Copy an image and paste it here (Ctrl+V)</p>
+                    </div>
+                    <textarea class="exl-paste-area" style="opacity: 0; position: absolute; width: 1px; height: 1px;"></textarea>
+                </div>
+            </div>
+            
+            <div class="exl-image-preview-area" style="margin-top: 20px; display: none;">
+                <div style="display: flex; align-items: center; gap: 16px; padding: 16px; background: #f5f5f5; border-radius: 4px;">
+                    <img class="exl-preview-img" style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; border: 2px solid #d0d0d0;">
+                    <div style="flex: 1;">
+                        <div class="exl-image-info"></div>
+                        <div class="exl-compression-info" style="font-size: 12px; color: #666; margin-top: 4px;"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 12px; margin-top: 24px; justify-content: flex-end;">
+                <button class="exl-modal-cancel" style="padding: 10px 24px; border: 1px solid #d0d0d0; background: white; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                    Cancel
+                </button>
+                <button class="exl-modal-save" style="padding: 10px 24px; border: none; background: #0070d2; color: white; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600;" disabled>
+                    Add Image
+                </button>
+            </div>
+        `;
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        // Get elements
+        let currentImageData = null;
+        const tabBtns = modal.querySelectorAll('.exl-tab-btn');
+        const tabPanels = modal.querySelectorAll('.exl-tab-panel');
+        const uploadInput = modal.querySelector('.exl-image-upload');
+        const urlInput = modal.querySelector('.exl-image-url');
+        const loadUrlBtn = modal.querySelector('.exl-load-url-btn');
+        const pasteArea = modal.querySelector('.exl-paste-area');
+        const previewArea = modal.querySelector('.exl-image-preview-area');
+        const previewImg = modal.querySelector('.exl-preview-img');
+        const imageInfo = modal.querySelector('.exl-image-info');
+        const compressionInfo = modal.querySelector('.exl-compression-info');
+        const cancelBtn = modal.querySelector('.exl-modal-cancel');
+        const saveBtn = modal.querySelector('.exl-modal-save');
+
+        // Tab switching
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const targetTab = btn.dataset.tab;
+                
+                // Update tab buttons
+                tabBtns.forEach(b => {
+                    b.classList.remove('active');
+                    b.style.color = '#666';
+                    b.style.borderBottomColor = 'transparent';
+                });
+                btn.classList.add('active');
+                btn.style.color = '#0070d2';
+                btn.style.borderBottomColor = '#0070d2';
+                
+                // Update panels
+                tabPanels.forEach(p => {
+                    p.style.display = p.dataset.panel === targetTab ? 'block' : 'none';
+                });
+                
+                // Focus paste area if paste tab
+                if (targetTab === 'paste') {
+                    pasteArea.focus();
+                }
+            });
+        });
+
+        // Process and display image
+        const processImage = async (base64Data) => {
+            try {
+                compressionInfo.textContent = 'Compressing...';
+                
+                const result = await this.validateAndCompressImage(base64Data);
+                
+                if (!result.valid) {
+                    this.showNotification(result.error, 'error');
+                    compressionInfo.textContent = '';
+                    return;
+                }
+                
+                currentImageData = result.compressed;
+                previewImg.src = result.compressed;
+                previewArea.style.display = 'block';
+                
+                const originalKB = Math.round(result.sizes.original / 1024);
+                const compressedKB = Math.round(result.sizes.compressed / 1024);
+                const reduction = Math.round((1 - result.sizes.compressed / result.sizes.original) * 100);
+                
+                imageInfo.textContent = `Image ready (${compressedKB} KB)`;
+                compressionInfo.textContent = `Compressed from ${originalKB} KB (${reduction}% reduction)`;
+                saveBtn.disabled = false;
+                
+            } catch (error) {
+                console.error('[PersistentBanner] Image processing error:', error);
+                this.showNotification('Failed to process image', 'error');
+            }
+        };
+
+        // Upload handler
+        uploadInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                processImage(event.target.result);
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // URL handler
+        loadUrlBtn.addEventListener('click', async () => {
+            const url = urlInput.value.trim();
+            if (!url) {
+                this.showNotification('Please enter an image URL', 'error');
+                return;
+            }
+            
+            try {
+                loadUrlBtn.textContent = 'Loading...';
+                loadUrlBtn.disabled = true;
+                
+                const base64 = await this.imageUrlToBase64(url);
+                await processImage(base64);
+                
+            } catch (error) {
+                this.showNotification('Failed to load image from URL', 'error');
+            } finally {
+                loadUrlBtn.textContent = 'Load Image';
+                loadUrlBtn.disabled = false;
+            }
+        });
+
+        // Paste handler
+        pasteArea.addEventListener('paste', async (e) => {
+            try {
+                const base64 = await this.extractImageFromClipboard(e);
+                if (base64) {
+                    await processImage(base64);
+                } else {
+                    this.showNotification('No image found in clipboard', 'error');
+                }
+            } catch (error) {
+                this.showNotification('Failed to paste image', 'error');
+            }
+        });
+
+        // Keep paste area focused
+        document.addEventListener('click', (e) => {
+            if (modal.contains(e.target) && tabPanels[2].style.display !== 'none') {
+                pasteArea.focus();
+            }
+        });
+
+        // Cancel handler
+        const closeModal = () => {
+            overlay.style.animation = 'fadeOut 0.2s ease';
+            setTimeout(() => overlay.remove(), 200);
+            this.addImageModal = null;
+        };
+
+        cancelBtn.addEventListener('click', closeModal);
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeModal();
+        });
+
+        // ESC key handler
+        const handleEsc = (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+                document.removeEventListener('keydown', handleEsc);
+            }
+        };
+        document.addEventListener('keydown', handleEsc);
+
+        // Save handler
+        saveBtn.addEventListener('click', async () => {
+            if (!currentImageData) {
+                this.showNotification('No image selected', 'error');
+                return;
+            }
+
+            message.hoverImage = currentImageData;
+
+            const saved = await this.saveMessagesToLocal(messagesConfig);
+            if (saved) {
+                this.showNotification('Hover image added', 'success');
+                closeModal();
+                await this.loadAndDisplayMessages();
+            }
+        });
+
+        // Store reference
+        this.addImageModal = overlay;
+    },
+
+    /**
+     * Show view image modal (full-screen preview)
+     * @param {string} messageId - Message ID
+     */
+    async showViewImageModal(messageId) {
+        const messagesConfig = await this.loadMessagesFromLocal();
+        const message = messagesConfig.customMessages.find(m => m.id === messageId);
+        
+        if (!message || !message.hoverImage) {
+            this.showNotification('No image to display', 'error');
+            return;
+        }
+
+        // Create full-screen overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'exl-view-image-modal';
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            backdrop-filter: blur(10px);
+            z-index: 999999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.3s ease;
+            cursor: pointer;
+        `;
+
+        // Create image container
+        const container = document.createElement('div');
+        container.style.cssText = `
+            max-width: 90%;
+            max-height: 90%;
+            position: relative;
+        `;
+
+        // Create image
+        const img = document.createElement('img');
+        img.src = message.hoverImage;
+        img.alt = 'Full-size preview';
+        img.style.cssText = `
+            max-width: 100%;
+            max-height: 90vh;
+            border: 4px solid white;
+            border-radius: 8px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            cursor: default;
+        `;
+
+        // Create close button
+        const closeBtn = document.createElement('button');
+        closeBtn.innerHTML = '✕';
+        closeBtn.style.cssText = `
+            position: absolute;
+            top: -16px;
+            right: -16px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: none;
+            background: white;
+            color: #333;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s ease;
+        `;
+
+        closeBtn.addEventListener('mouseenter', () => {
+            closeBtn.style.transform = 'scale(1.1)';
+        });
+        closeBtn.addEventListener('mouseleave', () => {
+            closeBtn.style.transform = 'scale(1)';
+        });
+
+        container.appendChild(img);
+        container.appendChild(closeBtn);
+        overlay.appendChild(container);
+        document.body.appendChild(overlay);
+
+        // Prevent image click from closing
+        img.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+
+        // Close handlers
+        const closeModal = () => {
+            overlay.style.animation = 'fadeOut 0.2s ease';
+            setTimeout(() => overlay.remove(), 200);
+            this.viewImageModal = null;
+        };
+
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeModal();
+        });
+
+        overlay.addEventListener('click', closeModal);
+
+        // ESC key handler
+        const handleEsc = (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+                document.removeEventListener('keydown', handleEsc);
+            }
+        };
+        document.addEventListener('keydown', handleEsc);
+
+        // Store reference
+        this.viewImageModal = overlay;
+    },
+
+    /**
+     * Inject CSS styles for modals
+     */
+    injectModalStyles() {
+        // Check if already injected
+        if (document.getElementById('exl-modal-styles')) {
+            return;
+        }
+
+        const style = document.createElement('style');
+        style.id = 'exl-modal-styles';
+        style.textContent = `
+            @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+            
+            @keyframes fadeOut {
+                from { opacity: 1; }
+                to { opacity: 0; }
+            }
+            
+            @keyframes slideIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(-20px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+            
+            .exl-tab-btn.active {
+                color: #0070d2 !important;
+                border-bottom-color: #0070d2 !important;
+            }
+            
+            .exl-message-dropdown-item:hover {
+                background: #f0f0f0 !important;
+            }
+        `;
+        document.head.appendChild(style);
+    },
+
+    /**
+     * Pause message rotation (stores current state for resume)
+     */
+    pauseMessageRotation() {
+        if (this.messageRotationInterval) {
+            this.wasAutoRotating = true;
+            this.stopMessageRotation();
+            console.log('[PersistentBanner] Message rotation paused (hover)');
+        }
+    },
+
+    /**
+     * Resume message rotation if it was previously auto-rotating
+     */
+    resumeMessageRotation() {
+        if (this.wasAutoRotating) {
+            this.startMessageRotation();
+            this.wasAutoRotating = false;
+            console.log('[PersistentBanner] Message rotation resumed');
+        }
+    },
+
+    /**
+     * Show message dropdown with previews
+     */
+    showMessageDropdown() {
+        // Close any existing dropdown
+        this.closeMessageDropdown();
+
+        if (this.activeMessages.length === 0) {
+            return;
+        }
+
+        // Get message index position
+        const indexElement = this.elements.messageIndex;
+        if (!indexElement) return;
+
+        const rect = indexElement.getBoundingClientRect();
+
+        // Create dropdown
+        const dropdown = document.createElement('div');
+        dropdown.className = 'exl-message-dropdown';
+        dropdown.style.cssText = `
+            position: fixed;
+            background: white;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            max-height: 400px;
+            overflow-y: auto;
+            z-index: 999999;
+            min-width: 300px;
+            animation: slideIn 0.2s ease;
+        `;
+
+        // Position dropdown
+        dropdown.style.top = `${rect.bottom + 8}px`;
+        dropdown.style.left = `${rect.left}px`;
+
+        // Build dropdown items
+        this.activeMessages.forEach((message, index) => {
+            const item = document.createElement('div');
+            item.className = 'exl-message-dropdown-item';
+            item.style.cssText = `
+                padding: 12px 16px;
+                cursor: pointer;
+                border-bottom: 1px solid #f0f0f0;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                transition: background 0.1s ease;
+            `;
+
+            // Remove border from last item
+            if (index === this.activeMessages.length - 1) {
+                item.style.borderBottom = 'none';
+            }
+
+            // Add thumbnail if hover image exists
+            if (message.hoverImage) {
+                const thumbnail = document.createElement('img');
+                thumbnail.src = message.hoverImage;
+                thumbnail.style.cssText = `
+                    width: 40px;
+                    height: 40px;
+                    object-fit: cover;
+                    border-radius: 4px;
+                    border: 1px solid #d0d0d0;
+                    flex-shrink: 0;
+                `;
+                item.appendChild(thumbnail);
+            }
+
+            // Add text content
+            const content = document.createElement('div');
+            content.style.cssText = 'flex: 1; min-width: 0;';
+
+            // Message preview (first 50 chars)
+            const preview = document.createElement('div');
+            preview.style.cssText = `
+                font-size: 14px;
+                color: #333;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                margin-bottom: 4px;
+            `;
+            const previewText = message.text.length > 50 
+                ? message.text.substring(0, 50) + '...' 
+                : message.text;
+            preview.textContent = previewText;
+            content.appendChild(preview);
+
+            // Metadata line
+            const metadata = document.createElement('div');
+            metadata.style.cssText = 'font-size: 11px; color: #666; display: flex; align-items: center; gap: 8px;';
+
+            // Current indicator
+            if (index === this.currentMessageIndex) {
+                const currentBadge = document.createElement('span');
+                currentBadge.textContent = '● Current';
+                currentBadge.style.cssText = 'color: #0070d2; font-weight: 600;';
+                metadata.appendChild(currentBadge);
+            }
+
+            // Pin indicator
+            if (message.pinnedCaseNumber) {
+                const pinBadge = document.createElement('span');
+                pinBadge.textContent = `📌 ${message.pinnedCaseNumber}`;
+                pinBadge.style.cssText = 'color: #e07800;';
+                metadata.appendChild(pinBadge);
+            }
+
+            content.appendChild(metadata);
+            item.appendChild(content);
+
+            // Click handler
+            item.addEventListener('click', () => {
+                this.currentMessageIndex = index;
+                this.updateMessageDisplay();
+                this.closeMessageDropdown();
+            });
+
+            dropdown.appendChild(item);
+        });
+
+        document.body.appendChild(dropdown);
+
+        // Adjust position if overflow
+        const dropdownRect = dropdown.getBoundingClientRect();
+        if (dropdownRect.right > window.innerWidth) {
+            dropdown.style.left = `${window.innerWidth - dropdownRect.width - 10}px`;
+        }
+        if (dropdownRect.bottom > window.innerHeight) {
+            dropdown.style.top = `${rect.top - dropdownRect.height - 8}px`;
+        }
+
+        // Close on outside click
+        const closeOnOutsideClick = (e) => {
+            if (!dropdown.contains(e.target) && e.target !== indexElement) {
+                this.closeMessageDropdown();
+                document.removeEventListener('click', closeOnOutsideClick);
+            }
+        };
+        setTimeout(() => {
+            document.addEventListener('click', closeOnOutsideClick);
+        }, 0);
+
+        // Store reference
+        this.messageDropdown = dropdown;
+    },
+
+    /**
+     * Close message dropdown
+     */
+    closeMessageDropdown() {
+        if (this.messageDropdown) {
+            this.messageDropdown.remove();
+            this.messageDropdown = null;
+        }
+    },
 
     /**
      * Initialize the persistent banner
@@ -105,14 +1763,16 @@ const PersistentBanner = {
             return;
         }
 
-        // Check if feature is enabled in settings
-        const isEnabled = await this.isFeatureEnabled();
-        if (!isEnabled) {
-            console.log('[PersistentBanner] Feature is disabled in settings');
+        // Check if banner should be shown (includes feature enabled + dismissal checks)
+        if (!this.shouldShowBanner()) {
+            console.log('[PersistentBanner] Banner should not be shown (disabled or dismissed)');
             return;
         }
 
         console.log('[PersistentBanner] Initializing...');
+        
+        // Inject CSS animations for modals
+        this.injectModalStyles();
         
         // Load navigation history from sessionStorage
         this.loadNavigationHistory();
@@ -138,14 +1798,48 @@ const PersistentBanner = {
         // Start periodic validation for stale data prevention
         this.startPeriodicValidation();
         
-        // Load messages for rotation
-        await this.loadMessages();
+        // Migrate legacy messages from sync storage if needed
+        await this.migrateLegacyMessagesFromSync();
+        
+        // Load messages for rotation from local storage
+        await this.loadMessagesFromLocal();
+        
+        // Setup storage change listener for cross-tab synchronization
+        this.setupStorageChangeListener();
+        
+        // Setup message listener for popup toggle commands
+        this.setupPopupMessageListener();
         
         // Check initial state - if on case page, check extraction status
         this.checkInitialState();
         
         this.isInitialized = true;
         console.log('[PersistentBanner] Initialized');
+    },
+    
+    /**
+     * Setup message listener for popup toggle commands
+     * Handles {action: 'toggleBanner', enabled: true/false} messages from popup
+     */
+    setupPopupMessageListener() {
+        chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+            if (message.action === 'toggleBanner') {
+                console.log('[PersistentBanner] Received toggleBanner message:', message);
+                
+                if (message.enabled === true) {
+                    // Restore banner
+                    this.undoBannerDismissal();
+                } else if (message.enabled === false) {
+                    // Hide banner
+                    this.handleBannerClose();
+                }
+                
+                sendResponse({ success: true });
+                return true; // Async response
+            }
+        });
+        
+        console.log('[PersistentBanner] Popup message listener registered');
     },
 
     /**
@@ -174,6 +1868,89 @@ const PersistentBanner = {
     },
 
     /**
+     * Setup storage change listener for cross-tab synchronization
+     * Reloads messages when they are changed in another tab
+     */
+    setupStorageChangeListener() {
+        const handleStorageChange = async (changes, areaName) => {
+            // Only listen for local storage changes (where banner messages are stored)
+            if (areaName !== 'local') return;
+            
+            // Check if banner messages were changed
+            if (changes.exl_bannerMessages) {
+                console.log('[PersistentBanner] Banner messages changed in another tab, reloading...');
+                
+                // Debounced reload to prevent rapid-fire updates
+                if (this.debouncedReloadMessages) {
+                    this.debouncedReloadMessages();
+                } else {
+                    // Create debounced function if not exists
+                    if (typeof DebounceUtils !== 'undefined') {
+                        this.debouncedReloadMessages = DebounceUtils.debounce(async () => {
+                            await this.reloadMessagesFromStorage();
+                        }, 250);
+                        this.debouncedReloadMessages();
+                    } else {
+                        // Fallback without debouncing
+                        await this.reloadMessagesFromStorage();
+                    }
+                }
+            }
+        };
+        
+        // Register listener for cleanup tracking
+        this.storageChangeListener = handleStorageChange;
+        chrome.storage.onChanged.addListener(this.storageChangeListener);
+        this.registerListener(chrome.storage.onChanged, this.storageChangeListener);
+        
+        console.log('[PersistentBanner] Storage change listener registered for cross-tab sync');
+    },
+
+    /**
+     * Reload messages from storage (for cross-tab sync)
+     * Smart preservation: if current message still exists by ID, keep displaying it
+     */
+    async reloadMessagesFromStorage() {
+        console.log('[PersistentBanner] Reloading messages from storage...');
+        
+        // Remember currently displayed message ID
+        const currentMessageId = this.currentDisplayedMessage?.id || null;
+        
+        // Load messages from storage
+        await this.loadMessagesFromLocal();
+        
+        // Smart message preservation by ID
+        if (currentMessageId) {
+            // Check if current message still exists
+            const stillExists = this.activeMessages.some(msg => msg.id === currentMessageId);
+            
+            if (stillExists) {
+                // Find index and update currentMessageIndex
+                const newIndex = this.activeMessages.findIndex(msg => msg.id === currentMessageId);
+                if (newIndex !== -1) {
+                    this.currentMessageIndex = newIndex;
+                    console.log(`[PersistentBanner] Preserved current message (ID: ${currentMessageId})`);
+                } else {
+                    // Shouldn't happen, but fallback to first message
+                    this.currentMessageIndex = 0;
+                }
+            } else {
+                // Message was deleted, start from beginning
+                console.log(`[PersistentBanner] Current message (ID: ${currentMessageId}) no longer exists, resetting to first message`);
+                this.currentMessageIndex = 0;
+            }
+        } else {
+            // No message was being displayed, start from beginning
+            this.currentMessageIndex = 0;
+        }
+        
+        // Update display with new/preserved message
+        this.updateMessageDisplay();
+        
+        console.log('[PersistentBanner] Messages reloaded successfully');
+    },
+
+    /**
      * Start periodic validation to prevent stale data display
      * Checks every 2 seconds if displayed data is still valid
      */
@@ -185,7 +1962,7 @@ const PersistentBanner = {
         
         // Check every 2 seconds if displayed data is still valid
         // Only clear if case ID mismatches (case number mismatch might be timing issue)
-        this.validationInterval = setInterval(async () => {
+        this.validationInterval = this.registerTimer(setInterval(async () => {
             if (this.displayedCaseId || this.displayedCaseNumber) {
                 if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
                     let validation = PageContextValidator.validatePageContextBeforeDisplay(
@@ -228,7 +2005,7 @@ const PersistentBanner = {
                     }
                 }
             }
-        }, 2000);
+        }, 2000), 'interval');
         
         console.log('[PersistentBanner] Periodic validation started');
     },
@@ -244,6 +2021,211 @@ const PersistentBanner = {
         }
     },
 
+    /**
+     * Handle banner close button click
+     * Dismisses banner for session and shows undo notification
+     */
+    handleBannerClose() {
+        console.log('[PersistentBanner] Close button clicked');
+        
+        // Check if close button is enabled in settings
+        if (this.messageSettings && this.messageSettings.banner && this.messageSettings.banner.showCloseButton === false) {
+            console.log('[PersistentBanner] Close button is disabled in settings');
+            return;
+        }
+        
+        // Get dismissal duration from settings (default: 'session')
+        const dismissalDuration = this.messageSettings?.banner?.dismissalDuration || 'session';
+        
+        // Hide banner with slide-up animation
+        const banner = this.elements.banner;
+        if (banner) {
+            banner.style.transition = 'transform 0.3s ease-out, opacity 0.3s ease-out';
+            banner.style.transform = 'translateY(-100%)';
+            banner.style.opacity = '0';
+            
+            setTimeout(() => {
+                banner.style.display = 'none';
+            }, 300);
+        }
+        
+        // Store dismissal based on duration setting
+        if (dismissalDuration === 'session') {
+            // Session-based dismissal (clears on browser close)
+            const domain = this.getCurrentDomain();
+            sessionStorage.setItem(`exl_banner_dismissed_${domain}`, 'true');
+            console.log('[PersistentBanner] Banner dismissed for session on domain:', domain);
+        } else if (dismissalDuration === 'permanent') {
+            // Permanent dismissal (disable for this domain)
+            this.disableBannerForDomain();
+        }
+        
+        // Show undo notification with 7-second duration
+        this.showUndoNotification();
+    },
+    
+    /**
+     * Get current domain for dismissal tracking
+     * @returns {string} Current domain (hostname without www.)
+     */
+    getCurrentDomain() {
+        try {
+            const hostname = window.location.hostname;
+            return hostname.replace(/^www\./, '');
+        } catch (error) {
+            console.error('[PersistentBanner] Failed to get current domain:', error);
+            return 'unknown';
+        }
+    },
+    
+    /**
+     * Disable banner for current domain permanently
+     */
+    async disableBannerForDomain() {
+        const domain = this.getCurrentDomain();
+        
+        // Use SiteActivationManager if available
+        if (typeof SiteActivationManager !== 'undefined' && typeof SiteActivationManager.disableBanner === 'function') {
+            await SiteActivationManager.disableBanner(domain);
+            console.log('[PersistentBanner] Banner permanently disabled for domain via SiteActivationManager:', domain);
+        } else {
+            // Fallback: Update settings directly
+            const settings = await this.loadMessagesFromLocal();
+            if (!settings.activeSites) {
+                settings.activeSites = {};
+            }
+            settings.activeSites[domain] = false;
+            await this.saveMessagesToLocal(settings);
+            console.log('[PersistentBanner] Banner permanently disabled for domain via settings:', domain);
+        }
+    },
+    
+    /**
+     * Show undo notification with 7-second duration
+     */
+    showUndoNotification() {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = 'exl-banner-notification';
+        notification.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #333;
+            color: white;
+            padding: 16px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 999999;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            animation: slideInUp 0.3s ease-out;
+            max-width: 400px;
+        `;
+        
+        notification.innerHTML = `
+            <div style="flex: 1;">
+                <div style="font-weight: 600; margin-bottom: 4px;">Banner Hidden</div>
+                <div style="font-size: 13px; opacity: 0.9;">Click Undo to restore, or use extension popup to reactivate.</div>
+            </div>
+            <button class="exl-undo-btn" style="
+                padding: 8px 16px;
+                background: #0070d2;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: 600;
+                font-size: 14px;
+                white-space: nowrap;
+                transition: background 0.2s ease;
+            ">Undo</button>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // Undo button handler
+        const undoBtn = notification.querySelector('.exl-undo-btn');
+        undoBtn.addEventListener('click', () => {
+            this.undoBannerDismissal();
+            notification.remove();
+        });
+        
+        undoBtn.addEventListener('mouseenter', () => {
+            undoBtn.style.background = '#005fb2';
+        });
+        
+        undoBtn.addEventListener('mouseleave', () => {
+            undoBtn.style.background = '#0070d2';
+        });
+        
+        // Auto-remove after 7 seconds
+        setTimeout(() => {
+            notification.style.animation = 'slideOutDown 0.3s ease-out';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 300);
+        }, 7000);
+    },
+    
+    /**
+     * Undo banner dismissal - restore banner immediately
+     */
+    undoBannerDismissal() {
+        console.log('[PersistentBanner] Undo banner dismissal');
+        
+        // Clear session dismissal flag
+        const domain = this.getCurrentDomain();
+        sessionStorage.removeItem(`exl_banner_dismissed_${domain}`);
+        
+        // Restore banner display
+        const banner = this.elements.banner;
+        if (banner) {
+            banner.style.display = 'block';
+            banner.style.transform = 'translateY(0)';
+            banner.style.opacity = '1';
+        }
+        
+        // Show success notification
+        this.showNotification('Banner restored', 'success');
+    },
+    
+    /**
+     * Check if banner should be shown (not dismissed)
+     * @returns {boolean} True if banner should be shown
+     */
+    shouldShowBanner() {
+        // Check if feature is enabled
+        const isEnabled = this.isFeatureEnabled();
+        if (!isEnabled) {
+            console.log('[PersistentBanner] Feature disabled in settings');
+            return false;
+        }
+        
+        // Check if dismissed for current session
+        const domain = this.getCurrentDomain();
+        const isDismissed = sessionStorage.getItem(`exl_banner_dismissed_${domain}`) === 'true';
+        
+        if (isDismissed) {
+            console.log('[PersistentBanner] Banner dismissed for session on domain:', domain);
+            return false;
+        }
+        
+        // Check if domain is enabled (for multi-site activation)
+        if (typeof SiteActivationManager !== 'undefined' && typeof SiteActivationManager.isBannerEnabled === 'function') {
+            const isEnabledForDomain = SiteActivationManager.isBannerEnabled(domain);
+            if (!isEnabledForDomain) {
+                console.log('[PersistentBanner] Banner disabled for domain:', domain);
+                return false;
+            }
+        }
+        
+        return true;
+    },
+    
     /**
      * Check if persistent banner feature is enabled in settings
      * Uses SettingsManager if available, otherwise checks storage directly with consistent logic
@@ -269,6 +2251,7 @@ const PersistentBanner = {
      */
     setupSettingsListener() {
         chrome.storage.onChanged.addListener((changes, areaName) => {
+            // Monitor sync storage for feature toggles
             if (areaName === 'sync' && changes.exlibris) {
                 // Check persistent banner feature toggle
                 const newEnabled = changes.exlibris.newValue?.features?.persistentBanner !== false;
@@ -290,22 +2273,19 @@ const PersistentBanner = {
                 if (newMessagesEnabled !== oldMessagesEnabled) {
                     console.log('[PersistentBanner] Banner messages feature toggle changed:', newMessagesEnabled);
                     // Reload messages and update display
-                    this.loadMessages().then(() => {
+                    this.loadMessagesFromLocal().then(() => {
                         this.updateBannerUI();
                     });
                 }
-                
-                // Check message settings changes
-                const newMessages = changes.exlibris.newValue?.persistentBanner?.messages;
-                const oldMessages = changes.exlibris.oldValue?.persistentBanner?.messages;
-                
-                if (newMessages && JSON.stringify(newMessages) !== JSON.stringify(oldMessages)) {
-                    console.log('[PersistentBanner] Message settings changed, reloading...');
-                    // Reload messages and restart rotation
-                    this.loadMessages().then(() => {
-                        this.updateBannerUI();
-                    });
-                }
+            }
+            
+            // Monitor local storage for message content changes
+            if (areaName === 'local' && changes.exl_bannerMessages) {
+                console.log('[PersistentBanner] Banner messages content changed in local storage, reloading...');
+                // Reload messages and restart rotation
+                this.loadMessagesFromLocal().then(() => {
+                    this.updateBannerUI();
+                });
             }
         });
     },
@@ -526,12 +2506,12 @@ const PersistentBanner = {
                 this.lastDataReceivedTime = null;
                 
                 // Set timeout: if no data received within 3 seconds, trigger manual extraction
-                this.dataReceptionTimeout = setTimeout(() => {
+                this.dataReceptionTimeout = this.registerTimer(setTimeout(() => {
                     if (!this.lastDataReceivedTime || (Date.now() - this.lastDataReceivedTime) > 3000) {
                         console.warn('[PersistentBanner] No case data received within 3 seconds. Triggering manual extraction...');
                         this.triggerManualExtraction();
                     }
-                }, 3000);
+                }, 3000), 'timeout');
             });
         }
     },
@@ -930,6 +2910,7 @@ const PersistentBanner = {
         banner.className = 'exl-persistent-banner';
 
         banner.innerHTML = `
+            <button class="exl-hl-banner-close-btn" title="Hide banner for this session">×</button>
             <div class="exl-banner-container">
                 <div class="exl-banner-section exl-banner-page-info">
                     <div class="exl-banner-label">Current Page</div>
@@ -1088,6 +3069,36 @@ const PersistentBanner = {
             this.elements.messageNextBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.rotateToNextMessage();
+            });
+        }
+        
+        // Setup pause-on-hover for message content
+        if (this.elements.messageContent) {
+            this.registerListener(this.elements.messageContent, 'mouseenter', () => {
+                this.pauseMessageRotation();
+            });
+            
+            this.registerListener(this.elements.messageContent, 'mouseleave', () => {
+                this.resumeMessageRotation();
+            });
+        }
+        
+        // Add dropdown button to message index
+        if (this.elements.messageIndex) {
+            this.elements.messageIndex.style.cursor = 'pointer';
+            this.elements.messageIndex.title = 'Click to see all messages';
+            this.registerListener(this.elements.messageIndex, 'click', (e) => {
+                e.stopPropagation();
+                this.showMessageDropdown();
+            });
+        }
+        
+        // Handle close button
+        const closeBtn = banner.querySelector('.exl-hl-banner-close-btn');
+        if (closeBtn) {
+            this.registerListener(closeBtn, 'click', (e) => {
+                e.stopPropagation();
+                this.handleBannerClose();
             });
         }
     },
@@ -2163,9 +4174,12 @@ const PersistentBanner = {
             childList: true,
             subtree: true
         });
+        
+        // Track observer for cleanup
+        this.registerObserver(observer);
 
         // Cleanup after 10 seconds
-        setTimeout(() => observer.disconnect(), 10000);
+        this.registerTimer(setTimeout(() => observer.disconnect(), 10000), 'timeout');
     },
 
     /**
@@ -2302,7 +4316,7 @@ const PersistentBanner = {
     /**
      * Get combined list of enabled messages (default + custom)
      * @param {Object} messagesConfig - Messages configuration object
-     * @returns {Array} Array of message objects with text property
+     * @returns {Array} Array of message objects with all properties
      */
     getActiveMessages(messagesConfig) {
         const active = [];
@@ -2311,7 +4325,16 @@ const PersistentBanner = {
         if (messagesConfig.defaultMessages?.enabled && messagesConfig.defaultMessages?.items) {
             messagesConfig.defaultMessages.items.forEach(msg => {
                 if (msg.enabled !== false && msg.text) {
-                    active.push({ text: msg.text, id: msg.id, type: 'default' });
+                    active.push({
+                        text: msg.text,
+                        id: msg.id,
+                        type: 'default',
+                        hoverImage: msg.hoverImage || null,
+                        description: msg.description || '',
+                        pinnedCaseNumber: msg.pinnedCaseNumber || null,
+                        pinnedCaseId: msg.pinnedCaseId || null,
+                        pinnedCaseUrl: msg.pinnedCaseUrl || null
+                    });
                 }
             });
         }
@@ -2320,7 +4343,16 @@ const PersistentBanner = {
         if (messagesConfig.customMessages && Array.isArray(messagesConfig.customMessages)) {
             messagesConfig.customMessages.forEach(msg => {
                 if (msg.enabled !== false && msg.text && msg.text.trim()) {
-                    active.push({ text: msg.text.trim(), id: msg.id, type: 'custom' });
+                    active.push({
+                        text: msg.text.trim(),
+                        id: msg.id,
+                        type: 'custom',
+                        hoverImage: msg.hoverImage || null,
+                        description: msg.description || '',
+                        pinnedCaseNumber: msg.pinnedCaseNumber || null,
+                        pinnedCaseId: msg.pinnedCaseId || null,
+                        pinnedCaseUrl: msg.pinnedCaseUrl || null
+                    });
                 }
             });
         }
@@ -2344,9 +4376,12 @@ const PersistentBanner = {
         
         const interval = this.messageSettings.rotationInterval || 5000;
         
-        this.messageRotationInterval = setInterval(() => {
-            this.rotateToNextMessage();
-        }, interval);
+        this.messageRotationInterval = this.registerTimer(
+            setInterval(() => {
+                this.rotateToNextMessage();
+            }, interval),
+            'interval'
+        );
         
         console.log(`[PersistentBanner] Started message rotation (${interval}ms interval)`);
     },
@@ -2404,8 +4439,8 @@ const PersistentBanner = {
     renderMessage(messageText) {
         if (!messageText) return '';
         
-        // Split by newlines and limit to 3 lines
-        const lines = messageText.split('\n').slice(0, 3);
+        // Split by newlines - no line limit (supports up to 4000 chars)
+        const lines = messageText.split('\n');
         
         // Apply dynamic spacing based on line count
         let lineClass = 'message-line';
@@ -2448,8 +4483,38 @@ const PersistentBanner = {
         
         const currentMessage = this.activeMessages[this.currentMessageIndex];
         if (currentMessage) {
+            // Cleanup previous hover image listeners
+            this.cleanupHoverImagePopup();
+            
+            // Render message text
             this.elements.messageContent.innerHTML = this.renderMessage(currentMessage.text);
             this.elements.messageIndex.textContent = `${this.currentMessageIndex + 1}/${this.activeMessages.length}`;
+            
+            // Setup hover image if available
+            if (currentMessage.hoverImage) {
+                this.setupHoverImage(
+                    this.elements.messageContent,
+                    currentMessage.hoverImage,
+                    currentMessage.text
+                );
+            }
+            
+            // Store current message metadata for context menu
+            this.currentDisplayedMessage = {
+                id: currentMessage.id,
+                text: currentMessage.text,
+                hoverImage: currentMessage.hoverImage,
+                description: currentMessage.description,
+                pinnedCaseNumber: currentMessage.pinnedCaseNumber,
+                pinnedCaseId: currentMessage.pinnedCaseId,
+                pinnedCaseUrl: currentMessage.pinnedCaseUrl
+            };
+            
+            // Attach context menu (right-click) handler
+            const handleContextMenu = (e) => {
+                this.showContextMenu(e, currentMessage.id);
+            };
+            this.registerListener(this.elements.messageContent, 'contextmenu', handleContextMenu);
         }
         
         // Enable/disable navigation buttons
@@ -2514,6 +4579,28 @@ const PersistentBanner = {
         this.stopUrlMonitoring();
         this.stopMessageRotation();
         this.remove();
+        
+        // Close any open modals and dropdowns
+        this.closeContextMenu();
+        this.closeMessageDropdown();
+        this.cleanupHoverImagePopup();
+        if (this.editModal) this.editModal.remove();
+        if (this.addImageModal) this.addImageModal.remove();
+        if (this.viewImageModal) this.viewImageModal.remove();
+        
+        // Clean up all tracked resources (timers, listeners, observers)
+        this.cleanupTrackedResources();
+        
+        // Remove storage change listener explicitly (in addition to tracked cleanup)
+        if (this.storageChangeListener) {
+            try {
+                chrome.storage.onChanged.removeListener(this.storageChangeListener);
+                this.storageChangeListener = null;
+            } catch (error) {
+                console.warn('[PersistentBanner] Error removing storage listener:', error);
+            }
+        }
+        
         this.isInitialized = false;
         console.log('[PersistentBanner] Cleaned up');
     },

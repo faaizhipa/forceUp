@@ -1,6 +1,7 @@
 /**
- * Sticky Notes Module
+ * Sticky Notes Module (Enhanced with Rich Text Editor)
  * Handles note creation, dragging, editing, and persistence
+ * Features: ContentEditable, formatting toolbar, image paste, lazy-loading, BroadcastChannel sync
  * @module stickyNotes
  */
 
@@ -8,7 +9,7 @@ const StickyNotes = (function() {
   'use strict';
 
   const STORAGE_PREFIX = 'exl_notes_';
-  const STORAGE_VERSION = 1;
+  const STORAGE_VERSION = 2; // Incremented for rich text support
   const VERSION_KEY = 'exl_notes_storage_version';
   const NOTE_COLORS = [
     { id: 'yellow', name: 'Light Yellow', rgb: 'rgb(254, 252, 232)' },
@@ -19,11 +20,22 @@ const StickyNotes = (function() {
     { id: 'peach', name: 'Soft Peach', rgb: 'rgb(254, 240, 236)' }
   ];
 
+  // Virtual scrolling constants
+  const VIRTUAL_SCROLL_THRESHOLD = 50;
+  const VISIBLE_NOTE_BUFFER = 10; // Render 10 above and 10 below viewport
+
   let notes = {};
   let isInitialized = false;
   let draggedNote = null;
+  let resizingNote = null;
   let dragOffset = { x: 0, y: 0 };
+  let resizeStart = { width: 0, height: 0, x: 0, y: 0 };
   let highestZIndex = 999998;
+  let broadcastChannel = null;
+  let tabId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  let lazyLoadObserver = null;
+  let virtualScrollEnabled = false;
+  let visibleNoteIds = new Set();
 
   /**
    * Initialize sticky notes
@@ -31,19 +43,35 @@ const StickyNotes = (function() {
   async function init() {
     if (isInitialized) return;
     
-    console.log('[StickyNotes] Initializing...');
+    console.log('[StickyNotes] Initializing enhanced version...');
     
     // Wait for DOM to be ready before loading and rendering
     const domReady = await waitForDOMReady();
     if (!domReady) {
       console.warn('[StickyNotes] DOM not ready after timeout, proceeding anyway');
     }
+
+    // Initialize BroadcastChannel for cross-tab sync
+    initBroadcastChannel();
+
+    // Initialize lazy-load observer
+    initLazyLoadObserver();
     
     await loadNotes();
-    renderNotes();
+    
+    // Check if virtual scrolling should be enabled
+    const noteCount = Object.keys(notes).length;
+    virtualScrollEnabled = noteCount > VIRTUAL_SCROLL_THRESHOLD;
+    
+    if (virtualScrollEnabled) {
+      console.log('[StickyNotes] Virtual scrolling enabled for', noteCount, 'notes');
+      setupVirtualScrolling();
+    } else {
+      renderNotes();
+    }
     
     isInitialized = true;
-    console.log('[StickyNotes] Initialized with', Object.keys(notes).length, 'notes');
+    console.log('[StickyNotes] Initialized with', noteCount, 'notes');
   }
 
   /**
@@ -71,6 +99,412 @@ const StickyNotes = (function() {
     
     console.warn('[StickyNotes] DOM readiness timeout after', maxWait, 'ms');
     return false; // Timeout
+  }
+
+  /**
+   * Initialize BroadcastChannel for cross-tab synchronization
+   */
+  function initBroadcastChannel() {
+    try {
+      broadcastChannel = new BroadcastChannel('exl-notes-sync');
+      
+      broadcastChannel.onmessage = (event) => {
+        const { type, noteId, updates, timestamp, senderId } = event.data;
+        
+        // Ignore messages from this tab
+        if (senderId === tabId) return;
+        
+        console.log('[StickyNotes] Received broadcast:', type, noteId);
+        
+        switch (type) {
+          case 'noteCreated':
+            handleRemoteNoteCreated(noteId, updates);
+            break;
+          case 'noteUpdated':
+            handleRemoteNoteUpdated(noteId, updates, timestamp);
+            break;
+          case 'noteDeleted':
+            handleRemoteNoteDeleted(noteId);
+            break;
+        }
+      };
+      
+      console.log('[StickyNotes] BroadcastChannel initialized');
+    } catch (error) {
+      console.warn('[StickyNotes] BroadcastChannel not supported:', error);
+    }
+  }
+
+  /**
+   * Broadcast note change to other tabs
+   * @param {string} type - Event type (noteCreated, noteUpdated, noteDeleted)
+   * @param {string} noteId - Note ID
+   * @param {Object} updates - Updated note data
+   */
+  function broadcastChange(type, noteId, updates = null) {
+    if (!broadcastChannel) return;
+    
+    try {
+      broadcastChannel.postMessage({
+        type,
+        noteId,
+        updates,
+        timestamp: Date.now(),
+        senderId: tabId
+      });
+    } catch (error) {
+      console.warn('[StickyNotes] Broadcast failed:', error);
+    }
+  }
+
+  /**
+   * Handle remote note creation
+   * @param {string} noteId - Note ID
+   * @param {Object} noteData - Note data
+   */
+  function handleRemoteNoteCreated(noteId, noteData) {
+    if (!notes[noteId]) {
+      notes[noteId] = noteData;
+      renderNote(noteData);
+    }
+  }
+
+  /**
+   * Handle remote note update
+   * @param {string} noteId - Note ID
+   * @param {Object} updates - Updated fields
+   * @param {number} remoteTimestamp - Remote update timestamp
+   */
+  function handleRemoteNoteUpdated(noteId, updates, remoteTimestamp) {
+    if (!notes[noteId]) return;
+    
+    const localNote = notes[noteId];
+    const localEditAge = Date.now() - (localNote.lastLocalEdit || 0);
+    
+    // Check for conflict (local edit within last 5 seconds)
+    if (localEditAge < 5000) {
+      showConflictToast(noteId, localNote, updates);
+      return;
+    }
+    
+    // No conflict, apply remote changes
+    Object.assign(localNote, updates);
+    updateNoteDOM(noteId);
+  }
+
+  /**
+   * Handle remote note deletion
+   * @param {string} noteId - Note ID
+   */
+  function handleRemoteNoteDeleted(noteId) {
+    if (notes[noteId]) {
+      const noteEl = document.querySelector(`[data-note-id="${noteId}"]`);
+      if (noteEl) {
+        noteEl.remove();
+      }
+      delete notes[noteId];
+    }
+  }
+
+  /**
+   * Show conflict resolution toast
+   * @param {string} noteId - Note ID
+   * @param {Object} localNote - Local note data
+   * @param {Object} remoteUpdates - Remote updates
+   */
+  function showConflictToast(noteId, localNote, remoteUpdates) {
+    const toast = document.createElement('div');
+    toast.className = 'exl-conflict-toast';
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #ffc107;
+      color: #000;
+      padding: 16px;
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      z-index: 2147483647;
+      max-width: 400px;
+    `;
+
+    const title = document.createElement('div');
+    title.textContent = `Conflict: Note "${localNote.title || 'Untitled'}" was edited in another tab`;
+    title.style.fontWeight = '500';
+    title.style.marginBottom = '12px';
+    toast.appendChild(title);
+
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.display = 'flex';
+    buttonContainer.style.gap = '8px';
+
+    const buttons = [
+      { label: 'Keep Local', action: () => keepLocal(noteId, toast) },
+      { label: 'Use Remote', action: () => useRemote(noteId, remoteUpdates, toast) },
+      { label: 'Copy to Clipboard', action: () => copyAndUseRemote(noteId, localNote, remoteUpdates, toast) }
+    ];
+
+    buttons.forEach(({ label, action }) => {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      btn.style.cssText = `
+        padding: 6px 12px;
+        border: none;
+        background: #000;
+        color: #ffc107;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        flex: 1;
+      `;
+      btn.addEventListener('click', action);
+      buttonContainer.appendChild(btn);
+    });
+
+    toast.appendChild(buttonContainer);
+    document.body.appendChild(toast);
+
+    // Auto-resolve to "Use Remote" after 10 seconds
+    const autoResolveTimeout = setTimeout(() => {
+      if (toast.parentNode) {
+        useRemote(noteId, remoteUpdates, toast);
+      }
+    }, 10000);
+
+    toast.dataset.autoResolveTimeout = autoResolveTimeout;
+  }
+
+  /**
+   * Keep local version (broadcast local changes)
+   * @param {string} noteId - Note ID
+   * @param {HTMLElement} toast - Toast element
+   */
+  function keepLocal(noteId, toast) {
+    broadcastChange('noteUpdated', noteId, notes[noteId]);
+    toast.remove();
+    showSuccessToast('Kept local version');
+  }
+
+  /**
+   * Use remote version (apply remote changes)
+   * @param {string} noteId - Note ID
+   * @param {Object} remoteUpdates - Remote updates
+   * @param {HTMLElement} toast - Toast element
+   */
+  function useRemote(noteId, remoteUpdates, toast) {
+    Object.assign(notes[noteId], remoteUpdates);
+    updateNoteDOM(noteId);
+    saveNotes();
+    toast.remove();
+    showSuccessToast('Applied remote version');
+  }
+
+  /**
+   * Copy local content to clipboard and use remote version
+   * @param {string} noteId - Note ID
+   * @param {Object} localNote - Local note data
+   * @param {Object} remoteUpdates - Remote updates
+   * @param {HTMLElement} toast - Toast element
+   */
+  async function copyAndUseRemote(noteId, localNote, remoteUpdates, toast) {
+    try {
+      const textContent = localNote.html || localNote.content || '';
+      await navigator.clipboard.writeText(textContent);
+      
+      Object.assign(notes[noteId], remoteUpdates);
+      updateNoteDOM(noteId);
+      saveNotes();
+      toast.remove();
+      showSuccessToast('Local content copied to clipboard, applied remote version');
+    } catch (error) {
+      console.error('[StickyNotes] Clipboard copy failed:', error);
+      showWarningToast('Failed to copy to clipboard');
+    }
+  }
+
+  /**
+   * Update note DOM without full re-render
+   * @param {string} noteId - Note ID
+   */
+  function updateNoteDOM(noteId) {
+    const noteEl = document.querySelector(`[data-note-id="${noteId}"]`);
+    if (!noteEl) return;
+
+    const note = notes[noteId];
+    const editor = noteEl.querySelector('.exl-hl-note-editor');
+    const titleInput = noteEl.querySelector('.exl-hl-note-title-input');
+
+    if (editor && note.html) {
+      editor.innerHTML = sanitizeHTML(note.html);
+    }
+    if (titleInput && note.title) {
+      titleInput.value = note.title;
+    }
+  }
+
+  /**
+   * Initialize IntersectionObserver for lazy-loading images
+   */
+  function initLazyLoadObserver() {
+    if ('IntersectionObserver' in window) {
+      lazyLoadObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const img = entry.target;
+            if (img.dataset.src) {
+              img.src = img.dataset.src;
+              img.removeAttribute('data-src');
+              img.classList.remove('exl-lazy-img');
+              lazyLoadObserver.unobserve(img);
+            }
+          }
+        });
+      }, {
+        rootMargin: '200px' // Load images 200px before they enter viewport
+      });
+      
+      console.log('[StickyNotes] Lazy-load observer initialized');
+    }
+  }
+
+  /**
+   * Setup virtual scrolling for large number of notes
+   */
+  function setupVirtualScrolling() {
+    // Calculate visible range based on viewport
+    updateVisibleNotes();
+
+    // Throttled scroll handler
+    const scrollHandler = throttle(() => {
+      updateVisibleNotes();
+    }, 100);
+
+    window.addEventListener('scroll', scrollHandler);
+  }
+
+  /**
+   * Update which notes are visible and should be rendered
+   */
+  function updateVisibleNotes() {
+    const viewportTop = window.scrollY;
+    const viewportBottom = viewportTop + window.innerHeight;
+    const newVisibleIds = new Set();
+
+    Object.values(notes).forEach(note => {
+      const noteTop = note.position.y;
+      const noteBottom = noteTop + (note.size?.height || 200);
+
+      // Check if note is in viewport with buffer
+      if (noteBottom >= viewportTop - 500 && noteTop <= viewportBottom + 500) {
+        newVisibleIds.add(note.id);
+      }
+    });
+
+    // Render newly visible notes
+    newVisibleIds.forEach(noteId => {
+      if (!visibleNoteIds.has(noteId)) {
+        renderNote(notes[noteId]);
+      }
+    });
+
+    // Remove notes that are no longer visible
+    visibleNoteIds.forEach(noteId => {
+      if (!newVisibleIds.has(noteId)) {
+        const noteEl = document.querySelector(`[data-note-id="${noteId}"]`);
+        if (noteEl) {
+          noteEl.style.display = 'none'; // Hide instead of removing for performance
+        }
+      }
+    });
+
+    visibleNoteIds = newVisibleIds;
+  }
+
+  /**
+   * Throttle function
+   * @param {Function} func - Function to throttle
+   * @param {number} wait - Wait time in milliseconds
+   * @returns {Function} Throttled function
+   */
+  function throttle(func, wait) {
+    let timeout = null;
+    let lastRan = 0;
+
+    return function(...args) {
+      const now = Date.now();
+      
+      if (!lastRan || now - lastRan >= wait) {
+        func.apply(this, args);
+        lastRan = now;
+      } else {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+          func.apply(this, args);
+          lastRan = Date.now();
+        }, wait - (now - lastRan));
+      }
+    };
+  }
+
+  /**
+   * Show success toast
+   * @param {string} message - Success message
+   */
+  function showSuccessToast(message) {
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #51cf66;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      z-index: 2147483647;
+    `;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.remove();
+      }
+    }, 3000);
+  }
+
+  /**
+   * Show warning toast
+   * @param {string} message - Warning message
+   */
+  function showWarningToast(message) {
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #ff6b6b;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      z-index: 2147483647;
+    `;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.remove();
+      }
+    }, 3000);
   }
 
   /**
@@ -166,34 +600,55 @@ const StickyNotes = (function() {
   }
 
   /**
-   * Create a new sticky note
+   * Create a new sticky note (Enhanced with rich text support)
    */
   async function createNote() {
     const noteId = 'note_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     
     // Position in center of viewport
-    const x = window.innerWidth / 2 - 128; // 128 = half of note width (256px)
-    const y = window.innerHeight / 2 - 96; // 96 = half of note height (192px)
+    const x = window.innerWidth / 2 - 150; // 150 = half of default note width (300px)
+    const y = window.innerHeight / 2 - 100; // 100 = half of default note height (200px)
 
     const note = {
       id: noteId,
-      content: '',
+      title: '',
+      content: '', // Backward compatibility with plain text
+      html: '', // New rich text content
       color: 'yellow',
       position: { x, y },
+      size: { width: 300, height: 200 }, // Default size
+      isCollapsed: false,
+      isHidden: false,
       timestamp: Date.now(),
+      lastModified: Date.now(),
+      lastLocalEdit: Date.now(),
       zIndex: ++highestZIndex
     };
 
     notes[noteId] = note;
-    await saveNotes();
     
+    // Check storage quota before saving
+    if (typeof StorageQuotaManager !== 'undefined') {
+      const noteSize = StorageQuotaManager.estimateSize(note);
+      const canStore = await StorageQuotaManager.canStoreNote(noteSize);
+      if (!canStore) {
+        delete notes[noteId];
+        showWarningToast('Storage limit reached. Cannot create new note.');
+        return null;
+      }
+    }
+    
+    await saveNotes();
     renderNote(note);
     
-    // Focus textarea
+    // Broadcast creation to other tabs
+    broadcastChange('noteCreated', noteId, note);
+    
+    // Focus editor
     setTimeout(() => {
-      const textarea = document.querySelector(`[data-note-id="${noteId}"] textarea`);
-      if (textarea) {
-        textarea.focus();
+      const editor = document.querySelector(`[data-note-id="${noteId}"] .exl-hl-note-editor`);
+      if (editor) {
+        editor.focus();
       }
     }, 100);
 
@@ -202,14 +657,104 @@ const StickyNotes = (function() {
   }
 
   /**
-   * Update note content
+   * Update note content (Enhanced with HTML support)
    */
-  async function updateNote(noteId, content) {
+  async function updateNote(noteId, html, plainText = '') {
     if (notes[noteId]) {
-      notes[noteId].content = content;
+      notes[noteId].html = sanitizeHTML(html);
+      notes[noteId].content = plainText; // Backward compatibility
       notes[noteId].timestamp = Date.now();
+      notes[noteId].lastModified = Date.now();
+      notes[noteId].lastLocalEdit = Date.now();
+      
       await saveNotes();
+      
+      // Broadcast update to other tabs
+      broadcastChange('noteUpdated', noteId, {
+        html: notes[noteId].html,
+        content: notes[noteId].content,
+        lastModified: notes[noteId].lastModified
+      });
     }
+  }
+
+  /**
+   * Update note title
+   * @param {string} noteId - Note ID
+   * @param {string} title - New title
+   */
+  async function updateNoteTitle(noteId, title) {
+    if (notes[noteId]) {
+      notes[noteId].title = title;
+      notes[noteId].lastModified = Date.now();
+      notes[noteId].lastLocalEdit = Date.now();
+      
+      await saveNotes();
+      broadcastChange('noteUpdated', noteId, { title, lastModified: notes[noteId].lastModified });
+    }
+  }
+
+  /**
+   * Toggle note collapsed state
+   * @param {string} noteId - Note ID
+   */
+  async function toggleNoteCollapse(noteId) {
+    if (notes[noteId]) {
+      notes[noteId].isCollapsed = !notes[noteId].isCollapsed;
+      notes[noteId].lastModified = Date.now();
+      
+      const noteEl = document.querySelector(`[data-note-id="${noteId}"]`);
+      if (noteEl) {
+        const body = noteEl.querySelector('.exl-hl-note-body');
+        if (body) {
+          body.style.display = notes[noteId].isCollapsed ? 'none' : 'block';
+        }
+      }
+      
+      await saveNotes();
+      broadcastChange('noteUpdated', noteId, { isCollapsed: notes[noteId].isCollapsed });
+    }
+  }
+
+  /**
+   * Toggle note hidden state
+   * @param {string} noteId - Note ID
+   */
+  async function toggleNoteHidden(noteId) {
+    if (notes[noteId]) {
+      notes[noteId].isHidden = !notes[noteId].isHidden;
+      notes[noteId].lastModified = Date.now();
+      
+      const noteEl = document.querySelector(`[data-note-id="${noteId}"]`);
+      if (noteEl) {
+        noteEl.style.display = notes[noteId].isHidden ? 'none' : 'block';
+      }
+      
+      await saveNotes();
+      broadcastChange('noteUpdated', noteId, { isHidden: notes[noteId].isHidden });
+    }
+  }
+
+  /**
+   * Sanitize HTML to prevent XSS attacks
+   * @param {string} html - HTML string to sanitize
+   * @returns {string} Sanitized HTML
+   */
+  function sanitizeHTML(html) {
+    if (typeof DOMPurify !== 'undefined') {
+      return DOMPurify.sanitize(html, {
+        ALLOWED_TAGS: ['b', 'i', 'u', 'a', 'ul', 'ol', 'li', 'br', 'p', 'img', 'strong', 'em'],
+        ALLOWED_ATTR: ['href', 'target', 'src', 'alt', 'data-src', 'class'],
+        ALLOWED_CLASSES: {
+          img: ['exl-lazy-img']
+        }
+      });
+    }
+    
+    // Fallback: basic sanitization
+    const temp = document.createElement('div');
+    temp.textContent = html;
+    return temp.innerHTML;
   }
 
   /**
@@ -219,6 +764,7 @@ const StickyNotes = (function() {
     if (notes[noteId]) {
       notes[noteId].color = colorId;
       notes[noteId].timestamp = Date.now();
+      notes[noteId].lastModified = Date.now();
       await saveNotes();
       
       // Update DOM
@@ -238,6 +784,9 @@ const StickyNotes = (function() {
           }
         });
       }
+      
+      // Broadcast update
+      broadcastChange('noteUpdated', noteId, { color: colorId, lastModified: notes[noteId].lastModified });
     }
   }
 
@@ -248,7 +797,27 @@ const StickyNotes = (function() {
     if (notes[noteId]) {
       notes[noteId].position = { x, y };
       notes[noteId].timestamp = Date.now();
+      notes[noteId].lastModified = Date.now();
       await saveNotes();
+      
+      // Broadcast update (debounced to avoid too many messages during drag)
+      broadcastChange('noteUpdated', noteId, { position: { x, y } });
+    }
+  }
+
+  /**
+   * Update note size
+   * @param {string} noteId - Note ID
+   * @param {number} width - New width
+   * @param {number} height - New height
+   */
+  async function updateNoteSize(noteId, width, height) {
+    if (notes[noteId]) {
+      notes[noteId].size = { width, height };
+      notes[noteId].lastModified = Date.now();
+      await saveNotes();
+      
+      broadcastChange('noteUpdated', noteId, { size: { width, height } });
     }
   }
 
@@ -264,6 +833,9 @@ const StickyNotes = (function() {
     delete notes[noteId];
     await saveNotes();
     
+    // Broadcast deletion
+    broadcastChange('noteDeleted', noteId);
+    
     console.log('[StickyNotes] Deleted note:', noteId);
   }
 
@@ -277,11 +849,16 @@ const StickyNotes = (function() {
   }
 
   /**
-   * Render a single note
+   * Render a single note (Enhanced with rich text editor)
    */
   function renderNote(note) {
     // Check if already rendered
     if (document.querySelector(`[data-note-id="${note.id}"]`)) {
+      return;
+    }
+
+    // Check if note should be hidden
+    if (note.isHidden) {
       return;
     }
 
@@ -291,18 +868,93 @@ const StickyNotes = (function() {
     noteEl.style.left = note.position.x + 'px';
     noteEl.style.top = note.position.y + 'px';
     noteEl.style.zIndex = note.zIndex || highestZIndex;
+    
+    // Set size if defined
+    if (note.size) {
+      noteEl.style.width = note.size.width + 'px';
+      noteEl.style.height = note.size.height + 'px';
+    }
 
     // Update highest z-index
     if (note.zIndex > highestZIndex) {
       highestZIndex = note.zIndex;
     }
 
-    // Header with color picker and delete button
+    // Header with controls
     const header = document.createElement('div');
-    header.className = 'exl-hl-note-header';
+    header.className = 'exl-hl-note-header-enhanced';
 
+    // Title input (editable)
+    const titleInput = document.createElement('input');
+    titleInput.type = 'text';
+    titleInput.className = 'exl-hl-note-title-input';
+    titleInput.placeholder = 'Untitled';
+    titleInput.value = note.title || '';
+    titleInput.addEventListener('input', (e) => {
+      updateNoteTitle(note.id, e.target.value);
+    });
+    titleInput.addEventListener('mousedown', (e) => e.stopPropagation());
+
+    // Header controls container
+    const controls = document.createElement('div');
+    controls.className = 'exl-hl-note-controls';
+
+    // Color picker dropdown
+    const colorBtn = document.createElement('button');
+    colorBtn.className = 'exl-hl-note-control-btn';
+    colorBtn.innerHTML = '🎨';
+    colorBtn.title = 'Change color';
+    colorBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleColorPicker(note.id);
+    });
+
+    // Collapse button
+    const collapseBtn = document.createElement('button');
+    collapseBtn.className = 'exl-hl-note-control-btn';
+    collapseBtn.innerHTML = note.isCollapsed ? '▼' : '▲';
+    collapseBtn.title = note.isCollapsed ? 'Expand' : 'Collapse';
+    collapseBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleNoteCollapse(note.id);
+      collapseBtn.innerHTML = !note.isCollapsed ? '▼' : '▲';
+      collapseBtn.title = !note.isCollapsed ? 'Expand' : 'Collapse';
+    });
+
+    // Hide button
+    const hideBtn = document.createElement('button');
+    hideBtn.className = 'exl-hl-note-control-btn';
+    hideBtn.innerHTML = '👁';
+    hideBtn.title = 'Hide note';
+    hideBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleNoteHidden(note.id);
+    });
+
+    // Delete button
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'exl-hl-note-control-btn exl-hl-note-delete';
+    deleteBtn.innerHTML = '×';
+    deleteBtn.title = 'Delete note';
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (confirm('Delete this note?')) {
+        deleteNote(note.id);
+      }
+    });
+
+    controls.appendChild(colorBtn);
+    controls.appendChild(collapseBtn);
+    controls.appendChild(hideBtn);
+    controls.appendChild(deleteBtn);
+
+    header.appendChild(titleInput);
+    header.appendChild(controls);
+
+    // Color picker (hidden by default)
     const colorPicker = document.createElement('div');
     colorPicker.className = 'exl-hl-note-colors';
+    colorPicker.style.display = 'none';
     
     NOTE_COLORS.forEach(color => {
       const chip = document.createElement('div');
@@ -314,39 +966,185 @@ const StickyNotes = (function() {
       }
       chip.addEventListener('click', () => {
         updateNoteColor(note.id, color.id);
+        colorPicker.style.display = 'none';
       });
       colorPicker.appendChild(chip);
     });
 
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'exl-hl-note-delete';
-    deleteBtn.innerHTML = '×';
-    deleteBtn.title = 'Delete note';
-    deleteBtn.addEventListener('click', () => {
-      if (confirm('Delete this note?')) {
-        deleteNote(note.id);
-      }
+    // Note body
+    const body = document.createElement('div');
+    body.className = 'exl-hl-note-body';
+    body.style.display = note.isCollapsed ? 'none' : 'block';
+
+    // Formatting toolbar
+    const toolbar = document.createElement('div');
+    toolbar.className = 'exl-hl-note-toolbar';
+
+    const toolbarButtons = [
+      { command: 'bold', icon: 'B', title: 'Bold' },
+      { command: 'italic', icon: 'I', title: 'Italic' },
+      { command: 'underline', icon: 'U', title: 'Underline' },
+      { command: 'insertUnorderedList', icon: '•', title: 'Bullet List' },
+      { command: 'createLink', icon: '🔗', title: 'Insert Link' },
+      { command: 'removeFormat', icon: '🚫', title: 'Remove Format' }
+    ];
+
+    toolbarButtons.forEach(({ command, icon, title }) => {
+      const btn = document.createElement('button');
+      btn.className = 'exl-hl-note-toolbar-btn';
+      btn.innerHTML = icon;
+      btn.title = title;
+      btn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        if (command === 'createLink') {
+          const url = prompt('Enter URL:');
+          if (url) {
+            document.execCommand(command, false, url);
+          }
+        } else {
+          document.execCommand(command, false, null);
+        }
+        
+        // Update note content
+        const editor = noteEl.querySelector('.exl-hl-note-editor');
+        if (editor) {
+          updateNote(note.id, editor.innerHTML, editor.textContent);
+        }
+      });
+      toolbar.appendChild(btn);
     });
 
-    header.appendChild(colorPicker);
-    header.appendChild(deleteBtn);
+    // ContentEditable editor
+    const editor = document.createElement('div');
+    editor.className = 'exl-hl-note-editor';
+    editor.contentEditable = 'true';
+    editor.setAttribute('data-placeholder', 'Type your note here...');
+    
+    // Set content (prefer HTML, fallback to plain text)
+    if (note.html) {
+      editor.innerHTML = sanitizeHTML(note.html);
+    } else if (note.content) {
+      editor.textContent = note.content;
+    }
 
-    // Textarea
-    const textarea = document.createElement('textarea');
-    textarea.className = 'exl-hl-note-textarea';
-    textarea.placeholder = 'Type your note here...';
-    textarea.value = note.content || '';
-    textarea.addEventListener('input', (e) => {
-      updateNote(note.id, e.target.value);
+    // Handle content changes
+    editor.addEventListener('input', () => {
+      updateNote(note.id, editor.innerHTML, editor.textContent);
     });
+
+    // Handle image paste
+    editor.addEventListener('paste', (e) => {
+      handlePaste(e, note.id, editor);
+    });
+
+    body.appendChild(toolbar);
+    body.appendChild(editor);
+
+    // Resize handle
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'exl-hl-note-resize-handle';
+    resizeHandle.addEventListener('mousedown', (e) => startResize(e, note.id));
 
     noteEl.appendChild(header);
-    noteEl.appendChild(textarea);
+    noteEl.appendChild(colorPicker);
+    noteEl.appendChild(body);
+    noteEl.appendChild(resizeHandle);
 
-    // Setup dragging
+    // Setup dragging (on header only)
     header.addEventListener('mousedown', startDrag);
 
     document.body.appendChild(noteEl);
+
+    // Setup lazy loading for images
+    if (lazyLoadObserver) {
+      const images = editor.querySelectorAll('img[data-src]');
+      images.forEach(img => {
+        img.classList.add('exl-lazy-img');
+        lazyLoadObserver.observe(img);
+      });
+    }
+  }
+
+  /**
+   * Toggle color picker visibility
+   * @param {string} noteId - Note ID
+   */
+  function toggleColorPicker(noteId) {
+    const noteEl = document.querySelector(`[data-note-id="${noteId}"]`);
+    if (!noteEl) return;
+
+    const colorPicker = noteEl.querySelector('.exl-hl-note-colors');
+    if (colorPicker) {
+      colorPicker.style.display = colorPicker.style.display === 'none' ? 'flex' : 'none';
+    }
+  }
+
+  /**
+   * Handle paste event (support image paste)
+   * @param {ClipboardEvent} e - Paste event
+   * @param {string} noteId - Note ID
+   * @param {HTMLElement} editor - Editor element
+   */
+  async function handlePaste(e, noteId, editor) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of items) {
+      if (item.type.indexOf('image') !== -1) {
+        e.preventDefault();
+        
+        const blob = item.getAsFile();
+        if (!blob) continue;
+
+        try {
+          // Convert to base64
+          const reader = new FileReader();
+          reader.onload = function(event) {
+            const base64 = event.target.result;
+            
+            // Create image element with lazy loading
+            const img = document.createElement('img');
+            img.dataset.src = base64;
+            img.alt = 'Pasted image';
+            img.classList.add('exl-lazy-img');
+            img.style.maxWidth = '100%';
+            
+            // Insert into editor
+            const selection = window.getSelection();
+            if (selection.rangeCount > 0) {
+              const range = selection.getRangeAt(0);
+              range.deleteContents();
+              range.insertNode(img);
+              
+              // Move cursor after image
+              range.setStartAfter(img);
+              range.setEndAfter(img);
+              selection.removeAllRanges();
+              selection.addRange(range);
+            } else {
+              editor.appendChild(img);
+            }
+
+            // Setup lazy loading
+            if (lazyLoadObserver) {
+              lazyLoadObserver.observe(img);
+            }
+
+            // Update note content
+            updateNote(noteId, editor.innerHTML, editor.textContent);
+          };
+          reader.readAsDataURL(blob);
+          
+        } catch (error) {
+          console.error('[StickyNotes] Image paste failed:', error);
+          showWarningToast('Failed to paste image');
+        }
+        
+        break; // Handle only first image
+      }
+    }
   }
 
   /**
@@ -421,6 +1219,68 @@ const StickyNotes = (function() {
   }
 
   /**
+   * Start resizing a note
+   * @param {MouseEvent} e - Mouse event
+   * @param {string} noteId - Note ID
+   */
+  function startResize(e, noteId) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const noteEl = document.querySelector(`[data-note-id="${noteId}"]`);
+    if (!noteEl) return;
+
+    resizingNote = noteEl;
+    const rect = noteEl.getBoundingClientRect();
+    
+    resizeStart = {
+      width: rect.width,
+      height: rect.height,
+      x: e.clientX,
+      y: e.clientY
+    };
+
+    document.addEventListener('mousemove', resize);
+    document.addEventListener('mouseup', stopResize);
+  }
+
+  /**
+   * Resize note
+   * @param {MouseEvent} e - Mouse event
+   */
+  function resize(e) {
+    if (!resizingNote) return;
+
+    const deltaX = e.clientX - resizeStart.x;
+    const deltaY = e.clientY - resizeStart.y;
+
+    const newWidth = Math.max(200, resizeStart.width + deltaX); // Min 200px
+    const newHeight = Math.max(150, resizeStart.height + deltaY); // Min 150px
+
+    resizingNote.style.width = newWidth + 'px';
+    resizingNote.style.height = newHeight + 'px';
+  }
+
+  /**
+   * Stop resizing note
+   */
+  function stopResize() {
+    if (!resizingNote) return;
+
+    const noteId = resizingNote.dataset.noteId;
+    const width = parseInt(resizingNote.style.width);
+    const height = parseInt(resizingNote.style.height);
+
+    updateNoteSize(noteId, width, height);
+
+    resizingNote = null;
+    resizeStart = null;
+
+    document.removeEventListener('mousemove', resize);
+    document.removeEventListener('mouseup', stopResize);
+  }
+
+  /**
    * Get all notes data (for export)
    */
   function getAllNotes() {
@@ -441,19 +1301,34 @@ const StickyNotes = (function() {
   }
 
   /**
-   * Cleanup
+   * Cleanup (Enhanced)
    */
   function cleanup() {
     document.querySelectorAll('.exl-hl-note').forEach(note => note.remove());
     notes = {};
     draggedNote = null;
+    resizingNote = null;
     highestZIndex = 999998;
     isInitialized = false;
+    visibleNoteIds.clear();
+    
+    // Disconnect observers
+    if (lazyLoadObserver) {
+      lazyLoadObserver.disconnect();
+      lazyLoadObserver = null;
+    }
+    
+    // Close broadcast channel
+    if (broadcastChannel) {
+      broadcastChannel.close();
+      broadcastChannel = null;
+    }
+    
     console.log('[StickyNotes] Cleaned up');
   }
 
   /**
-   * Switch to a different layer
+   * Switch to a different layer (Enhanced)
    * Clears current notes from DOM and loads the new layer's notes
    */
   async function switchLayer() {
@@ -462,20 +1337,30 @@ const StickyNotes = (function() {
     // Clear all note elements from DOM
     document.querySelectorAll('.exl-hl-note').forEach(note => note.remove());
     
-    // Reset drag state
+    // Reset state
     draggedNote = null;
+    resizingNote = null;
+    visibleNoteIds.clear();
     
     // Load notes for new layer
     await loadNotes();
     
-    // Render new layer's notes
-    renderNotes();
+    // Check if virtual scrolling should be enabled
+    const noteCount = Object.keys(notes).length;
+    virtualScrollEnabled = noteCount > VIRTUAL_SCROLL_THRESHOLD;
     
-    console.log('[StickyNotes] Layer switched, loaded', Object.keys(notes).length, 'notes');
+    if (virtualScrollEnabled) {
+      console.log('[StickyNotes] Virtual scrolling enabled for', noteCount, 'notes');
+      setupVirtualScrolling();
+    } else {
+      renderNotes();
+    }
+    
+    console.log('[StickyNotes] Layer switched, loaded', noteCount, 'notes');
   }
 
   /**
-   * Reload notes for new URL (called when URL changes in SPA)
+   * Reload notes for new URL (Enhanced - called when URL changes in SPA)
    * Clears existing notes from DOM and loads notes for new URL
    */
   async function reloadForNewUrl() {
@@ -484,8 +1369,10 @@ const StickyNotes = (function() {
     // Clear all note elements from DOM
     document.querySelectorAll('.exl-hl-note').forEach(note => note.remove());
     
-    // Reset drag state
+    // Reset state
     draggedNote = null;
+    resizingNote = null;
+    visibleNoteIds.clear();
     
     // Clear current notes object
     notes = {};
@@ -499,10 +1386,18 @@ const StickyNotes = (function() {
     // Load notes for new URL
     await loadNotes();
     
-    // Render notes
-    renderNotes();
+    // Check if virtual scrolling should be enabled
+    const noteCount = Object.keys(notes).length;
+    virtualScrollEnabled = noteCount > VIRTUAL_SCROLL_THRESHOLD;
     
-    console.log('[StickyNotes] Reloaded', Object.keys(notes).length, 'notes for new URL');
+    if (virtualScrollEnabled) {
+      console.log('[StickyNotes] Virtual scrolling enabled for', noteCount, 'notes');
+      setupVirtualScrolling();
+    } else {
+      renderNotes();
+    }
+    
+    console.log('[StickyNotes] Reloaded', noteCount, 'notes for new URL');
   }
 
   return {
