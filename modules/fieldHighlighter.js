@@ -151,11 +151,69 @@ const FieldHighlighter = {
     }
   },
 
+  // Cache for last known field values to avoid unnecessary re-highlighting
+  lastFieldValues: {},
+
+  /**
+   * Checks if field values have changed since last highlight
+   * @param {Object} fieldSelector - Field selector object
+   * @returns {boolean} True if field value changed or field wasn't previously cached
+   */
+  hasFieldValueChanged(fieldSelector) {
+    const input = document.querySelector(fieldSelector.input);
+    if (!input) {
+      // Field not found - remove from cache if it was there
+      if (this.lastFieldValues[fieldSelector.container]) {
+        delete this.lastFieldValues[fieldSelector.container];
+        return true; // Field disappeared, might need to remove highlight
+      }
+      return false; // Field still not found, no change
+    }
+
+    const currentValue = input.textContent.trim();
+    const lastValue = this.lastFieldValues[fieldSelector.container];
+
+    if (currentValue !== lastValue) {
+      // Value changed - update cache
+      this.lastFieldValues[fieldSelector.container] = currentValue;
+      return true;
+    }
+
+    return false; // No change
+  },
+
   /**
    * Highlights all configured fields
+   * Only re-highlights if field values have changed
    */
-  highlightAllFields() {
-    console.log('[FieldHighlighter] highlightAllFields() called');
+  highlightAllFields(force = false) {
+    if (!force) {
+      // Check if any field values have changed
+      let hasChanges = false;
+      const allFields = [
+        this.fieldSelectors.category,
+        this.fieldSelectors.subCategory,
+        this.fieldSelectors.description,
+        this.fieldSelectors.status,
+        this.fieldSelectors.rootCause,
+        this.fieldSelectors.primaryJira,
+        this.fieldSelectors.jiraStatus
+      ];
+
+      for (const field of allFields) {
+        if (this.hasFieldValueChanged(field)) {
+          hasChanges = true;
+          break; // At least one field changed, need to re-highlight
+        }
+      }
+
+      if (!hasChanges && Object.keys(this.lastFieldValues).length > 0) {
+        // No changes detected and we have cached values - skip highlighting
+        return;
+      }
+    }
+
+    console.log('[FieldHighlighter] highlightAllFields() called', force ? '(forced)' : '');
     
     // Highlight main fields
     this.highlightField(this.fieldSelectors.category);
@@ -167,6 +225,31 @@ const FieldHighlighter = {
     this.highlightField(this.fieldSelectors.rootCause);
     this.highlightField(this.fieldSelectors.primaryJira);
     this.highlightField(this.fieldSelectors.jiraStatus);
+
+    // Update cache after highlighting
+    this.updateFieldValueCache();
+  },
+
+  /**
+   * Updates the cache of field values
+   */
+  updateFieldValueCache() {
+    const allFields = [
+      this.fieldSelectors.category,
+      this.fieldSelectors.subCategory,
+      this.fieldSelectors.description,
+      this.fieldSelectors.status,
+      this.fieldSelectors.rootCause,
+      this.fieldSelectors.primaryJira,
+      this.fieldSelectors.jiraStatus
+    ];
+
+    for (const field of allFields) {
+      const input = document.querySelector(field.input);
+      if (input) {
+        this.lastFieldValues[field.container] = input.textContent.trim();
+      }
+    }
   },
 
   /**
@@ -186,8 +269,11 @@ const FieldHighlighter = {
    * Initializes field highlighting with observer
    */
   init() {
-    // Initial highlight
-    this.highlightAllFields();
+    // Clear field value cache
+    this.lastFieldValues = {};
+    
+    // Initial highlight (force to ensure cache is populated)
+    this.highlightAllFields(true);
 
     // Debounced highlight function
     let debounceTimer = null;
@@ -201,17 +287,52 @@ const FieldHighlighter = {
     };
 
     // Observer for dynamic content changes
-    this.observer = new MutationObserver(debouncedHighlight);
+    // Only observe changes to specific field containers, not the entire document
+    // This prevents unnecessary highlighting when unrelated DOM changes occur
+    this.observer = new MutationObserver((mutations) => {
+      // Check if mutations are relevant to our fields
+      const relevantMutation = mutations.some(mutation => {
+        // Check if mutation is within a field container
+        for (const selector of Object.values(this.fieldSelectors)) {
+          const container = document.querySelector(selector.container);
+          if (container && (container.contains(mutation.target) || mutation.target.contains(container))) {
+            return true;
+          }
+        }
+        // Check if mutation added/removed a field container
+        for (const addedNode of mutation.addedNodes) {
+          if (addedNode.nodeType === Node.ELEMENT_NODE) {
+            for (const selector of Object.values(this.fieldSelectors)) {
+              if (addedNode.matches && addedNode.matches(selector.container)) {
+                return true;
+              }
+              if (addedNode.querySelector && addedNode.querySelector(selector.container)) {
+                return true;
+              }
+            }
+          }
+        }
+        return false;
+      });
 
+      if (relevantMutation) {
+        debouncedHighlight();
+      }
+    });
+
+    // Observe the document body but filter mutations
+    // Also watch for the field containers themselves
     this.observer.observe(document.body, {
       childList: true,
-      subtree: true
+      subtree: true,
+      attributes: false, // Don't watch attribute changes (too noisy)
+      characterData: false // Don't watch text changes (too noisy)
     });
 
     // Store debounce timer for cleanup
     this.debounceTimer = debounceTimer;
 
-    console.log('[FieldHighlighter] Initialized with debouncing');
+    console.log('[FieldHighlighter] Initialized with filtered mutation observer');
   },
 
   /**
@@ -229,6 +350,10 @@ const FieldHighlighter = {
     }
 
     this.removeAllHighlights();
+    
+    // Clear field value cache
+    this.lastFieldValues = {};
+    
     console.log('[FieldHighlighter] Cleaned up');
   }
 };

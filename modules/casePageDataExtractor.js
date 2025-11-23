@@ -126,9 +126,31 @@ const CasePageDataExtractor = {
           // Clear extracted data if validation failed
           this.lastExtractedData = null;
           
-          // Retry validation after a delay if case IDs matched (title might update later)
+          // Check if validation failed due to case number mismatch (stale data)
+          const isCaseNumberMismatch = validation.currentContext && 
+                                      data.caseId === validation.currentContext.caseId &&
+                                      data.caseNumber && 
+                                      validation.currentContext.caseNumber &&
+                                      data.caseNumber !== validation.currentContext.caseNumber;
+          
+          if (isCaseNumberMismatch) {
+            // Case IDs match but case numbers don't - data is stale
+            // Current page shows a different case number which is authoritative
+            console.warn(`[CasePageDataExtractor] Extracted data is stale: data shows case ${data.caseNumber}, but current page shows case ${validation.currentContext.caseNumber}`);
+            console.warn(`[CasePageDataExtractor] Clearing extraction state to allow fresh re-extraction`);
+            
+            // Clear extraction state immediately to allow fresh extraction
+            this.isExtracting = false;
+            this.currentExtractionToken = null;
+            
+            // Don't retry - the data is definitively stale
+            // Navigation or next page change will trigger fresh extraction
+            return;
+          }
+          
+          // Other validation failures - might be timing issues, retry once
           if (validation.currentContext && data.caseId === validation.currentContext.caseId) {
-            console.log('[CasePageDataExtractor] Case IDs match but case numbers don\'t. Retrying validation after delay...');
+            console.log('[CasePageDataExtractor] Validation failed but case IDs match. Retrying validation after delay...');
             
             // Clear any existing retry timeout
             if (this.retryTimeoutId) {
@@ -146,6 +168,8 @@ const CasePageDataExtractor = {
                 if (currentCaseId !== retryCaseId) {
                   console.log('[CasePageDataExtractor] Case changed during retry, aborting');
                   this.retryTimeoutId = null;
+                  this.isExtracting = false;
+                  this.currentExtractionToken = null;
                   return;
                 }
                 
@@ -155,12 +179,11 @@ const CasePageDataExtractor = {
                 
                 if (retryResult.valid) {
                   console.log('[CasePageDataExtractor] Retry validation succeeded');
-                  // Update data with validated identifiers
+                  // Update data with validated identifiers from current context
                   if (retryResult.currentContext) {
                     data.caseId = retryResult.currentContext.caseId;
-                    if (retryResult.currentContext.caseNumber && !data.caseNumber) {
-                      data.caseNumber = retryResult.currentContext.caseNumber;
-                    }
+                    // Always use current context's case number (authoritative)
+                    data.caseNumber = retryResult.currentContext.caseNumber;
                   }
                   this.lastExtractedData = data;
                   if (typeof CaseDataStore !== 'undefined') {
@@ -169,13 +192,22 @@ const CasePageDataExtractor = {
                   await this.dispatchDataExtractedEvent(data);
                 } else {
                   console.warn(`[CasePageDataExtractor] Retry validation also failed: ${retryResult.reason}`);
+                  // Clear extraction state to allow fresh extraction
+                  this.isExtracting = false;
+                  this.currentExtractionToken = null;
                 }
               } catch (error) {
                 console.error('[CasePageDataExtractor] Error during retry validation:', error);
+                this.isExtracting = false;
+                this.currentExtractionToken = null;
               } finally {
                 this.retryTimeoutId = null;
               }
             }, 500);
+          } else {
+            // Case ID mismatch - clear extraction state
+            this.isExtracting = false;
+            this.currentExtractionToken = null;
           }
           return;
         }
