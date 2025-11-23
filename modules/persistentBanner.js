@@ -24,6 +24,12 @@ const PersistentBanner = {
     displayedCaseNumber: null,
     validationInterval: null,
     
+    // Polling state for incremental data updates
+    dataPollingInterval: null,
+    pollingStartTime: null,
+    maxPollingDuration: 10000, // Stop polling after 10 seconds
+    pollingIntervalMs: 500, // Poll every 500ms
+    
     // Message rotation state
     messageRotationInterval: null,
     currentMessageIndex: 0,
@@ -1901,7 +1907,9 @@ const PersistentBanner = {
         // Register listener for cleanup tracking
         this.storageChangeListener = handleStorageChange;
         chrome.storage.onChanged.addListener(this.storageChangeListener);
-        this.registerListener(chrome.storage.onChanged, this.storageChangeListener);
+        // Note: Chrome API listeners are tracked in this.storageChangeListener 
+        // and cleaned up in cleanup() method - they don't use registerListener()
+        // which is for DOM element listeners only
         
         console.log('[PersistentBanner] Storage change listener registered for cross-tab sync');
     },
@@ -2018,6 +2026,180 @@ const PersistentBanner = {
             clearInterval(this.validationInterval);
             this.validationInterval = null;
             console.log('[PersistentBanner] Periodic validation stopped');
+        }
+    },
+
+    /**
+     * Start polling CaseDataStore for incremental data updates
+     * Polls every 500ms until all primary metadata is captured or timeout reached
+     */
+    startDataPolling() {
+        // Don't start if already polling
+        if (this.dataPollingInterval) {
+            return;
+        }
+
+        // Validate we're on a case page
+        const currentContext = typeof CaseContextWatcher !== 'undefined' ? CaseContextWatcher.getCurrentContext?.() : null;
+        if (!currentContext || !currentContext.caseId || currentContext.caseId !== this.currentCaseId) {
+            console.log('[PersistentBanner] Not starting polling - not on valid case page');
+            return;
+        }
+
+        console.log('[PersistentBanner] Starting data polling for incremental updates');
+        this.pollingStartTime = Date.now();
+
+        this.dataPollingInterval = this.registerTimer(setInterval(() => {
+            // Check if we've exceeded max polling duration
+            const elapsed = Date.now() - this.pollingStartTime;
+            if (elapsed >= this.maxPollingDuration) {
+                console.log('[PersistentBanner] Polling timeout reached, stopping');
+                this.stopDataPolling();
+                return;
+            }
+
+            // Validate we're still on the same case
+            const context = typeof CaseContextWatcher !== 'undefined' ? CaseContextWatcher.getCurrentContext?.() : null;
+            if (!context || !context.caseId || context.caseId !== this.currentCaseId) {
+                console.log('[PersistentBanner] Case context changed during polling, stopping');
+                this.stopDataPolling();
+                return;
+            }
+
+            // Check if all primary metadata is captured
+            const hasAllPrimaryMetadata = this.currentPage.caseNumber && 
+                                         this.currentPage.subject && 
+                                         this.currentPage.status;
+            if (hasAllPrimaryMetadata) {
+                console.log('[PersistentBanner] All primary metadata captured, stopping polling');
+                this.stopDataPolling();
+                return;
+            }
+
+            // Poll CaseDataStore for latest data
+            if (typeof CaseDataStore !== 'undefined') {
+                const latestData = CaseDataStore.getCurrentData();
+                if (latestData) {
+                    // Validate data matches current context
+                    if (latestData.caseId === this.currentCaseId && 
+                        (!context.caseNumber || latestData.caseNumber === context.caseNumber)) {
+                        // Update with latest data (only fields that are explicitly present)
+                        this.applyDataUpdate(latestData, 'polling');
+                    } else {
+                        console.warn('[PersistentBanner] Polled data does not match current context, stopping polling');
+                        this.stopDataPolling();
+                    }
+                }
+            }
+        }, this.pollingIntervalMs));
+
+        console.log('[PersistentBanner] Data polling started');
+    },
+
+    /**
+     * Stop polling for data updates
+     */
+    stopDataPolling() {
+        if (this.dataPollingInterval) {
+            clearInterval(this.dataPollingInterval);
+            this.dataPollingInterval = null;
+            this.pollingStartTime = null;
+            console.log('[PersistentBanner] Data polling stopped');
+        }
+    },
+
+    /**
+     * Apply data update from store (only updates fields that are explicitly present)
+     * This method is used by both event-driven updates and polling
+     * @param {Object} data - Data from CaseDataStore
+     * @param {string} source - Source of the update ('store', 'polling', etc.)
+     */
+    applyDataUpdate(data, source = 'unknown') {
+        if (!data || !data.caseId) {
+            return;
+        }
+
+        // Validate data matches current context
+        const currentContext = typeof CaseContextWatcher !== 'undefined' ? CaseContextWatcher.getCurrentContext?.() : null;
+        if (currentContext && currentContext.caseId && data.caseId !== currentContext.caseId) {
+            console.warn('[PersistentBanner] Ignoring data update for different case', {
+                dataCaseId: data.caseId,
+                contextCaseId: currentContext.caseId,
+                source
+            });
+            return;
+        }
+
+        // Only update fields that are explicitly present in the new data (no fallback to stale values)
+        let hasChanges = false;
+
+        if (data.caseId) {
+            this.displayedCaseId = data.caseId;
+        }
+        if (data.caseNumber && data.caseNumber !== this.currentPage.caseNumber) {
+            this.displayedCaseNumber = data.caseNumber;
+            this.currentPage.caseNumber = data.caseNumber;
+            hasChanges = true;
+        }
+        if (data.subject !== undefined && data.subject !== null && data.subject !== this.currentPage.subject) {
+            this.currentPage.subject = data.subject;
+            hasChanges = true;
+        }
+        if (data.status !== undefined && data.status !== null && data.status !== this.currentPage.status) {
+            this.currentPage.status = data.status;
+            hasChanges = true;
+        }
+        if (data.subStatus !== undefined && data.subStatus !== null && data.subStatus !== this.currentPage.subStatus) {
+            this.currentPage.subStatus = data.subStatus;
+            hasChanges = true;
+        }
+
+        // Update customer metadata only if explicitly present
+        if (data.custID !== undefined || data.customerId !== undefined) {
+            const newCustId = data.custID || data.customerId || null;
+            if (newCustId !== this.customerMetadata.customerId) {
+                this.customerMetadata.customerId = newCustId;
+                hasChanges = true;
+            }
+        }
+        if (data.instID !== undefined || data.institutionId !== undefined) {
+            const newInstId = data.instID || data.institutionId || null;
+            if (newInstId !== this.customerMetadata.institutionId) {
+                this.customerMetadata.institutionId = newInstId;
+                hasChanges = true;
+            }
+        }
+        if (data.server !== undefined && data.server !== this.customerMetadata.server) {
+            this.customerMetadata.server = data.server || null;
+            hasChanges = true;
+        }
+        if (data.productServiceName !== undefined && data.productServiceName !== this.customerMetadata.productServiceName) {
+            this.customerMetadata.productServiceName = data.productServiceName || null;
+            hasChanges = true;
+        }
+        if (data.institutionCode !== undefined || data.exLibrisAccountNumber !== undefined) {
+            const newInstCode = data.institutionCode || data.exLibrisAccountNumber || null;
+            if (newInstCode !== this.customerMetadata.institutionCode) {
+                this.customerMetadata.institutionCode = newInstCode;
+                hasChanges = true;
+            }
+        }
+
+        // Update page type
+        if (!this.currentPage.type || this.currentPage.type !== 'case_page') {
+            this.currentPage.type = 'case_page';
+            this.currentPage.displayType = this.getPageTypeDisplayName('case_page');
+            hasChanges = true;
+        }
+
+        // Only update UI if there were actual changes
+        if (hasChanges) {
+            console.log(`[PersistentBanner] Applied data update from ${source}:`, {
+                caseNumber: this.currentPage.caseNumber,
+                subject: this.currentPage.subject,
+                status: this.currentPage.status
+            });
+            this.updateBannerUI();
         }
     },
 
@@ -2520,7 +2702,13 @@ const PersistentBanner = {
      * Trigger manual case data extraction as fallback
      */
     triggerManualExtraction() {
-        const caseId = this.getCaseIdFromUrl();
+        const caseId = this.getCaseIdFromUrl(); // I do not believe you "this"
+        // Case Page (Details, Communication, or Files Tab)
+        const urlNow = window.location.href;
+        const casePageMatchForExtraction = urlNow.match(/\/lightning\/r\/Case\/([^\/]+)\/view(?:\?|$)/);
+        if (casePageMatchForExtraction) {
+            caseId = casePageMatchForExtraction[1];
+            
         if (caseId && typeof CasePageDataExtractor !== 'undefined' && typeof CasePageDataExtractor.extractNow === 'function') {
             console.log('[PersistentBanner] Triggering manual extraction for case:', caseId);
             CasePageDataExtractor.extractNow(caseId);
@@ -2624,6 +2812,7 @@ const PersistentBanner = {
     handleContextUpdate(context) {
         if (!context || !context.caseId) {
             console.log('[PersistentBanner] Context indicates non-case page, clearing state');
+            this.stopDataPolling();
             this.clearCaseData();
             this.currentPage = {
                 type: 'Unknown',
@@ -2639,15 +2828,40 @@ const PersistentBanner = {
         }
 
         const caseChanged = context.caseId !== this.currentCaseId;
+        const caseNumberChanged = context.caseNumber && 
+                                  this.displayedCaseNumber && 
+                                  context.caseNumber !== this.displayedCaseNumber;
+        
+        // Case number mismatch is authoritative - clear stale data
+        if (caseNumberChanged) {
+            console.warn('[PersistentBanner] Case number mismatch detected in context change, clearing stale data', {
+                displayedCaseNumber: this.displayedCaseNumber,
+                contextCaseNumber: context.caseNumber
+            });
+            this.stopDataPolling();
+            this.clearCaseData();
+        }
+
         this.currentCaseId = context.caseId;
 
+        // Only update caseNumber if explicitly present in context (no fallback)
         if (context.caseNumber) {
             this.currentPage.caseNumber = context.caseNumber;
         }
 
-        if (caseChanged) {
+        if (caseChanged || caseNumberChanged) {
             console.log(`[PersistentBanner] Case context changed to ${context.caseNumber || 'unknown'} (${context.caseId})`);
+            this.stopDataPolling();
             this.clearCaseData(true);
+            // Start polling for new case data
+            if (context.caseNumber) {
+                // Small delay to allow extractors to start
+                setTimeout(() => {
+                    if (this.currentCaseId === context.caseId) {
+                        this.startDataPolling();
+                    }
+                }, 1000);
+            }
         }
     },
 
@@ -2660,10 +2874,34 @@ const PersistentBanner = {
         if (!data) {
             if (source !== 'immediate') {
                 console.log('[PersistentBanner] CaseDataStore cleared data (source:', source, ')');
+                this.stopDataPolling();
                 this.clearCaseData(true);
                 this.updateBannerUI();
             }
             return;
+        }
+
+        // Validate data against current context before using it
+        const currentContext = typeof CaseContextWatcher !== 'undefined' ? CaseContextWatcher.getCurrentContext?.() : null;
+        if (currentContext && currentContext.caseId) {
+            if (data.caseId !== currentContext.caseId) {
+                console.warn('[PersistentBanner] Ignoring store data for different case context', {
+                    dataCaseId: data.caseId,
+                    contextCaseId: currentContext.caseId
+                });
+                return;
+            }
+            // Case number mismatch is authoritative - clear stale data
+            if (data.caseNumber && currentContext.caseNumber && data.caseNumber !== currentContext.caseNumber) {
+                console.warn('[PersistentBanner] Case number mismatch detected, clearing stale data', {
+                    dataCaseNumber: data.caseNumber,
+                    contextCaseNumber: currentContext.caseNumber
+                });
+                this.stopDataPolling();
+                this.clearCaseData();
+                this.updateBannerUI();
+                return;
+            }
         }
 
         if (data.caseId && this.currentCaseId && data.caseId !== this.currentCaseId) {
@@ -2671,25 +2909,23 @@ const PersistentBanner = {
             return;
         }
 
-        this.displayedCaseId = data.caseId || this.currentCaseId || null;
-        this.displayedCaseNumber = data.caseNumber || this.displayedCaseNumber;
+        // Apply data update (only updates fields that are explicitly present)
+        this.applyDataUpdate(data, source);
 
-        this.currentPage.caseNumber = data.caseNumber || this.currentPage.caseNumber;
-        this.currentPage.subject = data.subject || this.currentPage.subject;
-        this.currentPage.status = data.status || this.currentPage.status;
-        this.currentPage.subStatus = data.subStatus || this.currentPage.subStatus;
-        this.currentPage.type = 'case_page';
-        this.currentPage.displayType = this.getPageTypeDisplayName('case_page');
-
-        this.customerMetadata = {
-            customerId: data.custID || data.customerId || null,
-            institutionId: data.instID || data.institutionId || null,
-            server: data.server || this.customerMetadata.server,
-            productServiceName: data.productServiceName || this.customerMetadata.productServiceName,
-            institutionCode: data.institutionCode || data.exLibrisAccountNumber || this.customerMetadata.institutionCode
-        };
-
-        this.updateBannerUI();
+        // Start polling if primary metadata (caseNumber) is now available
+        const hasCaseNumber = !!this.currentPage.caseNumber;
+        if (hasCaseNumber && !this.dataPollingInterval) {
+            this.startDataPolling();
+        }
+        
+        // Stop polling if all primary metadata is captured
+        const hasAllPrimaryMetadata = this.currentPage.caseNumber && 
+                                     this.currentPage.subject && 
+                                     this.currentPage.status;
+        if (hasAllPrimaryMetadata && this.dataPollingInterval) {
+            console.log('[PersistentBanner] All primary metadata captured, stopping polling');
+            this.stopDataPolling();
+        }
     },
 
     /**
@@ -2725,6 +2961,9 @@ const PersistentBanner = {
      */
     clearCaseData(preserveContext = false) {
         console.log('[PersistentBanner] Clearing case-specific data');
+        
+        // Stop polling when clearing data
+        this.stopDataPolling();
         
         // Clear current case ID
         if (!preserveContext) {
@@ -2910,7 +3149,6 @@ const PersistentBanner = {
         banner.className = 'exl-persistent-banner';
 
         banner.innerHTML = `
-            <button class="exl-hl-banner-close-btn" title="Hide banner for this session">×</button>
             <div class="exl-banner-container">
                 <div class="exl-banner-section exl-banner-page-info">
                     <div class="exl-banner-label">Current Page</div>
@@ -4566,6 +4804,9 @@ const PersistentBanner = {
         // Restore Salesforce layout adjustments BEFORE removing banner
         // This prevents leaving an unpleasant gap
         this.applySalesforceLayoutAdjustments(false);
+        
+        // Stop polling
+        this.stopDataPolling();
         
         // Clear data reception timeout
         if (this.dataReceptionTimeout) {

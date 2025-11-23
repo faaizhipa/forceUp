@@ -130,9 +130,10 @@ const PageIdentifier = {
       const result = {
         type: this.pageTypes.CASE_PAGE,
         caseId: context?.caseId || caseId, // Use validated case ID from context if available
-        caseNumber: context?.caseNumber || null, // Add case number from context
+        caseNumber: context?.caseNumber || caseNumber, // Add case number from context
         reportId: null,
-        view: view
+        view: view,
+        url: url
       };
       
       // Validate page info before returning
@@ -150,7 +151,7 @@ const PageIdentifier = {
       const result = {
         type: this.pageTypes.CASE_COMMENTS,
         caseId: context?.caseId || caseId,
-        caseNumber: context?.caseNumber || null,
+        caseNumber: context?.caseNumber || caseNumber,
         reportId: null,
         view: 'case_comments'
       };
@@ -364,9 +365,10 @@ const PageIdentifier = {
 
     // Check if page actually changed
     const hasChanges = this._detectPageChanges(newPageInfo);
+    hasChanges = newPageInfo.url ?? (newPageInfo.url !== result._lastPageInfo.url || newPageInfo.url !== window.location.href);
 
     if (!hasChanges) {
-      console.log('PageIdentifier: URL changed but page info unchanged');
+      console.log('PageIdentifier: URL same, page info unchanged');
       return;
     }
 

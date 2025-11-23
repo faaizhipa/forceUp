@@ -68,11 +68,8 @@
             "modules/flexipagePanelInjector.js",
             "content_script_exlibris.js"
          ],
-         "matches": [ "<all_urls>" ],
-         "exclude_matches": [
-            "*://*.force.com/*",
-            "*://*.salesforce.com/*",
-            "*://*.lightning.force.com/*"
+         "matches": [
+            "https://proquestllc.lightning.force.com/*"
          ],
          "run_at": "document_start",
          "css": [ 
@@ -97,9 +94,15 @@
             "content_script_highlighter.js"
          ],
          "matches": [
+            "<all_urls>",
             "https://support.clarivate.com/*",
             "https://knowledge.exlibrisgroup.com/*",
             "https://developers.exlibrisgroup.com/*"
+         ],
+         "exclude_matches": [
+            "*://*.force.com/*",
+            "*://*.salesforce.com/*",
+            "*://*.lightning.force.com/*"
          ],
          "run_at": "document_idle",
          "css": [ "modules/styles/highlighter.css" ]
