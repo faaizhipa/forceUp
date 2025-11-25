@@ -38,6 +38,21 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     border-bottom: 1px solid #0070d2;
     height: 3rem;
     overflow: hidden;
+    pointer-events: none; /* Allow clicks through to page content */
+}
+
+/* Interactive elements receive pointer events */
+#exl-persistent-banner button,
+#exl-persistent-banner a,
+#exl-persistent-banner .exl-popup-menu,
+#exl-persistent-banner .exl-popup-menu *,
+#exl-persistent-banner .exl-banner-btn,
+#exl-persistent-banner .exl-popup-trigger,
+#exl-persistent-banner .exl-popup-menu-item:not(.exl-disabled),
+#exl-persistent-banner .exl-banner-nav-btn,
+#exl-persistent-banner .exl-refresh-emoji,
+#exl-persistent-banner .exl-customer-data-btn {
+    pointer-events: auto; /* Restore pointer events for interactive elements */
 }
 
 .exl-banner-container {
@@ -177,14 +192,28 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 }
 
 .exl-banner-meta-item {
+    display: flex;
+    flex-direction: column;
     font-size: 11px;
     color: #d0d0d0;
     white-space: nowrap;
+    line-height: 1.2;
+    align-items: flex-start;
+}
+
+.exl-meta-label {
+    font-size: 10px;
+    color: #b0b0b0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
 }
 
 .exl-banner-meta-item strong {
     color: #ffffff;
     margin-left: 0px;
+    font-weight: 600;
+    font-size: 11px;
 }
 
 /* Actions section */
@@ -641,19 +670,14 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     color: #ffffff;
 }
 
-/* Action-focused mode */
+/* Action-focused mode - Banner stays at 48px, tool views shown as overlays */
 #exl-persistent-banner.action-focused {
-    height: auto;
-    min-height: 3rem;
-    max-height: 80vh;
-    overflow-y: auto;
+    height: 3rem;
+    overflow: visible;
 }
 
 #exl-persistent-banner.action-focused .exl-banner-container {
-    flex-direction: column;
-    align-items: stretch;
-    padding: 12px;
-    height: auto;
+    height: 3rem;
 }
 
 /* Stale data warning */
@@ -674,14 +698,35 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-/* Tool view */
+/* Tool view - shown as overlay modal */
 .exl-tool-view {
-    display: none;
-    width: 100%;
-    padding: 16px;
-    background-color: rgba(0, 0, 0, 0.3);
-    border-radius: 4px;
-    margin-top: 12px;
+    display: none !important;
+    position: fixed;
+    top: 48px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(4px);
+    z-index: 10000;
+    overflow-y: auto;
+    padding: 20px;
+    pointer-events: auto;
+}
+
+.exl-tool-view[style*="block"] {
+    display: block !important;
+}
+
+.exl-tool-view-content-wrapper {
+    max-width: 900px;
+    margin: 0 auto;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    pointer-events: auto;
 }
 
 .exl-tool-header {
@@ -896,10 +941,14 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 }
 
 .exl-field-edit {
-    display: flex;
+    display: none;
     align-items: center;
     gap: 8px;
     flex: 1;
+}
+
+.exl-field-edit[style*="flex"] {
+    display: flex !important;
 }
 
 .exl-field-input {
@@ -911,6 +960,9 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     color: #ffffff;
     font-size: 12px;
     font-family: inherit;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .exl-field-input:focus {
@@ -970,4 +1022,453 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 
 .exl-save-btn:active {
     background-color: #1e7e34;
+}
+
+/* =================================================================
+   COLOR HANDLER SETTINGS
+   ================================================================= */
+
+/* Color Handler Settings View */
+.exl-color-handler-settings {
+    max-width: 100%;
+    overflow-y: auto;
+    max-height: calc(100vh - 100px);
+}
+
+.exl-color-handler-section {
+    margin-bottom: 24px;
+    padding: 16px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.exl-color-handler-section h4 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 8px;
+}
+
+/* Status Groups */
+.exl-status-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.exl-status-group {
+    padding: 12px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-group-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-group-name {
+    font-weight: 600;
+    color: #ffffff;
+    font-size: 13px;
+    min-width: 120px;
+}
+
+.exl-color-preview-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.exl-color-preview {
+    padding: 6px 12px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 500;
+    min-width: 80px;
+    text-align: center;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.exl-edit-color-btn {
+    background-color: #0070d2;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 4px 8px;
+    font-size: 10px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.exl-edit-color-btn:hover {
+    background-color: #005fb2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-edit-color-btn:active {
+    background-color: #00396b;
+}
+
+.exl-status-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.exl-status-item {
+    padding: 4px 8px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    font-size: 11px;
+    color: #d0d0d0;
+}
+
+/* Anchor Colors */
+.exl-anchor-colors {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.exl-anchor-color-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.exl-anchor-label {
+    font-weight: 500;
+    color: #ffffff;
+    min-width: 150px;
+    font-size: 12px;
+}
+
+/* Case Thresholds */
+.exl-case-thresholds {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.exl-case-threshold-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.exl-threshold-label {
+    font-weight: 500;
+    color: #ffffff;
+    min-width: 180px;
+    font-size: 12px;
+}
+
+.exl-reset-btn {
+    background-color: #dc3545;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.exl-reset-btn:hover {
+    background-color: #c82333;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-reset-btn:active {
+    background-color: #bd2130;
+}
+
+/* =================================================================
+   COLOR PICKER MODAL
+   ================================================================= */
+
+.exl-color-picker-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100000;
+}
+
+.exl-color-picker-modal {
+    background-color: #1e1e1e;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 900px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    color: #e0e0e0;
+}
+
+.exl-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.exl-modal-header h3 {
+    margin: 0;
+    color: #ffffff;
+    font-size: 18px;
+}
+
+.exl-modal-close {
+    background: none;
+    border: none;
+    color: #ffffff;
+    font-size: 28px;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 0.15s ease;
+}
+
+.exl-modal-close:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.exl-modal-content {
+    margin-bottom: 20px;
+}
+
+.exl-color-picker-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.exl-color-picker-main {
+    display: flex;
+    gap: 40px;
+    align-items: flex-start;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+#exl-color-sphere-container {
+    position: relative;
+    width: 300px;
+    height: 300px;
+    user-select: none;
+}
+
+#exl-colorSphere {
+    cursor: pointer;
+    border-radius: 50%;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+    width: 100%;
+    height: 100%;
+}
+
+.exl-color-info-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 200px;
+}
+
+.exl-color-display {
+    width: 150px;
+    height: 150px;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.exl-color-values {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background-color: #2d2d2d;
+    padding: 16px;
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.exl-color-value {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.exl-color-value label {
+    font-size: 12px;
+    color: #b0b0b0;
+    font-weight: 500;
+    min-width: 40px;
+}
+
+.exl-color-value span {
+    font-family: monospace;
+    font-size: 14px;
+    background-color: #3a3a3a;
+    padding: 6px 10px;
+    border-radius: 4px;
+    min-width: 120px;
+    text-align: center;
+    color: #ffffff;
+}
+
+.exl-preset-colors-container {
+    background-color: rgba(0, 0, 0, 0.2);
+    padding: 16px;
+    border-radius: 8px;
+}
+
+.exl-preset-colors-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #ffffff;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.exl-preset-colors {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.exl-preset-color-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.exl-preset-color-swatch {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.15s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.exl-preset-color-swatch:hover {
+    transform: scale(1.1);
+    border-color: rgba(255, 255, 255, 0.5);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.exl-preset-color-swatch.exl-preset-selected {
+    border-color: #0070d2;
+    border-width: 3px;
+    box-shadow: 0 0 0 2px rgba(0, 112, 210, 0.3);
+}
+
+.exl-color-picker-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-btn-cancel,
+.exl-btn-apply {
+    padding: 8px 20px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: none;
+}
+
+.exl-btn-cancel {
+    background-color: #6c757d;
+    color: #ffffff;
+}
+
+.exl-btn-cancel:hover {
+    background-color: #5a6268;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.exl-btn-apply {
+    background-color: #28a745;
+    color: #ffffff;
+}
+
+.exl-btn-apply:hover {
+    background-color: #218838;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* =================================================================
+   STATUS CONTEXT MENU
+   ================================================================= */
+
+.exl-status-context-menu {
+    position: fixed;
+    background-color: #2d2d2d;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    padding: 4px 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    z-index: 100001;
+    min-width: 180px;
+}
+
+.exl-context-menu-item {
+    padding: 8px 16px;
+    color: #e0e0e0;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.exl-context-menu-item:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.exl-context-menu-divider {
+    height: 1px;
+    background-color: rgba(255, 255, 255, 0.1);
+    margin: 4px 0;
+}
+
+/* Status cell highlight */
+.exl-status-cell {
+    cursor: context-menu;
 }

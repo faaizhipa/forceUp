@@ -58,6 +58,8 @@
             "modules/caseDetailExtractor.js",
             "modules/userPreferences.js",
             "modules/configurationWarningBanner.js",
+            "modules/colorHandlerConfig.js",
+            "modules/colorPicker3D.js",
             "modules/persistentBanner.js",
             "modules/implementationStatus.js",
             "content_script_exlibris.js"
@@ -120,7 +122,8 @@
          "resources": [
             "modules/styles/injected-panel.css",
             "icons/*.png",
-            "instTimezones.dsv"
+            "timezones_index.json",
+            "timezones_index.js"
          ],
          "matches": [
             "https://proquestllc.lightning.force.com/*",

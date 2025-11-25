@@ -291,8 +291,8 @@ const StorageQuotaManager = (function() {
 
       // Get settings for retention period
       let retentionDays = DEFAULT_RETENTION_DAYS;
-      if (typeof SettingsManager !== 'undefined') {
-        const settings = await SettingsManager.getSettings();
+      if (typeof SettingsManager !== 'undefined' && typeof SettingsManager.get === 'function') {
+        const settings = SettingsManager.get();
         retentionDays = settings?.screenshots?.retentionDays || DEFAULT_RETENTION_DAYS;
       }
 

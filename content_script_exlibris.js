@@ -113,6 +113,48 @@
         console.warn('[ExLibris Extension] CaseDataStore not loaded');
       }
 
+      // Listen for caseDataMismatch events to trigger re-extraction
+      document.addEventListener('caseDataMismatch', async (event) => {
+        const { reason, dataCaseId, dataCaseNumber, extractedCaseId, extractedCaseNumber } = event.detail;
+        console.warn('[ExLibris Extension] caseDataMismatch event received:', {
+          reason,
+          dataCaseId,
+          dataCaseNumber,
+          extractedCaseId,
+          extractedCaseNumber
+        });
+
+        // Reset extraction state in extractors
+        if (typeof CaseDataExtractor !== 'undefined' && CaseDataExtractor.resetExtractionState) {
+          CaseDataExtractor.resetExtractionState();
+        }
+
+        if (typeof CasePageDataExtractor !== 'undefined' && CasePageDataExtractor.resetExtractionState) {
+          CasePageDataExtractor.resetExtractionState();
+        }
+
+        // Trigger automatic re-extraction
+        if (typeof CasePageDataExtractor !== 'undefined' && CasePageDataExtractor.extractNow) {
+          console.log('[ExLibris Extension] Triggering automatic re-extraction after mismatch');
+          // Small delay to allow state reset
+          setTimeout(async () => {
+            try {
+              await CasePageDataExtractor.extractNow(true); // Force re-extraction
+            } catch (error) {
+              console.error('[ExLibris Extension] Error during re-extraction:', error);
+            }
+          }, 500);
+        } else {
+          // Fallback: dispatch event for modules to handle
+          const reextractionEvent = new CustomEvent('caseDataReextractionRequested', {
+            detail: { reason, extractedCaseId, extractedCaseNumber },
+            bubbles: true,
+            composed: true
+          });
+          document.dispatchEvent(reextractionEvent);
+        }
+      });
+
       // Initialize ContextMenuHandler
       if (typeof ContextMenuHandler !== 'undefined' && 
           SettingsManager.isFeatureEnabled('contextMenu')) {

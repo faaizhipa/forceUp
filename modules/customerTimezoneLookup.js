@@ -1,13 +1,14 @@
 /**
  * CustomerTimezoneLookup
- * Centralized timezone lookup helper that converts instTimezones.dsv
- * into indexed lookup tables and manages local overrides.
+ * Centralized timezone lookup helper that loads pre-built timezone index
+ * from timezones_index.json (generated from timezones_final.csv) and manages local overrides.
  */
 
 const CustomerTimezoneLookup = (function() {
   'use strict';
 
-  const DATA_PATH = 'instTimezones.dsv';
+  const DATA_PATH = 'timezones_index.json';
+  const FALLBACK_JS_PATH = 'timezones_index.js';
   const OVERRIDES_STORAGE_KEY = 'customerTimezoneOverrides';
   const UNKNOWN_STORAGE_KEY = 'customerTimezoneUnknowns';
 
@@ -136,7 +137,7 @@ const CustomerTimezoneLookup = (function() {
     async getStats() {
       await this.init();
       return {
-        totalTimezoneRecords: Object.keys(indexes.byOrgCode || {}).length,
+        totalTimezoneRecords: indexes?.byAccountName?.size || 0,
         overrides: Object.keys(overrides).length,
         unknownCustomers: unknownCustomers.length,
         needsReview: unknownCustomers.length > 0
@@ -174,138 +175,144 @@ const CustomerTimezoneLookup = (function() {
       unknownCustomers = Array.isArray(storedUnknowns) ? storedUnknowns : [];
       console.log(
         '[CustomerTimezoneLookup] Initialized',
-        Object.keys(indexes.byOrgCode || {}).length,
-        'org codes'
+        indexes?.byAccountName?.size || 0,
+        'account names'
       );
     } catch (error) {
       console.error('[CustomerTimezoneLookup] Initialization error:', error);
-      indexes = indexes || { byOrgCode: {}, byCustomerId: {}, byInstitutionId: {} };
+      indexes = indexes || { byAccountName: new Map() };
       overrides = overrides || {};
       unknownCustomers = unknownCustomers || [];
     }
   }
 
   async function loadDataset() {
-    const url = chrome?.runtime?.getURL ? chrome.runtime.getURL(DATA_PATH) : DATA_PATH;
-
+    // Try loading JSON index first
+    const jsonUrl = chrome?.runtime?.getURL ? chrome.runtime.getURL(DATA_PATH) : DATA_PATH;
+    
     try {
-      const response = await fetch(url);
+      const response = await fetch(jsonUrl);
       if (!response.ok) {
         throw new Error(`Failed to load ${DATA_PATH}: ${response.status}`);
       }
-      const text = await response.text();
-      return parseDsv(text);
+      const data = await response.json();
+      return loadIndex(data);
     } catch (error) {
-      console.error('[CustomerTimezoneLookup] Failed to load dataset:', error);
-      return { byOrgCode: {}, byCustomerId: {}, byInstitutionId: {} };
+      console.warn('[CustomerTimezoneLookup] Failed to load JSON index, trying JS fallback:', error);
+      
+      // Fallback to JavaScript file
+      return loadFallbackJS();
     }
   }
 
-  function parseDsv(text) {
-    const lines = text.split(/\r?\n/).filter((line) => line && !line.startsWith('#'));
-    if (lines.length === 0) {
-      return { byOrgCode: {}, byCustomerId: {}, byInstitutionId: {} };
+  async function loadFallbackJS() {
+    try {
+      // Check if already loaded in window
+      if (typeof window !== 'undefined' && window.TimezoneIndexFallback) {
+        const indexMap = window.TimezoneIndexFallback.getTimezoneIndex();
+        console.log('[CustomerTimezoneLookup] Loaded timezone index from JS fallback (already in window)');
+        return { byAccountName: indexMap };
+      }
+
+      const jsUrl = chrome?.runtime?.getURL ? chrome.runtime.getURL(FALLBACK_JS_PATH) : FALLBACK_JS_PATH;
+      
+      // Fetch JS file as text and extract the data
+      const response = await fetch(jsUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to load ${FALLBACK_JS_PATH}: ${response.status}`);
+      }
+      
+      const jsText = await response.text();
+      
+      // Extract the TIMEZONE_INDEX_DATA object from the JS file
+      // The data is in the format: const TIMEZONE_INDEX_DATA = {...};
+      // Use a more robust regex that handles nested objects and large data
+      const dataMatch = jsText.match(/const\s+TIMEZONE_INDEX_DATA\s*=\s*(\{[\s\S]*?\});/);
+      if (!dataMatch || !dataMatch[1]) {
+        throw new Error('Could not extract TIMEZONE_INDEX_DATA from JS file');
+      }
+      
+      // Parse the extracted JSON (it's already valid JSON format)
+      let indexData;
+      try {
+        indexData = JSON.parse(dataMatch[1]);
+      } catch (parseError) {
+        // If JSON.parse fails, try to extract just the object content
+        // This handles cases where the object might have trailing content
+        const objectContent = dataMatch[1].trim();
+        if (objectContent.startsWith('{') && objectContent.endsWith('}')) {
+          indexData = JSON.parse(objectContent);
+        } else {
+          throw new Error(`Failed to parse TIMEZONE_INDEX_DATA: ${parseError.message}`);
+        }
+      }
+      
+      // Convert to Map
+      const byAccountName = new Map(Object.entries(indexData));
+      
+      console.log('[CustomerTimezoneLookup] Loaded timezone index from JS fallback');
+      return { byAccountName };
+    } catch (error) {
+      console.error('[CustomerTimezoneLookup] Failed to load JS fallback:', error);
+      return { byAccountName: new Map() };
     }
-
-    const headerLine = lines.shift();
-    const headers = splitLine(headerLine).map((h) => h.trim());
-    const columnIndex = headers.reduce((acc, header, idx) => {
-      acc[header] = idx;
-      return acc;
-    }, {});
-
-    const byOrgCode = {};
-    const byCustomerId = {};
-    const byInstitutionId = {};
-
-    for (const line of lines) {
-      const parts = splitLine(line);
-      if (!parts.length) continue;
-
-      const row = {
-        dbServer: getPart(parts, columnIndex.DB_SERVER),
-        customerId: getPart(parts, columnIndex.CUSTOMERID),
-        institutionId: getPart(parts, columnIndex.INSTITUTIONID),
-        timezone: getPart(parts, columnIndex.ORG_TIMEZONE),
-        orgCode: getPart(parts, columnIndex.ORG_CODE),
-        orgName: getPart(parts, columnIndex.ORG_NAME)
-      };
-
-      if (!row.orgCode || !row.timezone) {
-        continue;
-      }
-
-      const normalizedOrgCode = normalizeOrgCode(row.orgCode);
-      if (!normalizedOrgCode) continue;
-
-      let record = byOrgCode[normalizedOrgCode];
-      if (!record) {
-        record = {
-          orgCode: normalizedOrgCode,
-          orgName: row.orgName || null,
-          timezone: row.timezone,
-          dbServers: new Set(),
-          customerIds: new Set(),
-          institutionIds: new Set()
-        };
-        byOrgCode[normalizedOrgCode] = record;
-      }
-
-      if (row.dbServer) {
-        record.dbServers.add(row.dbServer.toUpperCase());
-      }
-
-      if (row.customerId) {
-        record.customerIds.add(row.customerId);
-        byCustomerId[row.customerId] = record;
-      }
-
-      if (row.institutionId) {
-        record.institutionIds.add(row.institutionId);
-        byInstitutionId[row.institutionId] = record;
-      }
-    }
-
-    return { byOrgCode, byCustomerId, byInstitutionId };
   }
 
-  function splitLine(line) {
-    if (!line) return [];
-    if (line.includes('\t')) {
-      return line.split('\t').map((part) => part.trim());
+  function loadIndex(data) {
+    try {
+      // Handle both direct index object and wrapped format with meta
+      const indexData = data.index || data;
+      
+      // Convert object to Map for O(1) lookups
+      const byAccountName = new Map(Object.entries(indexData));
+      
+      if (data.meta) {
+        console.log('[CustomerTimezoneLookup] Loaded index:', {
+          version: data.meta.version,
+          recordCount: data.meta.recordCount,
+          buildDate: data.meta.buildDate
+        });
+      }
+      
+      return { byAccountName };
+    } catch (error) {
+      console.error('[CustomerTimezoneLookup] Failed to parse index:', error);
+      return { byAccountName: new Map() };
     }
-    return line.trim().split(/\s{2,}/).map((part) => part.trim());
   }
 
-  function getPart(parts, index) {
-    if (index === undefined || index === -1) return '';
-    return parts[index] || '';
-  }
 
   // ========= LOOKUP HELPERS =========
 
   function lookupDataset(identifiers = {}) {
     const normalized = normalizeIdentifiers(identifiers);
 
-    if (normalized.institutionCode && indexes.byOrgCode[normalized.institutionCode]) {
-      return formatRecord(indexes.byOrgCode[normalized.institutionCode], 'instTimezones', {
-        type: 'institutionCode',
-        value: normalized.institutionCode
-      });
+    // Primary lookup: Account Name (normalized)
+    if (normalized.accountName) {
+      const normalizedAccountName = normalizeOrgCode(normalized.accountName);
+      if (normalizedAccountName && indexes.byAccountName) {
+        const record = indexes.byAccountName.get(normalizedAccountName);
+        if (record) {
+          return formatRecord(record, 'timezones_index', {
+            type: 'accountName',
+            value: normalizedAccountName
+          });
+        }
+      }
     }
 
-    if (normalized.customerId && indexes.byCustomerId[normalized.customerId]) {
-      return formatRecord(indexes.byCustomerId[normalized.customerId], 'instTimezones', {
-        type: 'customerId',
-        value: normalized.customerId
-      });
-    }
-
-    if (normalized.institutionId && indexes.byInstitutionId[normalized.institutionId]) {
-      return formatRecord(indexes.byInstitutionId[normalized.institutionId], 'instTimezones', {
-        type: 'institutionId',
-        value: normalized.institutionId
-      });
+    // Fallback: Try institutionCode/orgCode/accountCode as Account Name
+    if (normalized.institutionCode) {
+      const normalizedAccountName = normalizeOrgCode(normalized.institutionCode);
+      if (normalizedAccountName && indexes.byAccountName) {
+        const record = indexes.byAccountName.get(normalizedAccountName);
+        if (record) {
+          return formatRecord(record, 'timezones_index', {
+            type: 'institutionCode',
+            value: normalizedAccountName
+          });
+        }
+      }
     }
 
     return null;
@@ -354,9 +361,11 @@ const CustomerTimezoneLookup = (function() {
           input.customerCode ||
           null
       ),
-      customerId: normalizeId(input.customerId || input.custID),
-      institutionId: normalizeId(input.institutionId || input.instID),
-      accountName: input.accountName ? String(input.accountName).trim() : null
+      accountName: input.accountName 
+        ? String(input.accountName).trim() 
+        : (input.institutionCode || input.orgCode || input.accountCode || input.customerCode 
+          ? String(input.institutionCode || input.orgCode || input.accountCode || input.customerCode).trim()
+          : null)
     };
   }
 
@@ -365,27 +374,32 @@ const CustomerTimezoneLookup = (function() {
     return String(value).trim().toUpperCase();
   }
 
-  function normalizeId(value) {
-    if (!value) return null;
-    return String(value).trim();
-  }
-
   function formatRecord(record, source, matchMeta) {
     if (!record) return null;
     return {
       timezone: record.timezone,
       source,
-      orgCode: record.orgCode,
-      orgName: record.orgName,
-      dbServers: Array.from(record.dbServers || []),
-      customerIds: Array.from(record.customerIds || []),
-      institutionIds: Array.from(record.institutionIds || []),
+      accountName: record.accountName || null,
+      accountNameInternal: record.accountNameInternal || null,
+      orgCode: normalizeOrgCode(record.accountName), // For backward compatibility
+      orgName: record.accountName || null, // For backward compatibility
+      state: record.state || null,
+      country: record.country || null,
+      region: record.region || null,
+      currency: record.currency || null,
+      dbServers: [], // No longer available in CSV
+      customerIds: [], // No longer available in CSV
+      institutionIds: [], // No longer available in CSV
       matchType: matchMeta?.type || null,
       matchValue: matchMeta?.value || null
     };
   }
 
   function buildOverrideKey(data = {}) {
+    // Prioritize Account Name
+    if (data.accountName) {
+      return normalizeOrgCode(data.accountName);
+    }
     const code =
       data.institutionCode ||
       data.orgCode ||
@@ -393,7 +407,6 @@ const CustomerTimezoneLookup = (function() {
       data.customerCode ||
       null;
     if (code) return normalizeOrgCode(code);
-    if (data.accountName) return data.accountName.trim().toLowerCase();
     return null;
   }
 

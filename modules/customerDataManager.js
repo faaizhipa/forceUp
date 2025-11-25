@@ -765,24 +765,25 @@ const CustomerDataManager = (function() {
       return customer;
     }
 
+    // Use Account Name for lookup (normalized)
+    const accountName = customer.name || customer.accountName || null;
+    const normalizedAccountName = accountName ? accountName.trim().toUpperCase() : null;
+    
+    // Fallback: try institutionCode as Account Name
     const orgCode = customer.institutionCode ? customer.institutionCode.toUpperCase() : null;
-    const customerId = customer.custID || customer.customerId;
-    const instId = customer.instID || customer.institutionId;
 
     let timezoneRecord = null;
-    if (orgCode && timezoneIndexes.byOrgCode[orgCode]) {
-      timezoneRecord = timezoneIndexes.byOrgCode[orgCode];
-    } else if (customerId && timezoneIndexes.byCustomerId[customerId]) {
-      timezoneRecord = timezoneIndexes.byCustomerId[customerId];
-    } else if (instId && timezoneIndexes.byInstitutionId[instId]) {
-      timezoneRecord = timezoneIndexes.byInstitutionId[instId];
+    if (normalizedAccountName && timezoneIndexes.byAccountName) {
+      timezoneRecord = timezoneIndexes.byAccountName.get(normalizedAccountName);
+    } else if (orgCode && timezoneIndexes.byAccountName) {
+      timezoneRecord = timezoneIndexes.byAccountName.get(orgCode);
     }
 
     if (timezoneRecord) {
       customer.timezone = customer.timezone || timezoneRecord.timezone;
-      customer.timezoneOrgName = timezoneRecord.orgName || customer.name || null;
-      customer.timezoneDbServers = Array.from(timezoneRecord.dbServers || []);
-      customer.timezoneSource = customer.timezoneSource || 'instTimezones';
+      customer.timezoneOrgName = timezoneRecord.accountName || customer.name || null;
+      customer.timezoneDbServers = []; // No longer available in CSV
+      customer.timezoneSource = customer.timezoneSource || 'timezones_index';
     }
 
     customer.__timezoneAnnotated = true;
@@ -1010,15 +1011,18 @@ const CustomerDataManager = (function() {
 
       const enriched = { ...identifiers };
 
+      // Prioritize Account Name for lookup
+      if (!enriched.accountName && identifiers.customer) {
+        enriched.accountName = identifiers.customer.name || identifiers.customer.accountName;
+      }
+      
+      // Fallback: use institutionCode as Account Name
       if (!enriched.institutionCode && identifiers.customer) {
         enriched.institutionCode = identifiers.customer.institutionCode;
       }
-      if (!enriched.customerId && identifiers.customer) {
-        enriched.customerId = identifiers.customer.custID || identifiers.customer.customerid;
-      }
-      if (!enriched.instID && identifiers.customer) {
-        enriched.instID = identifiers.customer.instID || identifiers.customer.institutionid;
-      }
+
+      // Remove CUSTOMERID/INSTITUTIONID as they're no longer used
+      // (keeping for backward compatibility but they won't be used in lookup)
 
       return CustomerTimezoneLookup.resolveTimezone(enriched);
     },

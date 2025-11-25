@@ -225,7 +225,7 @@ const FieldHighlighter = {
       }
       debounceTimer = setTimeout(() => {
         this.highlightAllFields();
-      }, 300); // 300ms debounce
+      }, 1500); // 1500ms debounce - reduced frequency to avoid excessive DOM queries
     };
 
     // Observer for dynamic content changes

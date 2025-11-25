@@ -955,119 +955,6 @@ function showSuccess(message) {
 }
 
 /**
- * Load and populate banner activation UI
- */
-async function loadBannerActivationUI() {
-  const domainEl = document.getElementById('current-site-domain');
-  const statusEl = document.getElementById('activation-status');
-  const toggleBtn = document.getElementById('toggle-banner-btn');
-
-  if (!domainEl || !statusEl || !toggleBtn) return;
-
-  try {
-    // Get active tab
-    const tabs = await chrome.tabs.query({ currentWindow: true, active: true });
-    const activeTab = tabs[0];
-
-    if (!activeTab || !activeTab.url) {
-      domainEl.textContent = 'N/A';
-      statusEl.textContent = '●Unavailable';
-      statusEl.className = 'status-badge status-inactive';
-      toggleBtn.disabled = true;
-      return;
-    }
-
-    // Extract domain from URL
-    let domain = '';
-    try {
-      const url = new URL(activeTab.url);
-      domain = url.hostname.replace(/^www\./, '');
-    } catch (error) {
-      domainEl.textContent = 'Invalid URL';
-      statusEl.textContent = '●Error';
-      statusEl.className = 'status-badge status-inactive';
-      toggleBtn.disabled = true;
-      return;
-    }
-
-    // Display domain
-    domainEl.textContent = domain;
-
-    // Check if banner is enabled for this domain
-    const settings = await loadSettings();
-    const activeSites = settings.highlighterNotes?.activeSites || {};
-    const isEnabled = activeSites[domain] !== false; // Undefined = enabled by default
-
-    // Update UI based on status
-    updateBannerActivationUI(isEnabled);
-
-    // Attach toggle button handler
-    toggleBtn.onclick = async () => {
-      const newEnabled = !isEnabled;
-
-      // Update settings
-      if (!settings.highlighterNotes) {
-        settings.highlighterNotes = {};
-      }
-      if (!settings.highlighterNotes.activeSites) {
-        settings.highlighterNotes.activeSites = {};
-      }
-      settings.highlighterNotes.activeSites[domain] = newEnabled;
-
-      // Save settings
-      await saveSettings(settings);
-
-      // Update UI
-      updateBannerActivationUI(newEnabled);
-
-      // Send message to content script
-      chrome.tabs.sendMessage(activeTab.id, {
-        action: 'toggleBanner',
-        enabled: newEnabled
-      }, (response) => {
-        // Optional: handle response
-        if (chrome.runtime.lastError) {
-          console.warn('[Popup] Could not send message to content script:', chrome.runtime.lastError);
-        }
-      });
-
-      // Show feedback
-      showSuccess(newEnabled ? 'Banner activated for this site' : 'Banner deactivated for this site');
-    };
-
-  } catch (error) {
-    console.error('[Popup] Error loading banner activation UI:', error);
-    domainEl.textContent = 'Error';
-    statusEl.textContent = '●Error';
-    statusEl.className = 'status-badge status-inactive';
-    toggleBtn.disabled = true;
-  }
-}
-
-/**
- * Update banner activation UI elements
- * @param {boolean} enabled - Whether banner is enabled
- */
-function updateBannerActivationUI(enabled) {
-  const statusEl = document.getElementById('activation-status');
-  const toggleBtn = document.getElementById('toggle-banner-btn');
-
-  if (!statusEl || !toggleBtn) return;
-
-  if (enabled) {
-    statusEl.textContent = '●Active';
-    statusEl.className = 'status-badge status-active';
-    toggleBtn.textContent = 'Deactivate Banner';
-    toggleBtn.setAttribute('data-enabled', 'true');
-  } else {
-    statusEl.textContent = '●Inactive';
-    statusEl.className = 'status-badge status-inactive';
-    toggleBtn.textContent = 'Activate Banner';
-    toggleBtn.setAttribute('data-enabled', 'false');
-  }
-}
-
-/**
  * Load highlighter banner activation UI
  * Shows current URL dismissal status and allows reactivation
  */
@@ -1181,7 +1068,7 @@ async function loadHighlighterBannerActivationUI() {
           action: 'toggleBanner',
           url: currentUrl,
           show: showBanner
-        }, (response) => {
+        }, async (response) => {
           if (chrome.runtime.lastError) {
             console.warn('[Popup] Could not send message to highlighter content script:', chrome.runtime.lastError);
             // Still update storage even if message fails
@@ -1556,9 +1443,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const settings = await loadSettings();
   populateUI(settings);
   updateStorageInfo();
-  
-  // Load banner activation UI
-  await loadBannerActivationUI();
   
   // Load highlighter banner activation UI
   await loadHighlighterBannerActivationUI();

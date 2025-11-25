@@ -628,9 +628,45 @@ const CasePageDataExtractor = {
         data.custID = customerInfo.custID;
         data.instID = customerInfo.instID;
         data.server = customerInfo.server;
-        console.log('[CaseDataExtractor] Found customer by institution code:', customerInfo.name);
-        console.log('[CaseDataExtractor] Using server from customer record:', customerInfo.server);
-        console.log('[CaseDataExtractor] Applied customer data - custID:', customerInfo.custID, 'instID:', customerInfo.instID, 'server:', customerInfo.server);
+        console.log('[CasePageDataExtractor] Found customer by institution code:', customerInfo.name);
+        console.log('[CasePageDataExtractor] Using server from customer record:', customerInfo.server);
+        console.log('[CasePageDataExtractor] Applied customer data - custID:', customerInfo.custID, 'instID:', customerInfo.instID, 'server:', customerInfo.server);
+      }
+    }
+
+    // Resolve timezone information (CasePageDataExtractor's independent implementation)
+    // Uses ONLY CustomerDataManager.getCustomerTimezone() as the single source of truth
+    // No fallbacks - if CustomerDataManager is unavailable or doesn't resolve, timezone remains null
+    if (data.accountName || data.exLibrisAccountNumber) {
+      try {
+        // Single source of truth: CustomerDataManager.getCustomerTimezone()
+        // This uses CustomerTimezoneLookup which reads from timezones_index.json and user overrides
+        if (typeof CustomerDataManager !== 'undefined' && typeof CustomerDataManager.getCustomerTimezone === 'function') {
+          const timezoneInfo = await CustomerDataManager.getCustomerTimezone({
+            accountName: data.accountName, // Primary lookup key
+            institutionCode: data.exLibrisAccountNumber // Fallback lookup
+            // customerId and instID no longer used for timezone lookup
+          });
+
+          if (timezoneInfo && timezoneInfo.timezone) {
+            data.timezone = timezoneInfo.timezone;
+            data.timezoneDisplayName = timezoneInfo.displayName || timezoneInfo.timezone.replace(/_/g, ' ');
+            data.timezoneSource = timezoneInfo.source || 'customerDataManager';
+            console.log('[CasePageDataExtractor] Timezone resolved via CustomerDataManager:', {
+              timezone: timezoneInfo.timezone,
+              source: timezoneInfo.source
+            });
+          } else {
+            console.log('[CasePageDataExtractor] Timezone not found in CustomerDataManager for:', {
+              institutionCode: data.exLibrisAccountNumber,
+              accountName: data.accountName
+            });
+          }
+        } else {
+          console.warn('[CasePageDataExtractor] CustomerDataManager not available for timezone resolution');
+        }
+      } catch (error) {
+        console.error('[CasePageDataExtractor] Error resolving timezone:', error);
       }
     }
 
@@ -1299,6 +1335,36 @@ const CasePageDataExtractor = {
     this.lastExtractedData = data;
     await this.dispatchDataExtractedEvent(data);
     return data;
+  },
+
+  /**
+   * Reset extraction state - clears cached values and forces fresh extraction
+   */
+  resetExtractionState() {
+    console.log('[CasePageDataExtractor] Resetting extraction state');
+    
+    // Clear cached extraction data
+    this.lastExtractedData = null;
+    
+    // Clear current case ID to force re-detection
+    this.currentCaseId = null;
+    
+    // Clear extraction flags
+    this.isExtracting = false;
+    
+    // Clear extraction queue
+    this.extractionQueue = [];
+    
+    // Clear retry timeout
+    if (this.retryTimeoutId) {
+      clearTimeout(this.retryTimeoutId);
+      this.retryTimeoutId = null;
+    }
+    
+    // Clear extraction token
+    this.currentExtractionToken = null;
+    
+    console.log('[CasePageDataExtractor] Extraction state reset complete');
   }
 };
 

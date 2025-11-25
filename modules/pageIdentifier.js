@@ -365,11 +365,12 @@ const PageIdentifier = {
     callback(initialPageInfo);
 
     // Use NavigationObserver for immediate URL change detection
+    // Register with priority=true to ensure PageIdentifier runs before other callbacks (e.g., PersistentBanner)
     if (typeof NavigationObserver !== 'undefined') {
       NavigationObserver.onRouteChange((url) => {
         console.log('PageIdentifier: Navigation detected to:', url);
         this._handleNavigationChange(callback);
-      });
+      }, true); // Priority callback - runs before regular callbacks
     } else {
       console.warn('PageIdentifier: NavigationObserver not available, using fallback');
       

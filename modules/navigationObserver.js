@@ -6,6 +6,7 @@
 
 const NavigationObserver = {
     callbacks: [],
+    priorityCallbacks: [], // Callbacks that should run first (e.g., PageIdentifier)
     currentUrl: null,
     currentTitle: null,
     currentCaseId: null,
@@ -185,8 +186,26 @@ const NavigationObserver = {
                 caseNumber: this.currentCaseNumber
             };
             
-            console.log(`[EXL] NavigationObserver: Triggering ${this.callbacks.length} callback(s)`);
+            const totalCallbacks = this.priorityCallbacks.length + this.callbacks.length;
+            console.log(`[EXL] NavigationObserver: Triggering ${totalCallbacks} callback(s) (${this.priorityCallbacks.length} priority, ${this.callbacks.length} regular)`);
             
+            // Execute priority callbacks first (e.g., PageIdentifier)
+            this.priorityCallbacks.forEach((cb, index) => {
+                try {
+                    // Support both old signature (url only) and new signature (url, context)
+                    // Create a copy of context for each callback to prevent mutation
+                    if (cb.length === 2) {
+                        const contextCopy = { ...baseContext };
+                        cb(this.currentUrl, contextCopy);
+                    } else {
+                        cb(this.currentUrl);
+                    }
+                } catch (err) {
+                    console.error(`[EXL] NavigationObserver: Priority callback ${index} error:`, err);
+                }
+            });
+            
+            // Then execute regular callbacks
             this.callbacks.forEach((cb, index) => {
                 try {
                     // Support both old signature (url only) and new signature (url, context)
@@ -207,15 +226,27 @@ const NavigationObserver = {
     /**
      * Register callback for route changes
      * @param {Function} callback - Function to call on route change
+     * @param {boolean} priority - If true, callback will be executed before regular callbacks (default: false)
      */
-    onRouteChange(callback) {
+    onRouteChange(callback, priority = false) {
         if (typeof callback !== 'function') {
             console.error('[EXL] NavigationObserver: Callback must be a function');
             return;
         }
 
-        this.callbacks.push(callback);
-        console.log(`[EXL] NavigationObserver: Registered callback (total: ${this.callbacks.length})`);
+        if (priority) {
+            // Check if already registered to avoid duplicates
+            if (this.priorityCallbacks.indexOf(callback) === -1) {
+                this.priorityCallbacks.push(callback);
+                console.log(`[EXL] NavigationObserver: Registered priority callback (total priority: ${this.priorityCallbacks.length}, regular: ${this.callbacks.length})`);
+            }
+        } else {
+            // Check if already registered to avoid duplicates
+            if (this.callbacks.indexOf(callback) === -1) {
+                this.callbacks.push(callback);
+                console.log(`[EXL] NavigationObserver: Registered callback (priority: ${this.priorityCallbacks.length}, total regular: ${this.callbacks.length})`);
+            }
+        }
     },
 
     /**
@@ -223,10 +254,19 @@ const NavigationObserver = {
      * @param {Function} callback - Callback to remove
      */
     offRouteChange(callback) {
+        // Try to remove from priority callbacks first
+        const priorityIndex = this.priorityCallbacks.indexOf(callback);
+        if (priorityIndex !== -1) {
+            this.priorityCallbacks.splice(priorityIndex, 1);
+            console.log(`[EXL] NavigationObserver: Removed priority callback (remaining priority: ${this.priorityCallbacks.length}, regular: ${this.callbacks.length})`);
+            return;
+        }
+        
+        // Try to remove from regular callbacks
         const index = this.callbacks.indexOf(callback);
         if (index !== -1) {
             this.callbacks.splice(index, 1);
-            console.log(`[EXL] NavigationObserver: Removed callback (remaining: ${this.callbacks.length})`);
+            console.log(`[EXL] NavigationObserver: Removed callback (priority: ${this.priorityCallbacks.length}, remaining regular: ${this.callbacks.length})`);
         }
     },
 

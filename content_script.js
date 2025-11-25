@@ -530,15 +530,33 @@ function unhighlightAnchor(anchor) {
 }
 
 // Main function to check and handle anchor elements
-function handleAnchors() {
+async function handleAnchors() {
   const fromFieldDiv = document.getElementsByClassName("standardField uiMenu");
+  
+  // Load color configuration
+  const config = await loadColorConfig();
+  const defaultConfig = (typeof ColorHandlerConfig !== 'undefined') ? ColorHandlerConfig.getDefaultConfig() : null;
+  const anchorConfig = config?.handleAnchor || (defaultConfig ? defaultConfig.handleAnchor : null);
+  
+  // Default colors as fallback
+  const clarivateColor = anchorConfig?.clarivateEmail?.bg || "#ffe8b5";
+  const nonClarivateColor = anchorConfig?.nonClarivateEmail?.bg || "#ffdac8";
+  const clarivateTextColor = anchorConfig?.clarivateEmail?.text || "rgb(0, 0, 0)";
+  const nonClarivateTextColor = anchorConfig?.nonClarivateEmail?.text || "rgb(0, 0, 0)";
+  
   for (const fromDiv of fromFieldDiv) {
     const anchor = fromDiv.querySelector("a.select");
     if (!isEndNoteSupportAnchor(anchor)) {
       if (!isClarivateEmailList(anchor)) {
-        highlightAnchorWithSpecificContent(anchor, "#ffdac8");
+        highlightAnchorWithSpecificContent(anchor, nonClarivateColor);
+        if (anchorConfig?.nonClarivateEmail?.text) {
+          anchor.style.color = nonClarivateTextColor;
+        }
       } else {
-        highlightAnchorWithSpecificContent(anchor, "#ffe8b5");
+        highlightAnchorWithSpecificContent(anchor, clarivateColor);
+        if (anchorConfig?.clarivateEmail?.text) {
+          anchor.style.color = clarivateTextColor;
+        }
       }
     } else {
       unhighlightAnchor(anchor);
@@ -908,9 +926,29 @@ function determineTeamFromCase(rowElement) {
 }
 
 // --- Get highlight color based on elapsed time vs target ---
-function getHighlightColor(elapsedMinutes, targetMinutes) {
+async function getHighlightColor(elapsedMinutes, targetMinutes) {
   const ratio = elapsedMinutes / targetMinutes;
   
+  // Load color configuration
+  const config = await loadColorConfig();
+  const defaultConfig = (typeof ColorHandlerConfig !== 'undefined') ? ColorHandlerConfig.getDefaultConfig() : null;
+  const caseConfig = config?.handleCase || (defaultConfig ? defaultConfig.handleCase : null);
+  
+  // Use configured thresholds if available
+  if (caseConfig && caseConfig.thresholds && caseConfig.thresholds.length > 0) {
+    // Sort thresholds by ratio (descending)
+    const sortedThresholds = [...caseConfig.thresholds].sort((a, b) => b.ratio - a.ratio);
+    
+    for (const threshold of sortedThresholds) {
+      if (ratio >= threshold.ratio) {
+        return threshold.color;
+      }
+    }
+    // Fallback to last threshold if ratio is less than all thresholds
+    return sortedThresholds[sortedThresholds.length - 1].color;
+  }
+  
+  // Fallback to original hardcoded logic
   if (ratio > 1.5) { // 150% of target
     return "rgb(255, 220, 230)"; // Light red - very overdue
   } else if (ratio > 1.0) { // Over target but less than 150%
@@ -925,7 +963,7 @@ function getHighlightColor(elapsedMinutes, targetMinutes) {
 }
 
 // Main function to check and handle anchor elements
-function handleCases() {
+async function handleCases() {
   let webTables = document.querySelectorAll('table');
 
   for (let table of webTables) {
@@ -974,9 +1012,10 @@ function handleCases() {
           const caseMinutes = calculateWorkingTimeDifferenceInMinutes(earlierDate, caseTeamConfig);
           const targetMinutes = caseTeamConfig.responseTimeTarget;
 
-          // highlight the row based on elapsed time vs target
-          const highlightColor = getHighlightColor(caseMinutes, targetMinutes);
-          highlightAnchorWithSpecificContent(row, highlightColor);
+          // highlight the row based on elapsed time vs target (async)
+          getHighlightColor(caseMinutes, targetMinutes).then(highlightColor => {
+            highlightAnchorWithSpecificContent(row, highlightColor);
+          });
         }
       } else {
         unhighlightAnchor(row);
@@ -1022,106 +1061,161 @@ function findElementsWithIdContainingText() {
 
 // return the right colour for ScholarOne statuses
 
-function casePageCheck() {
-  var titleElement = document.querySelector("head > title");
-  if (titleElement && titleElement.textContent === "Cases - Console") {
-    console.log("cases true");
-    return true;
+// function casePageCheck() {
+//   var titleElement = document.querySelector("head > title");
+//   if (titleElement && titleElement.textContent === "Cases - Console") {
+//     console.log("cases true");
+//     return true;
 
-  } else {
-    return false;
-  }
-}
+//   } else {
+//     return false;
+//   }
+// }
 
-function scholarOneStatusColors(statusText) {
-  if (statusText === "New" || statusText === "Assigned" || statusText === "Failed QA") {
-    return "rgb(191, 39, 75)";
-  } else if (statusText === "Waiting" || statusText === "Updated") {
-    return "rgb(247, 114, 56)";
-  } else if (statusText === "Escalated" || statusText === "On Hold" || statusText === "Pending Approval" || statusText === "Pending QA Review") {
-    return "rgb(140, 77, 253)";
-  } else if (statusText === "Released" || statusText === "Passed QA" || statusText === "Closed") {
-    return "rgb(45, 200, 64)";
-  } else if (statusText === "Ready for QA" || statusText === "Ready for DBA" || statusText === "Ready for Data Architect") {
-    return "rgb(251, 178, 22)";
-  }
-}
+// function scholarOneStatusColors(statusText) {
+//   if (statusText === "New" || statusText === "Assigned" || statusText === "Failed QA") {
+//     return "rgb(191, 39, 75)";
+//   } else if (statusText === "Waiting" || statusText === "Updated") {
+//     return "rgb(247, 114, 56)";
+//   } else if (statusText === "Escalated" || statusText === "On Hold" || statusText === "Pending Approval" || statusText === "Pending QA Review") {
+//     return "rgb(140, 77, 253)";
+//   } else if (statusText === "Released" || statusText === "Passed QA" || statusText === "Closed") {
+//     return "rgb(45, 200, 64)";
+//   } else if (statusText === "Ready for QA" || statusText === "Ready for DBA" || statusText === "Ready for Data Architect") {
+//     return "rgb(251, 178, 22)";
+//   }
+// }
 
-// find all elements containing CASES_STATUS ids and convert the div element
+// // find all elements containing CASES_STATUS ids and convert the div element
 
-function divElementChangerScholarOne() {
-  // Get all div elements in the document
-  var divElements = document.getElementsByTagName("div");
+// function divElementChangerScholarOne() {
+//   // Get all div elements in the document
+//   var divElements = document.getElementsByTagName("div");
 
-  // Loop through all div elements
-  for (var i = 0; i < divElements.length; i++) {
-    // If the id of the current div element contains "CASES_STATUS"
+//   // Loop through all div elements
+//   for (var i = 0; i < divElements.length; i++) {
+//     // If the id of the current div element contains "CASES_STATUS"
 
-    if (divElements[i].id.includes("CASES_STATUS")) {
-      // Create a new span element
-      console.log(i);
-      var span = document.createElement("span");
-      console.log(divElements[i].textContent.trim());
-
-
-      // Set the style of the span element
-      span.style.backgroundColor = scholarOneStatusColors(divElements[i].textContent.trim());
-      span.style.borderRadius = "6px";
-      span.style.padding = "3px 6px";
-      span.style.color = "white";
-      span.style.fontWeight = "500";
-
-      // Set the text of the span element to the current text of the div element
-      span.textContent = divElements[i].textContent.trim();
-
-      // Clear the current content of the div element
-      divElements[i].textContent = "";
-
-      // Append the span element to the div element
-      divElements[i].appendChild(span);
-    }
-  }
-}
-
-function scholarOneHandleStatus() {
-  if (casePageCheck()) {
-
-    console.log("main function started");
-
-    // runs the backgroundcolourchange for ScholarOne SFDC once initially.
-    divElementChangerScholarOne();
-
-    document.querySelector("form").addEventListener('change', function () {
-
-      console.log('The TABLE ELEMENT has changed.');
-
-      divElementChangerScholarOne();
+//     if (divElements[i].id.includes("CASES_STATUS")) {
+//       // Create a new span element
+//       console.log(i);
+//       var span = document.createElement("span");
+//       console.log(divElements[i].textContent.trim());
 
 
+//       // Set the style of the span element
+//       span.style.backgroundColor = scholarOneStatusColors(divElements[i].textContent.trim());
+//       span.style.borderRadius = "6px";
+//       span.style.padding = "3px 6px";
+//       span.style.color = "white";
+//       span.style.fontWeight = "500";
 
-    });
+//       // Set the text of the span element to the current text of the div element
+//       span.textContent = divElements[i].textContent.trim();
 
-    setTimeout(function () {
-      // Your function goes here
-      divElementChangerScholarOne();
-      console.log("This function runs after 1 second");
-    }, 1000);
+//       // Clear the current content of the div element
+//       divElements[i].textContent = "";
 
-    console.log("main function finished");
-  }
-}
+//       // Append the span element to the div element
+//       divElements[i].appendChild(span);
+//     }
+//   }
+// }
+
+// function scholarOneHandleStatus() {
+//   if (casePageCheck()) {
+
+//     console.log("main function started");
+
+//     // runs the backgroundcolourchange for ScholarOne SFDC once initially.
+//     divElementChangerScholarOne();
+
+//     document.querySelector("form").addEventListener('change', function () {
+
+//       console.log('The TABLE ELEMENT has changed.');
+
+//       divElementChangerScholarOne();
+
+
+
+//     });
+
+//     setTimeout(function () {
+//       // Your function goes here
+//       divElementChangerScholarOne();
+//       console.log("This function runs after 1 second");
+//     }, 1000);
+
+//     console.log("main function finished");
+//   }
+// }
 
 
 // > Lightning SFDC
 
 // --- Generate the style declaration for the handleStatus function ---
-function generateStyle(color) {
-  return `background-color: ${color}; border-radius: 6px; padding: 3px 6px; color: white; font-weight: 500;`;
+// Color configuration loader
+let colorConfigCache = null;
+let colorConfigPromise = null;
+
+async function loadColorConfig() {
+  if (colorConfigCache) {
+    return colorConfigCache;
+  }
+  
+  if (colorConfigPromise) {
+    return colorConfigPromise;
+  }
+  
+  colorConfigPromise = new Promise((resolve) => {
+    if (typeof ColorHandlerConfig !== 'undefined') {
+      ColorHandlerConfig.loadConfig().then(config => {
+        colorConfigCache = config;
+        resolve(config);
+      }).catch(() => {
+        // Fallback to defaults if load fails
+        if (typeof ColorHandlerConfig !== 'undefined') {
+          colorConfigCache = ColorHandlerConfig.getDefaultConfig();
+        } else {
+          colorConfigCache = null;
+        }
+        resolve(colorConfigCache);
+      });
+    } else {
+      colorConfigCache = null;
+      resolve(null);
+    }
+  });
+  
+  return colorConfigPromise;
+}
+
+// Clear color config cache on changes
+window.addEventListener('exl-color-config-changed', () => {
+  colorConfigCache = null;
+  colorConfigPromise = null;
+  // Re-run handlers
+  if (isOnCasesListPage()) {
+    handleStatus();
+    handleCases();
+  }
+  if (isOnEmailComposerPage()) {
+    handleAnchors();
+  }
+});
+
+function generateStyle(bgColor, textColor = 'white') {
+  return `background-color: ${bgColor}; border-radius: 6px; padding: 3px 6px; color: ${textColor}; font-weight: 500;`;
 }
 
 // Main function to check and highlight status elements
-function handleStatus() {
+async function handleStatus() {
   let webTables = document.querySelectorAll('table');
+  
+  // Load color configuration
+  const config = await loadColorConfig();
+  const defaultConfig = (typeof ColorHandlerConfig !== 'undefined') ? ColorHandlerConfig.getDefaultConfig() : null;
+  const statusConfig = config?.handleStatus || (defaultConfig ? defaultConfig.handleStatus : null);
 
   for (let table of webTables) {
     const rows = table.querySelector('tbody').querySelectorAll('tr');
@@ -1129,43 +1223,36 @@ function handleStatus() {
       let cells = row.querySelectorAll('td span span');
       for (let cell of cells) {
         let cellText = cell.textContent.trim();
-        if (cellText === "New Email Received" || cellText === "Re-opened" || cellText === "Reopened" || cellText === "Completed by Resolver Group" || cellText === "New" || cellText === "Update Received" || cellText === "Open") {
-          cell.setAttribute("style", generateStyle("rgb(191, 39, 75)"));
-          // Style the 3rd ancestor div element
-          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
-          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
-            thirdAncestor.style.overflow = 'visible';
+        let colors = null;
+        
+        // Get colors from config if available
+        if (config && typeof ColorHandlerConfig !== 'undefined') {
+          colors = ColorHandlerConfig.getStatusColors(config, cellText);
+        }
+        
+        // Fallback to default colors if config not available
+        if (!colors) {
+          // Use original hardcoded logic as fallback
+          if (cellText === "New Email Received" || cellText === "Re-opened" || cellText === "Reopened" || cellText === "Completed by Resolver Group" || cellText === "New" || cellText === "Update Received" || cellText === "Open") {
+            colors = { bg: "rgb(191, 39, 75)", text: "rgb(255, 255, 255)" };
+          } else if (cellText === "Pending Action" || cellText === "Initial Response Sent" || cellText === "In Progress") {
+            colors = { bg: "rgb(210, 72, 3)", text: "rgb(255, 255, 255)" };
+          } else if (cellText === "Assigned to Resolver Group" || cellText === "Pending Internal Response" || cellText === "Pending AM Response" || cellText === "Pending QA Review") {
+            colors = { bg: "rgb(140, 77, 253)", text: "rgb(255, 255, 255)" };
+          } else if (cellText === "Solution Delivered to Customer") {
+            colors = { bg: "rgb(45, 200, 64)", text: "rgb(255, 255, 255)" };
+          } else if (cellText === "Closed" || cellText === "Pending Customer Response") {
+            colors = { bg: "rgb(103, 103, 103)", text: "rgb(255, 255, 255)" };
+          } else if (cellText === "Pending System Update - Defect" || cellText === "Pending System Update - Enhancement" || cellText === "Pending System Update - Other" || cellText === "Awaiting Customer Confirmation" || cellText === "Pending") {
+            colors = { bg: "rgb(251, 178, 22)", text: "rgb(255, 255, 255)" };
           }
-        } else if (cellText === "Pending Action" || cellText === "Initial Response Sent" || cellText === "In Progress") {
-          cell.setAttribute("style", generateStyle("rgb(166, 81, 2)"));
-          // Style the 3rd ancestor div element
-          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
-          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
-            thirdAncestor.style.overflow = 'visible';
-          }
-        } else if (cellText === "Assigned to Resolver Group" || cellText === "Pending Internal Response" || cellText === "Pending AM Response" || cellText === "Pending QA Review") {
-          cell.setAttribute("style", generateStyle("rgb(140, 77, 253)"));
-          // Style the 3rd ancestor div element
-          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
-          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
-            thirdAncestor.style.overflow = 'visible';
-          }
-        } else if (cellText === "Solution Delivered to Customer") {
-          cell.setAttribute("style", generateStyle("rgb(45, 200, 64)"));
-          // Style the 3rd ancestor div element
-          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
-          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
-            thirdAncestor.style.overflow = 'visible';
-          }
-        } else if (cellText === "Closed" || cellText === "Pending Customer Response") {
-          cell.setAttribute("style", generateStyle("rgb(103, 103, 103)"));
-          // Style the 3rd ancestor div element
-          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
-          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
-            thirdAncestor.style.overflow = 'visible';
-          }
-        } else if (cellText === "Pending System Update - Defect" || cellText === "Pending System Update - Enhancement" || cellText === "Pending System Update - Other") {
-          cell.setAttribute("style", generateStyle("rgb(251, 178, 22)"));
+        }
+        
+        if (colors) {
+          cell.setAttribute("style", generateStyle(colors.bg, colors.text));
+          // Add data attributes for context menu
+          cell.dataset.statusText = cellText;
+          cell.classList.add('exl-status-cell');
           // Style the 3rd ancestor div element
           const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
           if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
@@ -1177,7 +1264,120 @@ function handleStatus() {
       }
     }
   }
+  
+  // Add context menu listeners for status cells
+  setupStatusContextMenu();
+}
 
+// Setup right-click context menu for status cells
+function setupStatusContextMenu() {
+  // Remove existing listeners to avoid duplicates
+  document.querySelectorAll('.exl-status-cell').forEach(cell => {
+    cell.removeEventListener('contextmenu', handleStatusContextMenu);
+  });
+  
+  // Add context menu listeners
+  document.querySelectorAll('.exl-status-cell').forEach(cell => {
+    cell.addEventListener('contextmenu', handleStatusContextMenu);
+  });
+}
+
+// Handle right-click context menu for status
+function handleStatusContextMenu(event) {
+  event.preventDefault();
+  const cell = event.target.closest('.exl-status-cell');
+  if (!cell) return;
+  
+  const statusText = cell.dataset.statusText;
+  if (!statusText) return;
+  
+  // Create context menu
+  const contextMenu = document.createElement('div');
+  contextMenu.className = 'exl-status-context-menu';
+  contextMenu.innerHTML = `
+    <div class="exl-context-menu-item" data-action="edit-bg-color">Edit Background Color</div>
+    <div class="exl-context-menu-item" data-action="edit-text-color">Edit Text Color</div>
+    <div class="exl-context-menu-item" data-action="edit-status-group">Edit Status Group</div>
+    <div class="exl-context-menu-divider"></div>
+    <div class="exl-context-menu-item" data-action="reset-default">Reset to Default</div>
+  `;
+  
+  contextMenu.style.position = 'fixed';
+  contextMenu.style.left = event.pageX + 'px';
+  contextMenu.style.top = event.pageY + 'px';
+  contextMenu.style.zIndex = '10000';
+  
+  document.body.appendChild(contextMenu);
+  
+  // Handle menu item clicks
+  contextMenu.querySelectorAll('.exl-context-menu-item').forEach(item => {
+    item.addEventListener('click', async (e) => {
+      const action = item.dataset.action;
+      contextMenu.remove();
+      
+      if (action === 'edit-bg-color' || action === 'edit-text-color') {
+        // Open color picker via PersistentBanner if available
+        if (typeof PersistentBanner !== 'undefined' && PersistentBanner.showColorPickerModal) {
+          const currentColors = await getStatusColorsForText(statusText);
+          const colorType = action === 'edit-bg-color' ? 'bg' : 'text';
+          const currentColor = currentColors[colorType];
+          
+          const selectedColor = await PersistentBanner.showColorPickerModal({ currentColor });
+          if (selectedColor && typeof ColorHandlerConfig !== 'undefined') {
+            const config = await ColorHandlerConfig.loadConfig();
+            const statusGroup = ColorHandlerConfig.getStatusGroup(config, statusText);
+            
+            if (statusGroup) {
+              // Update group color
+              config.handleStatus.groupColors[statusGroup] = config.handleStatus.groupColors[statusGroup] || {};
+              config.handleStatus.groupColors[statusGroup][colorType] = selectedColor;
+            } else {
+              // Create status override
+              config.handleStatus.statusOverrides[statusText] = config.handleStatus.statusOverrides[statusText] || {};
+              config.handleStatus.statusOverrides[statusText][colorType] = selectedColor;
+            }
+            
+            await ColorHandlerConfig.saveConfig(config);
+            colorConfigCache = null;
+            handleStatus();
+          }
+        }
+      } else if (action === 'reset-default') {
+        if (typeof ColorHandlerConfig !== 'undefined') {
+          const config = await ColorHandlerConfig.loadConfig();
+          delete config.handleStatus.statusOverrides[statusText];
+          await ColorHandlerConfig.saveConfig(config);
+          colorConfigCache = null;
+          handleStatus();
+        }
+      } else if (action === 'edit-status-group') {
+        // Show status group editor (to be implemented)
+        alert('Status group editor coming soon');
+      }
+    });
+  });
+  
+  // Close menu on outside click
+  const closeMenu = (e) => {
+    if (!contextMenu.contains(e.target)) {
+      contextMenu.remove();
+      document.removeEventListener('click', closeMenu);
+    }
+  };
+  setTimeout(() => {
+    document.addEventListener('click', closeMenu);
+  }, 0);
+}
+
+// Helper to get current colors for a status text
+async function getStatusColorsForText(statusText) {
+  const config = await loadColorConfig();
+  if (config && typeof ColorHandlerConfig !== 'undefined') {
+    const colors = ColorHandlerConfig.getStatusColors(config, statusText);
+    if (colors) return colors;
+  }
+  // Return default fallback
+  return { bg: 'rgb(128, 128, 128)', text: 'rgb(255, 255, 255)' };
 }
 
 // EVENT LISTENERS FOR EXECUTING FUNCTIONS

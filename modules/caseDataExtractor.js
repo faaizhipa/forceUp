@@ -34,8 +34,10 @@ const CaseDataExtractor = {
       server: null,
       serverRegion: null,
       custID: null,
+      custId: null,
       customerId: null,
       instID: null,
+      instId: null,
       institutionId: null,
       customerName: null,
       customerTimezone: null,
@@ -535,33 +537,40 @@ const CaseDataExtractor = {
       console.warn(`[CaseDataExtractor] No customer record found for ${processed.institutionCode}`);
     }
 
-    // Step 5: Resolve timezone information
+    // Step 5: Resolve timezone information (CaseDataExtractor's independent implementation)
+    // Uses ONLY CustomerDataManager.getCustomerTimezone() as the single source of truth
+    // This uses CustomerTimezoneLookup which reads from timezones_index.json and user overrides
+    // No fallbacks - if CustomerDataManager is unavailable or doesn't resolve, timezone remains null
     if (typeof CustomerDataManager !== 'undefined' && typeof CustomerDataManager.getCustomerTimezone === 'function') {
       try {
         const timezoneInfo = await CustomerDataManager.getCustomerTimezone({
-          institutionCode: processed.institutionCode || processed.customerCode,
-          customerId: processed.custID || processed.customerid,
-          instID: processed.instID || processed.institutionid,
-          accountName: processed.accountName,
+          accountName: processed.accountName || processed.customerName, // Primary lookup key
+          institutionCode: processed.institutionCode || processed.customerCode, // Fallback lookup
           customer: customerRecord
+          // customerId and instID no longer used for timezone lookup
         });
 
         if (timezoneInfo && timezoneInfo.timezone) {
           processed.customerTimezone = timezoneInfo.timezone;
-          processed.customerTimezoneSource = timezoneInfo.source || 'instTimezones';
-          processed.customerOrgCode = timezoneInfo.orgCode || processed.institutionCode || processed.customerCode || null;
-          processed.customerOrgName = timezoneInfo.orgName || processed.customerName || null;
-          processed.customerDbServers = timezoneInfo.dbServers || [];
+          processed.customerTimezoneSource = timezoneInfo.source || 'customerDataManager';
+          processed.customerOrgCode = timezoneInfo.orgCode || timezoneInfo.accountName || processed.institutionCode || processed.customerCode || null;
+          processed.customerOrgName = timezoneInfo.orgName || timezoneInfo.accountName || processed.customerName || null;
+          processed.customerDbServers = timezoneInfo.dbServers || []; // Empty array as dbServers no longer available in CSV
+          console.log('[CaseDataExtractor] Timezone resolved via CustomerDataManager:', {
+            timezone: timezoneInfo.timezone,
+            source: timezoneInfo.source
+          });
+        } else {
+          console.log('[CaseDataExtractor] Timezone not found in CustomerDataManager for:', {
+            institutionCode: processed.institutionCode || processed.customerCode,
+            accountName: processed.accountName
+          });
         }
       } catch (error) {
         console.error('[CaseDataExtractor] Error resolving customer timezone:', error);
       }
-    } else if (customerRecord && customerRecord.timezone) {
-      processed.customerTimezone = customerRecord.timezone;
-      processed.customerTimezoneSource = customerRecord.timezoneSource || 'customer-record';
-      processed.customerOrgCode = customerRecord.institutionCode || processed.institutionCode || null;
-      processed.customerOrgName = customerRecord.timezoneOrgName || customerRecord.name || null;
-      processed.customerDbServers = customerRecord.timezoneDbServers || [];
+    } else {
+      console.warn('[CaseDataExtractor] CustomerDataManager not available for timezone resolution');
     }
 
     return processed;
@@ -653,6 +662,16 @@ const CaseDataExtractor = {
     }
 
     return processed;
+  },
+
+  /**
+   * Reset extraction state - clears any cached values and forces fresh extraction
+   */
+  resetExtractionState() {
+    // CaseDataExtractor doesn't maintain persistent state between calls
+    // Each call to extractCaseData() extracts fresh from DOM
+    // This method exists for API consistency with other extractors
+    console.log('[CaseDataExtractor] Extraction state reset (no cached state to clear)');
   },
 
   /**

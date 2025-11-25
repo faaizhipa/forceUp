@@ -256,6 +256,7 @@ html {
 .exl-hl-layer-container {
   position: relative;
   display: inline-block;
+  z-index: 1000001;
 }
 
 .exl-hl-layer-btn {
@@ -266,16 +267,14 @@ html {
 }
 
 .exl-hl-layer-dropdown {
-  position: absolute;
-  top: calc(100% + 0.5rem);
-  right: 0;
+  position: fixed !important;
   background: white;
   border-radius: 0.5rem;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.08);
   min-width: 14rem;
   max-height: 20rem;
   overflow-y: auto;
-  z-index: 1000002;
+  z-index: 9999999 !important;
   animation: exl-hl-dropdown-slide-in 150ms ease-out;
 }
 

@@ -1656,21 +1656,31 @@
       button.addEventListener('click', (e) => {
         e.stopPropagation();
         const isVisible = dropdown.style.display !== 'none';
-        dropdown.style.display = isVisible ? 'none' : 'block';
-        if (!isVisible) {
+        if (isVisible) {
+          dropdown.style.display = 'none';
+        } else {
+          // Calculate position for fixed dropdown
+          const buttonRect = button.getBoundingClientRect();
+          dropdown.style.display = 'block';
+          dropdown.style.top = (buttonRect.bottom + 8) + 'px';
+          // Position dropdown aligned to the right edge of the button
+          dropdown.style.right = (window.innerWidth - buttonRect.right) + 'px';
+          dropdown.style.left = 'auto';
           renderLayerList();
         }
       });
 
       // Close dropdown when clicking outside
       document.addEventListener('click', (e) => {
-        if (!container.contains(e.target)) {
+        if (!container.contains(e.target) && !dropdown.contains(e.target)) {
           dropdown.style.display = 'none';
         }
       });
 
+      // Append dropdown to body for proper stacking context
+      document.body.appendChild(dropdown);
+
       container.appendChild(button);
-      container.appendChild(dropdown);
 
       return container;
     },
