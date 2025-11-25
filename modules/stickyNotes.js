@@ -51,6 +51,11 @@ const StickyNotes = (function() {
       console.warn('[StickyNotes] DOM not ready after timeout, proceeding anyway');
     }
 
+    // Initialize keyboard blocker
+    if (typeof NoteKeyboardBlocker !== 'undefined') {
+      NoteKeyboardBlocker.init();
+    }
+
     // Initialize BroadcastChannel for cross-tab sync
     initBroadcastChannel();
 
@@ -1039,6 +1044,26 @@ const StickyNotes = (function() {
       handlePaste(e, note.id, editor);
     });
 
+    // Handle focus/blur for keyboard shortcut blocking
+    if (typeof NoteKeyboardBlocker !== 'undefined') {
+      editor.addEventListener('focus', () => {
+        NoteKeyboardBlocker.blockShortcutsForElement(editor);
+      });
+      editor.addEventListener('blur', () => {
+        NoteKeyboardBlocker.unblockShortcutsForElement(editor);
+      });
+    }
+
+    // Handle title input focus/blur for keyboard shortcut blocking
+    if (typeof NoteKeyboardBlocker !== 'undefined') {
+      titleInput.addEventListener('focus', () => {
+        NoteKeyboardBlocker.blockShortcutsForElement(titleInput);
+      });
+      titleInput.addEventListener('blur', () => {
+        NoteKeyboardBlocker.unblockShortcutsForElement(titleInput);
+      });
+    }
+
     body.appendChild(toolbar);
     body.appendChild(editor);
 
@@ -1311,6 +1336,11 @@ const StickyNotes = (function() {
     highestZIndex = 999998;
     isInitialized = false;
     visibleNoteIds.clear();
+    
+    // Cleanup keyboard blocker
+    if (typeof NoteKeyboardBlocker !== 'undefined' && NoteKeyboardBlocker.cleanup) {
+      NoteKeyboardBlocker.cleanup();
+    }
     
     // Disconnect observers
     if (lazyLoadObserver) {

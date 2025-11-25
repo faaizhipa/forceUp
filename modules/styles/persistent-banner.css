@@ -75,7 +75,9 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     letter-spacing: 0.3px;
     color: #a0a0a0;
     font-weight: 600;
-    white-space: nowrap;
+    line-height: 1.2;
+    max-height: 2.4em;
+    word-wrap: break-word;
     margin-right: 4px;
 }
 
@@ -149,6 +151,29 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     padding: 0;
     background-color: transparent;
     border-radius: 0;
+    align-items: center;
+    justify-content: flex-start;
+    position: relative;
+}
+
+.exl-refresh-emoji {
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 6px;
+    margin-left: auto;
+    opacity: 0.7;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.exl-refresh-emoji:hover {
+    opacity: 1;
+    transform: rotate(90deg);
+}
+
+.exl-refresh-emoji:active {
+    transform: rotate(180deg);
 }
 
 .exl-banner-meta-item {
@@ -190,9 +215,21 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
+/* Status-based accent colors for buttons - darker shade on hover */
+.exl-banner-btn[style*="background-color"]:hover {
+    filter: brightness(0.85);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
 .exl-banner-btn:active {
     background-color: #00396b;
     transform: translateY(0);
+}
+
+/* Ensure white text on buttons for legibility */
+.exl-banner-btn,
+.exl-popup-trigger {
+    color: #ffffff !important;
 }
 
 /* History section */
@@ -205,10 +242,10 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 .exl-banner-history-list {
     display: flex;
     flex-direction: row;
-    gap: 6px;
+    gap: 4px;
     max-height: none;
     overflow-y: visible;
-    overflow-x: visible;
+    overflow-x: auto;
     padding: 0;
     background-color: transparent;
     border-radius: 0;
@@ -223,20 +260,26 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 
 .exl-banner-history-item {
     display: flex;
+    flex-direction: row;
     align-items: center;
-    gap: 5px;
+    gap: 8px;
     padding: 4px 8px;
     background-color: rgba(255, 255, 255, 0.05);
     border-radius: 3px;
     cursor: pointer;
     transition: all 0.15s ease;
     border-left: 2px solid transparent;
-    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .exl-banner-history-item:hover {
     background-color: rgba(255, 255, 255, 0.15);
     border-left-color: #0070d2;
+}
+
+/* Status-based hover for history items - use status color if available */
+.exl-banner-history-item[style*="border-left-color"]:hover {
+    filter: brightness(1.2);
 }
 
 .exl-history-number {
@@ -254,16 +297,18 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 }
 
 .exl-history-type {
-    flex: 0 0 auto;
+    display: block;
     font-size: 10px;
     font-weight: 600;
     color: #a0d8f7;
     text-transform: uppercase;
-    min-width: 50px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .exl-history-details {
-    flex: 0 1 auto;
+    display: block;
     font-size: 11px;
     color: #d0d0d0;
     white-space: nowrap;
@@ -533,4 +578,396 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     min-width: 40px;
     text-align: center;
     padding: 0 4px;
+}
+
+/* Popup menu */
+.exl-popup-menu {
+    position: fixed;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 10000;
+    min-width: 200px;
+    max-width: 300px;
+    overflow: hidden;
+}
+
+.exl-popup-menu-content {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 0;
+}
+
+.exl-popup-menu-item {
+    background-color: transparent;
+    color: #ffffff;
+    border: none;
+    border-radius: 0;
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    text-align: left;
+    width: 100%;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.exl-popup-menu-item:last-child {
+    border-bottom: none;
+}
+
+.exl-popup-menu-item:hover {
+    background-color: rgba(0, 112, 210, 0.3);
+    color: #ffffff;
+}
+
+.exl-popup-menu-item:active {
+    background-color: rgba(0, 112, 210, 0.5);
+}
+
+.exl-popup-menu-item.exl-disabled,
+.exl-popup-menu-item:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.exl-popup-menu-item.exl-disabled:hover,
+.exl-popup-menu-item:disabled:hover {
+    background-color: transparent;
+    color: #ffffff;
+}
+
+/* Action-focused mode */
+#exl-persistent-banner.action-focused {
+    height: auto;
+    min-height: 3rem;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+#exl-persistent-banner.action-focused .exl-banner-container {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px;
+    height: auto;
+}
+
+/* Stale data warning */
+#exl-persistent-banner.exl-banner-stale-warning {
+    background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
+    border-bottom: 3px solid #f44336;
+}
+
+.exl-stale-warning-message {
+    background-color: #f44336;
+    color: #ffffff;
+    padding: 12px 16px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Tool view */
+.exl-tool-view {
+    display: none;
+    width: 100%;
+    padding: 16px;
+    background-color: rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    margin-top: 12px;
+}
+
+.exl-tool-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.exl-tool-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.exl-back-btn {
+    background-color: #0070d2;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.exl-back-btn:hover {
+    background-color: #005fb2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-back-btn:active {
+    background-color: #00396b;
+}
+
+.exl-tool-content {
+    color: #d0d0d0;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+/* Customer Data Notification */
+.exl-customer-data-notification {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background-color: rgba(255, 193, 7, 0.15);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    border-radius: 4px;
+    margin: 4px 0;
+    grid-column: 1 / -1;
+}
+
+.exl-notification-text {
+    color: #ffc107;
+    font-size: 11px;
+    flex: 1;
+}
+
+.exl-customer-data-btn {
+    background-color: #ffc107;
+    color: #1a1a2e;
+    border: none;
+    border-radius: 3px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.exl-customer-data-btn:hover {
+    background-color: #ffb300;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-customer-data-btn:active {
+    background-color: #ffa000;
+}
+
+/* Customer Data Editor */
+.exl-customer-data-editor {
+    max-width: 100%;
+}
+
+.exl-tool-header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.exl-export-btn,
+.exl-import-btn {
+    background-color: #1589ee;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.exl-export-btn:hover,
+.exl-import-btn:hover {
+    background-color: #0070d2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-export-btn:active,
+.exl-import-btn:active {
+    background-color: #005fb2;
+}
+
+.exl-customer-data-section {
+    margin-bottom: 24px;
+}
+
+.exl-customer-data-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 8px;
+}
+
+.exl-customer-data-readonly {
+    background-color: rgba(0, 0, 0, 0.2);
+    padding: 12px;
+    border-radius: 4px;
+    margin-bottom: 16px;
+}
+
+.exl-field-row {
+    display: flex;
+    margin-bottom: 8px;
+    font-size: 12px;
+}
+
+.exl-field-row:last-child {
+    margin-bottom: 0;
+}
+
+.exl-field-label {
+    font-weight: 600;
+    color: #b0b0b0;
+    min-width: 180px;
+    margin-right: 12px;
+}
+
+.exl-field-value {
+    color: #ffffff;
+    flex: 1;
+}
+
+.exl-customer-data-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.exl-editable-field {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.15s ease;
+}
+
+.exl-editable-field:hover {
+    background-color: rgba(0, 0, 0, 0.3);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.exl-editable-field.exl-field-required {
+    border-left: 3px solid #ffc107;
+}
+
+.exl-editable-field .exl-field-label {
+    min-width: 180px;
+    margin-right: 12px;
+    font-weight: 500;
+    color: #d0d0d0;
+}
+
+.exl-required-indicator {
+    color: #ffc107;
+    margin-left: 2px;
+}
+
+.exl-field-display {
+    flex: 1;
+    color: #ffffff;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 3px;
+    transition: background-color 0.15s ease;
+}
+
+.exl-field-display:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.exl-field-edit {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.exl-field-input {
+    flex: 1;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    padding: 6px 10px;
+    color: #ffffff;
+    font-size: 12px;
+    font-family: inherit;
+}
+
+.exl-field-input:focus {
+    outline: none;
+    border-color: #0070d2;
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+.exl-field-input::placeholder {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.exl-field-save-btn {
+    background-color: #0070d2;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.exl-field-save-btn:hover {
+    background-color: #005fb2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-field-save-btn:active {
+    background-color: #00396b;
+}
+
+.exl-customer-data-actions {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-save-btn {
+    background-color: #28a745;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 8px 20px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.exl-save-btn:hover {
+    background-color: #218838;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-save-btn:active {
+    background-color: #1e7e34;
 }

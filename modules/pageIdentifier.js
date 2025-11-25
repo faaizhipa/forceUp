@@ -127,10 +127,32 @@ const PageIdentifier = {
       }
       
       const view = this.detectCasePageView();
+      
+      // Extract case number from title if available
+      // Try to extract case number from the active tab label in Salesforce, falling back to document title if not found
+      let caseNumberFromTab = null;
+      try {
+        // Look for the active tab element in standard Salesforce Lightning UI
+        const activeTab = document.querySelector('.slds-tabs_default__item.slds-is-active');
+        if (activeTab && activeTab.dataset && activeTab.dataset.label) {
+          // The label might be like "00012345 - Subject", so extract the leading 6-10 digit case number
+          const tabCaseNumberMatch = activeTab.dataset.label.match(/^(\d{6,10})/);
+          if (tabCaseNumberMatch) {
+            caseNumberFromTab = tabCaseNumberMatch[1];
+          }
+        }
+      } catch (err) {
+        // fallback, ignore, we'll try other methods
+      }
+      const titleMatch = caseNumberFromTab 
+        ? [caseNumberFromTab] 
+        : document.title.match(/^(\d{6,10})/);
+      const caseNumberFromTitle = titleMatch ? titleMatch[1] : null;
+      
       const result = {
         type: this.pageTypes.CASE_PAGE,
         caseId: context?.caseId || caseId, // Use validated case ID from context if available
-        caseNumber: context?.caseNumber || caseNumber, // Add case number from context
+        caseNumber: caseNumberFromTitle || context?.caseNumber || null,
         reportId: null,
         view: view,
         url: url
@@ -148,10 +170,14 @@ const PageIdentifier = {
       const caseId = caseCommentsMatch[1];
       const context = this.getCurrentCaseContext();
       
+      // Extract case number from title if available
+      const titleMatch = document.title.match(/^(\d{6,10})/);
+      const caseNumberFromTitle = titleMatch ? titleMatch[1] : null;
+      
       const result = {
         type: this.pageTypes.CASE_COMMENTS,
         caseId: context?.caseId || caseId,
-        caseNumber: context?.caseNumber || caseNumber,
+        caseNumber: caseNumberFromTitle || context?.caseNumber || null,
         reportId: null,
         view: 'case_comments'
       };
@@ -421,10 +447,7 @@ const PageIdentifier = {
     const caseIdChanged = newPageInfo.caseId !== this._lastPageInfo.caseId;
 
     if (pageTypeChanged || caseIdChanged) {
-      if (typeof CaseTimezoneResolver !== 'undefined') {
-        CaseTimezoneResolver.cleanup();
-        console.log('PageIdentifier: CaseTimezoneResolver cleaned up');
-      }
+      // Module cleanup handled by individual modules
     }
 
     // Update last page info

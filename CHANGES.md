@@ -33,6 +33,28 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2025-11-24] - Features - Customer Timezone Lookup Pipeline
+
+**Description**: Replaced the legacy timezone modules (`timezoneDetector`, `timezoneStorage`, `institutionTimezoneManager`, `timezoneUtils`, `timezoneConverter`) with a single `CustomerTimezoneLookup` helper that parses `instTimezones.dsv`, builds indexed lookups, and exposes a consistent API for overrides/export. Customer records and case data now receive enriched timezone metadata, DynamicMenu renders conversions without depending on the removed module, and the Flexipage workspace surfaces the same data.
+
+**Files Changed**:
+- `manifest.json` – removed old timezone scripts, added `modules/customerTimezoneLookup.js`, exposed `instTimezones.dsv`
+- `modules/customerTimezoneLookup.js` – new helper that loads/parses DSV data, manages overrides/unknown customers, and resolves timezones
+- `content_script_exlibris.js` – initializes the new helper instead of the retired modules
+- `modules/customerDataManager.js` – annotates customer records with timezone info and exposes `getCustomerTimezone`
+- `modules/caseDataExtractor.js` – attaches `customerTimezone`, `customerOrgCode`, etc. to processed case data
+- `modules/persistentBanner.js` & `modules/flexipagePanelInjector.js` – consume the enriched case/customer timezone data
+- `modules/dynamicMenu.js` – switches timezone converter UI to local helper logic (no external module)
+- `modules/caseTimezoneResolver.js`, `modules/unknownCustomerManager.js` – re-point caching logic to `CustomerTimezoneLookup`
+- Deleted `modules/timezoneDetector.js`, `modules/timezoneStorage.js`, `modules/timezoneUtils.js`, `modules/timezoneConverter.js`, `modules/institutionTimezoneManager.js`
+
+**Lessons Learned**:
+- Centralizing lookup/parsing logic avoids keeping multiple in-memory copies of the same dataset
+- Keeping an override API in the new helper eases migration because downstream modules can keep their write semantics
+- Case data hydration is the best hand-off point for derived customer metadata (banner, menus, exports all reuse it)
+
+**Related Issues/PRs**: Timezone persistence/pipeline refactor
+
 ### [2024-12-XX] - Features - Timezone Converter Feature
 
 **Description**: Replaced the "Next Analytics Refresh" section in DynamicMenu with a comprehensive timezone converter feature. The converter displays time conversions between case timezone, user timezone, and UTC in an expandable/collapsible UI. Users can select from multiple dates (Analytics Refresh, Case Created, Case Closed, Last Modified) via dropdown.

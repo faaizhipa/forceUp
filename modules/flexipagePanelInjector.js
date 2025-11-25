@@ -58,9 +58,6 @@ const FlexipagePanelInjector = {
         // Force UI refresh to prevent panel from hiding behind other elements
         this.forceUIRefresh(panel);
         
-        // NOTE: CaseTimezoneResolver is now initialized from the banner button
-        // after panel injection is complete, not here
-        
         return true;
     },
 
@@ -484,20 +481,41 @@ const FlexipagePanelInjector = {
      * Handle "Get Timezones" action
      */
     async handleGetTimezone() {
-        if (typeof TimezoneDetector === 'undefined') {
-            this.setStatusMessage('TimezoneDetector module not loaded.', 'error');
-            return;
-        }
-
         this.setButtonState('get-timezone', { loading: true, loadingLabel: 'Detecting…' });
 
         try {
-            const formatted = TimezoneDetector.getFormattedTimezone();
-            const time = TimezoneDetector.getCurrentTime();
-            this.updateContext({ timezone: formatted });
-            alert(`Timezone: ${formatted}\nCurrent Time: ${time}`);
+            const caseData = this.caseData || (typeof CaseDataExtractor !== 'undefined'
+                ? await CaseDataExtractor.getData({ force: true })
+                : null);
+
+            let customerTimezone = caseData?.customerTimezone || this.customerMetadata.timezone || null;
+
+            if (!customerTimezone && typeof CustomerDataManager !== 'undefined' && typeof CustomerDataManager.getCustomerTimezone === 'function') {
+                const lookup = await CustomerDataManager.getCustomerTimezone({
+                    institutionCode: caseData?.institutionCode || this.customerMetadata.institutionCode,
+                    customerId: caseData?.custID || this.customerMetadata.customerId,
+                    instID: caseData?.instID || this.customerMetadata.institutionId,
+                    accountName: caseData?.accountName || this.customerMetadata.accountName
+                });
+                customerTimezone = lookup?.timezone || null;
+            }
+
+            const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const customerTime = customerTimezone
+                ? new Intl.DateTimeFormat('en-US', { timeZone: customerTimezone, dateStyle: 'medium', timeStyle: 'short' }).format(new Date())
+                : 'Unavailable';
+            const userTime = new Intl.DateTimeFormat('en-US', { timeZone: userTimezone, dateStyle: 'medium', timeStyle: 'short' }).format(new Date());
+
+            this.updateContext({ timezone: customerTimezone ? customerTimezone.replace(/_/g, ' ') : '—' });
+
+            alert([
+                `Customer Timezone: ${customerTimezone ? customerTimezone.replace(/_/g, ' ') : 'Unknown'}`,
+                `Customer Time: ${customerTime}`,
+                `Your Timezone: ${userTimezone}`,
+                `Your Time: ${userTime}`
+            ].join('\n'));
         } catch (error) {
-            console.error('[EXL] FlexipagePanelInjector: Timezone detection error', error);
+            console.error('[EXL] FlexipagePanelInjector: Timezone lookup error', error);
             this.setStatusMessage('Unable to detect timezone.', 'error');
         } finally {
             this.setButtonState('get-timezone', { loading: false });

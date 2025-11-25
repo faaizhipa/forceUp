@@ -442,8 +442,8 @@ const CaseCommentMemory = {
       return;
     }
 
-    console.warn('[CaseCommentMemory] No visible buttons found, will retry');
-    setTimeout(() => this.findButtonsAndAttachObserver(caseNumber), 1000);
+      console.warn('[CaseCommentMemory] No visible buttons found, will retry');
+      setTimeout(() => this.findButtonsAndAttachObserver(caseNumber), 1000);
   },
 
   findAddNewCommentButton() {

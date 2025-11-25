@@ -1129,7 +1129,7 @@ function handleStatus() {
       let cells = row.querySelectorAll('td span span');
       for (let cell of cells) {
         let cellText = cell.textContent.trim();
-        if (cellText === "New Email Received" || cellText === "Re-opened" || cellText === "Reopened" || cellText === "Completed by Resolver Group" || cellText === "New" || cellText === "Update Received") {
+        if (cellText === "New Email Received" || cellText === "Re-opened" || cellText === "Reopened" || cellText === "Completed by Resolver Group" || cellText === "New" || cellText === "Update Received" || cellText === "Open") {
           cell.setAttribute("style", generateStyle("rgb(191, 39, 75)"));
           // Style the 3rd ancestor div element
           const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
@@ -1137,7 +1137,7 @@ function handleStatus() {
             thirdAncestor.style.overflow = 'visible';
           }
         } else if (cellText === "Pending Action" || cellText === "Initial Response Sent" || cellText === "In Progress") {
-          cell.setAttribute("style", generateStyle("rgb(247, 114, 56)"));
+          cell.setAttribute("style", generateStyle("rgb(166, 81, 2)"));
           // Style the 3rd ancestor div element
           const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
           if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
@@ -1257,10 +1257,27 @@ const urlObserver = new MutationObserver(() => {
 });
 
 // Start observing for URL changes
-urlObserver.observe(document.body, {
-  childList: true,
-  subtree: true
-});
+// Use document.body if available, otherwise use document.documentElement
+const targetNode = document.body || document.documentElement;
+if (targetNode) {
+  urlObserver.observe(targetNode, {
+    childList: true,
+    subtree: true
+  });
+} else {
+  // If neither is available, wait for DOM to be ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      const node = document.body || document.documentElement;
+      if (node) {
+        urlObserver.observe(node, {
+          childList: true,
+          subtree: true
+        });
+      }
+    });
+  }
+}
 
 // Also listen to popstate event for back/forward navigation
 window.addEventListener('popstate', () => {

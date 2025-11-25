@@ -20,7 +20,8 @@ const PageContextValidator = {
     }
     
     // Extract case ID from URL (most reliable)
-    const caseIdMatch = currentURL.match(/\/Case\/([a-zA-Z0-9]{15,18})\//);
+    // Support both case detail page (/Case/[ID]/view) and case comments page (/Case/[ID]/related/CaseComments/view)
+    const caseIdMatch = currentURL.match(/\/Case\/([a-zA-Z0-9]{15,18})(?:\/|$)/);
     if (!caseIdMatch) {
       return null;
     }
@@ -29,8 +30,24 @@ const PageContextValidator = {
     
     // Extract case number from title
     // Format: "00001026 | Case | Salesforce" or "00001026 - Subject | Case | Salesforce"
+    // On case comments page: "00001026 | Case Comments | Case | Salesforce" or similar
     const titleParts = pageTitle.split(' | ');
-    if (titleParts[1] !== 'Case') {
+    
+    // Check if title contains "Case" (could be "Case" or "Case Comments" or other case-related pages)
+    const hasCaseInTitle = titleParts.some(part => part.trim() === 'Case' || part.trim().includes('Case'));
+    if (!hasCaseInTitle) {
+      // Try to extract case number directly from title even if format is different
+      const caseNumberMatch = pageTitle.match(/^(\d{6,10})/);
+      if (caseNumberMatch) {
+        const caseNumber = caseNumberMatch[1];
+        return {
+          caseId,
+          caseNumber,
+          caseTitle: pageTitle,
+          url: currentURL,
+          title: pageTitle
+        };
+      }
       return null;
     }
     
@@ -47,6 +64,34 @@ const PageContextValidator = {
         caseId,
         caseNumber,
         caseTitle,
+        url: currentURL,
+        title: pageTitle
+      };
+    }
+    
+    // If we have case ID but no case number from title, try to extract from URL or other sources
+    if (caseId) {
+      // Try extracting from breadcrumbs or other page elements as fallback
+      const breadcrumbLinks = document.querySelectorAll('nav[role="navigation"] a, .breadcrumb a');
+      for (const link of breadcrumbLinks) {
+        const linkText = link.textContent.trim();
+        if (/^\d{6,10}$/.test(linkText)) {
+          return {
+            caseId,
+            caseNumber: linkText,
+            caseTitle: pageTitle,
+            url: currentURL,
+            title: pageTitle
+          };
+        }
+      }
+      
+      // Last resort: return context with case ID only (case number will be null)
+      // This allows validation to proceed for case comments pages where title format may differ
+      return {
+        caseId,
+        caseNumber: null, // Will be extracted later if needed
+        caseTitle: pageTitle,
         url: currentURL,
         title: pageTitle
       };
@@ -228,65 +273,14 @@ const PageContextValidator = {
     if (dataCaseNumber && dataCaseNumber !== currentContext.caseNumber) {
       // Case IDs match but case numbers don't - this means data is stale
       // The current page already shows a different case number, which is authoritative
-      // We should reject the stale data immediately to allow fresh extraction
+      // Reject immediately - current page case number is the source of truth
+      console.warn(`[PageContextValidator] Case number mismatch detected - rejecting stale data immediately`);
+      console.warn(`[PageContextValidator] Current page: ${currentContext.caseNumber}, Data: ${dataCaseNumber}`);
+      console.warn(`[PageContextValidator] Current page case number is authoritative - data is stale`);
       
-      if (waitForTitle && dataCaseId === currentContext.caseId) {
-        // Brief wait to ensure current page's case number is stable (not still updating)
-        // But we check against CURRENT case number, not stale data's case number
-        console.log(`[PageContextValidator] Case number mismatch: current page shows ${currentContext.caseNumber}, data shows ${dataCaseNumber}`);
-        console.log(`[PageContextValidator] Checking if current page case number is stable...`);
-        
-        // Wait briefly to confirm current page's case number is stable
-        return this.waitForTitleStabilize(currentContext.caseNumber, 300).then((stabilizedContext) => {
-          if (!stabilizedContext) {
-            // Title became invalid
-            return {
-              valid: false,
-              reason: 'Title invalid during stabilization check',
-              currentContext: null
-            };
-          }
-          
-          // If stabilized context matches current, the current page case number is stable
-          if (stabilizedContext.caseNumber === currentContext.caseNumber && 
-              stabilizedContext.caseId === currentContext.caseId) {
-            // Current page case number is stable and different from data - data is stale
-            console.warn(`[PageContextValidator] Current page case number ${stabilizedContext.caseNumber} is stable. Data showing ${dataCaseNumber} is stale. Rejecting.`);
-            return {
-              valid: false,
-              reason: `Case number mismatch: data=${dataCaseNumber}, current=${stabilizedContext.caseNumber} (stable)`,
-              currentContext: stabilizedContext
-            };
-          }
-          
-          // Title changed during stabilization - might have navigated to a different page
-          // Check if it now matches the data
-          if (stabilizedContext.caseNumber === dataCaseNumber && 
-              stabilizedContext.caseId === dataCaseId) {
-            // Title changed to match data - data is now valid
-            console.log(`[PageContextValidator] Title changed to match data case number ${dataCaseNumber}`);
-            return {
-              valid: true,
-              reason: 'Context validated after title change',
-              currentContext: stabilizedContext
-            };
-          }
-          
-          // Title changed but still doesn't match - reject
-          console.warn(`[PageContextValidator] Title changed but case number still doesn't match: data=${dataCaseNumber}, current=${stabilizedContext.caseNumber}`);
-          return {
-            valid: false,
-            reason: `Case number mismatch: data=${dataCaseNumber}, current=${stabilizedContext.caseNumber}`,
-            currentContext: stabilizedContext
-          };
-        });
-      }
-      
-      // Case numbers don't match - reject immediately
-      console.warn(`[PageContextValidator] Case number mismatch: data=${dataCaseNumber}, current=${currentContext.caseNumber}`);
       return {
         valid: false,
-        reason: `Case number mismatch: ${dataCaseNumber} !== ${currentContext.caseNumber}`,
+        reason: `Case number mismatch: data=${dataCaseNumber}, current=${currentContext.caseNumber}`,
         currentContext
       };
     }
@@ -351,7 +345,8 @@ const PageContextValidator = {
    * @returns {string|null}
    */
   getCaseIdFromUrl() {
-    const match = window.location.pathname.match(/\/Case\/([a-zA-Z0-9]{15,18})\//);
+    // Support both case detail page and case comments page
+    const match = window.location.pathname.match(/\/Case\/([a-zA-Z0-9]{15,18})(?:\/|$)/);
     return match ? match[1] : null;
   },
 

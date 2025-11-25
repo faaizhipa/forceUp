@@ -23,7 +23,7 @@ const NavigationObserver = {
      */
     start() {
         if (this.isRunning) {
-            console.warn('[EXL] NavigationObserver: Already running');
+            // Already initialized - this is expected when multiple modules try to start it
             return;
         }
 
@@ -177,7 +177,8 @@ const NavigationObserver = {
         clearTimeout(this.debounceTimer);
 
         this.debounceTimer = setTimeout(() => {
-            const context = {
+            // Create a fresh context object for each callback to avoid mutation issues
+            const baseContext = {
                 url: this.currentUrl,
                 title: this.currentTitle,
                 caseId: this.currentCaseId,
@@ -189,8 +190,10 @@ const NavigationObserver = {
             this.callbacks.forEach((cb, index) => {
                 try {
                     // Support both old signature (url only) and new signature (url, context)
+                    // Create a copy of context for each callback to prevent mutation
                     if (cb.length === 2) {
-                        cb(this.currentUrl, context);
+                        const contextCopy = { ...baseContext };
+                        cb(this.currentUrl, contextCopy);
                     } else {
                         cb(this.currentUrl);
                     }

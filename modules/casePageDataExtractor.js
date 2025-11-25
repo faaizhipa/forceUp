@@ -215,8 +215,24 @@ const CasePageDataExtractor = {
         // Update data with validated identifiers if needed
         if (validation.currentContext) {
           data.caseId = validation.currentContext.caseId;
-          if (validation.currentContext.caseNumber && !data.caseNumber) {
+          // Always use current context's case number (authoritative)
+          if (validation.currentContext.caseNumber) {
             data.caseNumber = validation.currentContext.caseNumber;
+            
+            // If case number changed, re-extract subject from the visible header
+            // to ensure it matches the current case number
+            if (data.caseNumber !== contextCaseNumber) {
+              console.log('[CasePageDataExtractor] Case number validated, re-extracting subject to ensure match');
+              const headerData = this.extractCaseNumberAndSubjectFromVisibleHeader();
+              if (headerData.caseNumber === data.caseNumber && headerData.subject) {
+                data.subject = headerData.subject;
+                console.log('[CasePageDataExtractor] Re-extracted subject from visible header:', data.subject);
+              } else {
+                // Clear subject if we can't get it from the matching header
+                console.warn('[CasePageDataExtractor] Could not extract matching subject, clearing to prevent stale data');
+                data.subject = null;
+              }
+            }
           }
         }
       }
@@ -482,8 +498,65 @@ const CasePageDataExtractor = {
   },
 
   /**
+   * Extract case number and subject atomically from the same visible header element
+   * Ensures they match and come from the currently visible case
+   * @returns {Object} - { caseNumber: string|null, subject: string|null, headerText: string|null }
+   */
+  extractCaseNumberAndSubjectFromVisibleHeader() {
+    // Get the visible header element once
+    let headerText = null;
+    let headerElement = null;
+    
+    if (typeof CaseDomUtils !== 'undefined') {
+      headerText = CaseDomUtils.getVisibleCaseHeaderText();
+      headerElement = CaseDomUtils.getVisibleCaseHeaderElement();
+    }
+    
+    // Fallback if CaseDomUtils not available
+    if (!headerText && typeof CaseDomUtils !== 'undefined' && typeof CaseDomUtils.getVisibleHighlightsContainer === 'function') {
+      const container = CaseDomUtils.getVisibleHighlightsContainer();
+      if (container) {
+        const headerSelector = '.slds-page-header__title lightning-formatted-text';
+        headerElement = container.querySelector(headerSelector);
+        if (headerElement && (typeof CaseDomUtils === 'undefined' || !CaseDomUtils.isElementVisible || CaseDomUtils.isElementVisible(headerElement))) {
+          headerText = (headerElement.textContent || '').trim();
+        }
+      }
+    }
+    
+    // Extract case number and subject from the same header text
+    let caseNumber = null;
+    let subject = null;
+    
+    if (headerText) {
+      // Extract case number (6+ digits at start)
+      const numberMatch = headerText.match(/^([0-9]{6,})/);
+      caseNumber = numberMatch ? numberMatch[1] : null;
+      
+      // Extract subject (everything after " - ")
+      const parts = headerText.split(' - ');
+      if (parts.length > 1) {
+        subject = parts.slice(1).join(' - ').trim() || null;
+      }
+    }
+    
+    // Validate that we got both from the same element
+    if (caseNumber && !subject && headerText) {
+      // Case number found but no subject separator - might be just the number
+      console.warn('[CasePageDataExtractor] Found case number but no subject in header:', headerText);
+    }
+    
+    return {
+      caseNumber,
+      subject,
+      headerText
+    };
+  },
+
+  /**
    * Extract all case data fields from DOM
    * Original DOM-based extraction method (now used as fallback)
+   * Ensures case number and subject come from the same visible header element
    * @param {Object} contextSnapshot - Optional context snapshot
    * @returns {Object} - Extracted case data
    */
@@ -492,13 +565,16 @@ const CasePageDataExtractor = {
       ? CaseContextWatcher.getCurrentContext?.()
       : null);
     const contextCaseId = snapshot?.caseId || this.currentCaseId;
-    const contextCaseNumber = snapshot?.caseNumber || null;
+    
+    // Extract case number and subject atomically from visible header
+    const headerData = this.extractCaseNumberAndSubjectFromVisibleHeader();
+    const contextCaseNumber = snapshot?.caseNumber || headerData.caseNumber || null;
 
     const data = {
-      // Basic case info
+      // Basic case info - use atomically extracted values
       caseId: contextCaseId,
-      caseNumber: contextCaseNumber || this.getCaseNumber(),
-      subject: this.getSubject(),
+      caseNumber: contextCaseNumber,
+      subject: headerData.subject || this.getSubject(), // Fallback to getSubject() if header extraction didn't find subject
       description: this.getDescription(),
 
       // Contact and Account
@@ -1172,9 +1248,24 @@ const CasePageDataExtractor = {
     this.extractionQueue = [];
     this.currentExtractionToken = null;
 
+    // Clear CaseDataStore
     if (typeof CaseDataStore !== 'undefined') {
       CaseDataStore.clear(`casepage-cleanup:${reason}`);
     }
+    
+    // Clear cached data in window.ExLibrisExtension to prevent stale data
+    if (window.ExLibrisExtension) {
+      if (window.ExLibrisExtension.caseToolkit) {
+        window.ExLibrisExtension.caseToolkit.caseData = null;
+      }
+      window.ExLibrisExtension.apiCaseData = null;
+      window.ExLibrisExtension.apiCaseDataTimestamp = null;
+      if (reason === 'case-switch' || reason === 'context-switch') {
+        window.ExLibrisExtension.currentCaseId = null;
+      }
+    }
+    
+    console.log(`[CasePageDataExtractor] Cleanup completed: ${reason}`);
   },
 
   /**

@@ -1067,6 +1067,476 @@ function updateBannerActivationUI(enabled) {
   }
 }
 
+/**
+ * Load highlighter banner activation UI
+ * Shows current URL dismissal status and allows reactivation
+ */
+async function loadHighlighterBannerActivationUI() {
+  const urlEl = document.getElementById('highlighter-banner-url');
+  const statusEl = document.getElementById('highlighter-banner-status');
+  const toggleBtn = document.getElementById('toggle-highlighter-banner-btn');
+
+  if (!urlEl || !statusEl || !toggleBtn) {
+    console.warn('[Popup] Highlighter banner UI elements not found');
+    return;
+  }
+
+  try {
+    const activeTab = await getActiveTabURL();
+    const currentUrl = activeTab.url || '';
+
+    // Display URL (truncated if too long)
+    if (currentUrl.length > 60) {
+      urlEl.textContent = currentUrl.substring(0, 57) + '...';
+      urlEl.title = currentUrl; // Full URL on hover
+    } else {
+      urlEl.textContent = currentUrl || 'N/A';
+      urlEl.title = currentUrl || '';
+    }
+
+    // Check if banner should be shown (using new logic)
+    // We need to check: default domains, whitelist, and dismissals
+    const isDefaultDomain = await new Promise((resolve) => {
+      try {
+        const hostname = new URL(currentUrl).hostname.toLowerCase().replace(/^www\./, '');
+        const defaultDomains = [
+          'support.clarivate.com',
+          'developers.exlibrisgroup.com',
+          'knowledge.exlibrisgroup.com',
+          'wiki.clarivate.io'
+        ];
+        resolve(defaultDomains.some(domain => {
+          const checkDomain = domain.toLowerCase().replace(/^www\./, '');
+          return hostname === checkDomain || hostname.endsWith('.' + checkDomain);
+        }));
+      } catch (e) {
+        resolve(false);
+      }
+    });
+
+    const isInWhitelist = await new Promise((resolve) => {
+      chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
+        const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
+        try {
+          const urlObj = new URL(currentUrl);
+          const hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
+          const urlPath = urlObj.href;
+          
+          if (whitelist.urls.includes(urlPath)) {
+            resolve(true);
+            return;
+          }
+          
+          if (whitelist.domains.some(domain => {
+            const checkDomain = domain.toLowerCase().replace(/^www\./, '');
+            return hostname === checkDomain || hostname.endsWith('.' + checkDomain);
+          })) {
+            resolve(true);
+            return;
+          }
+          
+          resolve(false);
+        } catch (e) {
+          resolve(false);
+        }
+      });
+    });
+
+    // Check if dismissed
+    const domain = new URL(currentUrl).hostname.toLowerCase().replace(/^www\./, '');
+    const isDismissed = await new Promise((resolve) => {
+      chrome.storage.local.get(['exl_hl_banner_dismissals', 'exl_hl_banner_page_dismissals'], (result) => {
+        const dismissals = result.exl_hl_banner_dismissals || {};
+        const pageDismissals = result.exl_hl_banner_page_dismissals || {};
+        
+        // Check URL dismissal
+        if (pageDismissals[currentUrl]) {
+          resolve(true);
+          return;
+        }
+        
+        // Check domain dismissal
+        if (dismissals[domain] && dismissals[domain].dismissed) {
+          resolve(true);
+          return;
+        }
+        
+        resolve(false);
+      });
+    });
+
+    // Banner should show if: (isDefault OR inWhitelist) AND not dismissed
+    const shouldShow = (isDefaultDomain || isInWhitelist) && !isDismissed;
+
+    // Update UI based on status
+    updateHighlighterBannerUI(shouldShow);
+
+    // Attach toggle button handler
+    toggleBtn.onclick = async () => {
+      const showBanner = !shouldShow; // Toggle: if not showing, show it; if showing, hide it
+
+      try {
+        // Send message to content script to toggle banner
+        chrome.tabs.sendMessage(activeTab.id, {
+          action: 'toggleBanner',
+          url: currentUrl,
+          show: showBanner
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[Popup] Could not send message to highlighter content script:', chrome.runtime.lastError);
+            // Still update storage even if message fails
+            if (showBanner) {
+              // Clear dismissals to show banner
+              await clearBannerDismissals(domain, currentUrl);
+              updateHighlighterBannerUI(true);
+            } else {
+              // Dismiss banner
+              await dismissBannerInPopup(domain, currentUrl);
+              updateHighlighterBannerUI(false);
+            }
+            showSuccess(showBanner ? 'Banner will be shown when you navigate or refresh' : 'Banner will be hidden when you navigate or refresh');
+            return;
+          }
+          
+          if (response && response.success) {
+            if (showBanner) {
+              // Clear dismissals
+              clearBannerDismissals(domain, currentUrl);
+            } else {
+              // Dismiss banner
+              dismissBannerInPopup(domain, currentUrl);
+            }
+            updateHighlighterBannerUI(showBanner);
+            showSuccess(showBanner ? 'Banner restored!' : 'Banner hidden');
+          }
+        });
+      } catch (error) {
+        console.error('[Popup] Error toggling highlighter banner:', error);
+        showSuccess('Error: ' + error.message);
+      }
+    };
+
+  } catch (error) {
+    console.error('[Popup] Error loading highlighter banner activation UI:', error);
+    if (urlEl) urlEl.textContent = 'Error';
+    if (statusEl) {
+      statusEl.textContent = '●Error';
+      statusEl.className = 'status-badge status-inactive';
+    }
+    if (toggleBtn) toggleBtn.disabled = true;
+  }
+}
+
+/**
+ * Update highlighter banner activation UI elements
+ * @param {boolean} visible - Whether banner is visible (not dismissed)
+ */
+function updateHighlighterBannerUI(visible) {
+  const statusEl = document.getElementById('highlighter-banner-status');
+  const toggleBtn = document.getElementById('toggle-highlighter-banner-btn');
+
+  if (!statusEl || !toggleBtn) return;
+
+  if (visible) {
+    statusEl.textContent = '●Visible';
+    statusEl.className = 'status-badge status-active';
+    toggleBtn.textContent = 'Hide Banner';
+    toggleBtn.setAttribute('data-enabled', 'true');
+  } else {
+    statusEl.textContent = '●Hidden';
+    statusEl.className = 'status-badge status-inactive';
+    toggleBtn.textContent = 'Show Banner';
+    toggleBtn.setAttribute('data-enabled', 'false');
+  }
+}
+
+/**
+ * Load and display banner whitelist UI
+ */
+async function loadBannerWhitelistUI() {
+  const listContainer = document.getElementById('whitelistedSitesList');
+  const addBtn = document.getElementById('addSiteBtn');
+  const addCurrentBtn = document.getElementById('addCurrentSiteBtn');
+  const addInput = document.getElementById('addSiteInput');
+  const addTypeSelect = document.getElementById('addSiteType');
+
+  if (!listContainer || !addBtn || !addCurrentBtn || !addInput || !addTypeSelect) {
+    console.warn('[Popup] Banner whitelist UI elements not found');
+    return;
+  }
+
+  // Load and render whitelist
+  await renderBannerWhitelist();
+
+  // Add site button handler
+  addBtn.addEventListener('click', async () => {
+    const value = addInput.value.trim();
+    const type = addTypeSelect.value;
+
+    if (!value) {
+      showSuccess('Please enter a domain or URL');
+      return;
+    }
+
+    // Validate and add
+    const success = await addToBannerWhitelist(type, value);
+    if (success) {
+      addInput.value = '';
+      await renderBannerWhitelist();
+      showSuccess(`Added ${type}: ${value}`);
+    } else {
+      showSuccess('Error adding site');
+    }
+  });
+
+  // Add current site button handler
+  addCurrentBtn.addEventListener('click', async () => {
+    try {
+      const activeTab = await getActiveTabURL();
+      const currentUrl = activeTab.url || '';
+
+      if (!currentUrl) {
+        showSuccess('Could not get current URL');
+        return;
+      }
+
+      // Ask user if they want to add as domain or URL
+      const choice = confirm(
+        `Add current site?\n\n` +
+        `OK = Add as Domain (all pages on ${new URL(currentUrl).hostname})\n` +
+        `Cancel = Add as URL (only this page)`
+      );
+
+      const type = choice ? 'domain' : 'url';
+      const value = choice ? new URL(currentUrl).hostname.replace(/^www\./, '') : currentUrl;
+
+      const success = await addToBannerWhitelist(type, value);
+      if (success) {
+        await renderBannerWhitelist();
+        showSuccess(`Added current site as ${type}`);
+      } else {
+        showSuccess('Error adding current site');
+      }
+    } catch (error) {
+      console.error('[Popup] Error adding current site:', error);
+      showSuccess('Error: ' + error.message);
+    }
+  });
+
+  // Allow Enter key to add
+  addInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      addBtn.click();
+    }
+  });
+}
+
+/**
+ * Render banner whitelist
+ */
+async function renderBannerWhitelist() {
+  const listContainer = document.getElementById('whitelistedSitesList');
+  if (!listContainer) return;
+
+  try {
+    const whitelist = await new Promise((resolve) => {
+      chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
+        resolve(result.exl_hl_banner_whitelist || { domains: [], urls: [] });
+      });
+    });
+
+    if (whitelist.domains.length === 0 && whitelist.urls.length === 0) {
+      listContainer.innerHTML = '<p class="info-text" style="font-size: 11px; margin: 0;">No sites added yet. Add domains or URLs to enable the banner on those sites.</p>';
+      return;
+    }
+
+    let html = '';
+
+    // Render domains
+    if (whitelist.domains.length > 0) {
+      html += '<div style="margin-bottom: 12px;"><strong style="font-size: 12px; color: rgba(255,255,255,0.9);">Domains:</strong>';
+      whitelist.domains.forEach(domain => {
+        html += `
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; margin-top: 6px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+            <span style="font-size: 11px; font-family: monospace; color: rgba(255,255,255,0.9);">${domain}</span>
+            <button class="button-small" data-type="domain" data-value="${domain}" style="padding: 4px 8px; font-size: 11px;">Remove</button>
+          </div>
+        `;
+      });
+      html += '</div>';
+    }
+
+    // Render URLs
+    if (whitelist.urls.length > 0) {
+      html += '<div><strong style="font-size: 12px; color: rgba(255,255,255,0.9);">URLs:</strong>';
+      whitelist.urls.forEach(url => {
+        const displayUrl = url.length > 60 ? url.substring(0, 57) + '...' : url;
+        html += `
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; margin-top: 6px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+            <span style="font-size: 11px; font-family: monospace; color: rgba(255,255,255,0.9);" title="${url}">${displayUrl}</span>
+            <button class="button-small" data-type="url" data-value="${url}" style="padding: 4px 8px; font-size: 11px;">Remove</button>
+          </div>
+        `;
+      });
+      html += '</div>';
+    }
+
+    listContainer.innerHTML = html;
+
+    // Attach remove handlers
+    listContainer.querySelectorAll('button[data-type]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const type = btn.dataset.type;
+        const value = btn.dataset.value;
+        
+        const success = await removeFromBannerWhitelist(type, value);
+        if (success) {
+          await renderBannerWhitelist();
+          showSuccess(`Removed ${type}: ${value}`);
+        } else {
+          showSuccess('Error removing site');
+        }
+      });
+    });
+  } catch (error) {
+    console.error('[Popup] Error rendering whitelist:', error);
+    listContainer.innerHTML = '<p class="info-text" style="font-size: 11px; margin: 0; color: rgba(255,0,0,0.7);">Error loading whitelist</p>';
+  }
+}
+
+/**
+ * Add site to banner whitelist
+ * @param {string} type - 'domain' or 'url'
+ * @param {string} value - Domain or URL to add
+ * @returns {Promise<boolean>} True if successful
+ */
+async function addToBannerWhitelist(type, value) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
+      const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
+      
+      try {
+        if (type === 'domain') {
+          const domain = value.toLowerCase().replace(/^www\./, '').replace(/^https?:\/\//, '').split('/')[0];
+          if (!domain) {
+            resolve(false);
+            return;
+          }
+          if (!whitelist.domains.includes(domain)) {
+            whitelist.domains.push(domain);
+          }
+        } else if (type === 'url') {
+          let url = value.trim();
+          // Ensure URL has protocol
+          if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            url = 'https://' + url;
+          }
+          try {
+            new URL(url); // Validate URL
+            if (!whitelist.urls.includes(url)) {
+              whitelist.urls.push(url);
+            }
+          } catch (e) {
+            resolve(false); // Invalid URL
+            return;
+          }
+        }
+        
+        chrome.storage.local.set({ exl_hl_banner_whitelist: whitelist }, () => {
+          resolve(true);
+        });
+      } catch (error) {
+        console.error('[Popup] Error adding to whitelist:', error);
+        resolve(false);
+      }
+    });
+  });
+}
+
+/**
+ * Remove site from banner whitelist
+ * @param {string} type - 'domain' or 'url'
+ * @param {string} value - Domain or URL to remove
+ * @returns {Promise<boolean>} True if successful
+ */
+async function removeFromBannerWhitelist(type, value) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
+      const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
+      
+      try {
+        if (type === 'domain') {
+          whitelist.domains = whitelist.domains.filter(d => d !== value);
+        } else if (type === 'url') {
+          whitelist.urls = whitelist.urls.filter(u => u !== value);
+        }
+        
+        chrome.storage.local.set({ exl_hl_banner_whitelist: whitelist }, () => {
+          resolve(true);
+        });
+      } catch (error) {
+        console.error('[Popup] Error removing from whitelist:', error);
+        resolve(false);
+      }
+    });
+  });
+}
+
+/**
+ * Clear banner dismissals (reactivate banner)
+ * @param {string} domain - Domain
+ * @param {string} url - Full URL
+ */
+async function clearBannerDismissals(domain, url) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['exl_hl_banner_page_dismissals', 'exl_hl_banner_dismissals'], (result) => {
+      const pageDismissals = result.exl_hl_banner_page_dismissals || {};
+      const dismissals = result.exl_hl_banner_dismissals || {};
+      
+      // Remove URL dismissal
+      delete pageDismissals[url];
+      
+      // Remove domain permanent dismissal
+      if (dismissals[domain]) {
+        dismissals[domain].dismissed = false;
+        dismissals[domain].count = 0;
+        dismissals[domain].modalShown = false;
+      }
+      
+      chrome.storage.local.set({
+        exl_hl_banner_page_dismissals: pageDismissals,
+        exl_hl_banner_dismissals: dismissals
+      }, () => {
+        resolve();
+      });
+    });
+  });
+}
+
+/**
+ * Dismiss banner (for popup toggle)
+ * @param {string} domain - Domain
+ * @param {string} url - Full URL
+ */
+async function dismissBannerInPopup(domain, url) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['exl_hl_banner_dismissals'], (result) => {
+      const dismissals = result.exl_hl_banner_dismissals || {};
+      
+      if (!dismissals[domain]) {
+        dismissals[domain] = {};
+      }
+      
+      dismissals[domain].dismissed = true;
+      dismissals[domain].count = 0;
+      
+      chrome.storage.local.set({ exl_hl_banner_dismissals: dismissals }, () => {
+        resolve();
+      });
+    });
+  });
+}
+
 // Initialize on load
 document.addEventListener("DOMContentLoaded", async () => {
   const activeTab = await getActiveTabURL();
@@ -1089,6 +1559,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   
   // Load banner activation UI
   await loadBannerActivationUI();
+  
+  // Load highlighter banner activation UI
+  await loadHighlighterBannerActivationUI();
+  
+  // Load banner whitelist management UI
+  await loadBannerWhitelistUI();
   
   // Setup storage change listener for cross-tab synchronization
   chrome.storage.onChanged.addListener(async (changes, areaName) => {

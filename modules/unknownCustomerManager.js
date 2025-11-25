@@ -35,13 +35,13 @@ const UnknownCustomerManager = {
      * Check for unknown customers pending review
      */
     async checkPendingReviews() {
-        if (typeof TimezoneStorage === 'undefined') {
-            console.warn('[UnknownCustomerManager] TimezoneStorage not loaded');
+        if (typeof CustomerTimezoneLookup === 'undefined') {
+            console.warn('[UnknownCustomerManager] CustomerTimezoneLookup not loaded');
             return;
         }
 
         try {
-            const result = await TimezoneStorage.checkUnknownCustomers();
+            const result = await CustomerTimezoneLookup.checkUnknownCustomers();
             
             if (result.hasUnknown) {
                 this.pendingReviews = result.customers;
@@ -252,8 +252,8 @@ const UnknownCustomerManager = {
             }
 
             // Save to storage
-            if (typeof TimezoneStorage !== 'undefined') {
-                await TimezoneStorage.promoteUnknownCustomer(newCustomer);
+        if (typeof CustomerTimezoneLookup !== 'undefined') {
+            await CustomerTimezoneLookup.promoteUnknownCustomer(newCustomer);
             }
 
             // Optionally add to CustomerDataManager (if it supports adding customers)

@@ -79,12 +79,12 @@
         console.warn('[ExLibris Extension] CustomerDataManager not loaded');
       }
 
-      // Initialize InstitutionTimezoneManager
-      if (typeof InstitutionTimezoneManager !== 'undefined') {
-        await InstitutionTimezoneManager.init();
-        console.log('[ExLibris Extension] InstitutionTimezoneManager initialized');
+      // Initialize CustomerTimezoneLookup
+      if (typeof CustomerTimezoneLookup !== 'undefined') {
+        await CustomerTimezoneLookup.init();
+        console.log('[ExLibris Extension] CustomerTimezoneLookup initialized');
       } else {
-        console.warn('[ExLibris Extension] InstitutionTimezoneManager not loaded');
+        console.warn('[ExLibris Extension] CustomerTimezoneLookup not loaded');
       }
 
       // Initialize NavigationObserver for SPA navigation
@@ -153,12 +153,6 @@
       if (typeof UserPreferences !== 'undefined') {
         const userPrefs = await UserPreferences.load();
         console.log('[ExLibris Extension] UserPreferences initialized');
-
-        // Initialize TimezoneUtils with user preferences
-        if (typeof TimezoneUtils !== 'undefined') {
-          await TimezoneUtils.init(userPrefs);
-          console.log('[ExLibris Extension] TimezoneUtils initialized');
-        }
 
         // Check if configuration warning banner should be shown
         if (typeof ConfigurationWarningBanner !== 'undefined') {
@@ -390,11 +384,6 @@
       const caseData = await this.getCaseData(this.currentCaseId);
       if (!caseData) {
         console.warn('[ExLibris Extension] Could not extract case data');
-        if (typeof FlexipagePanelInjector !== 'undefined') {
-          FlexipagePanelInjector.setPreparationState('error', {
-            message: 'Unable to gather case data. Reload the page and try again.'
-          });
-        }
         return;
       }
 
@@ -410,24 +399,6 @@
           status: caseData.status,
           subStatus: caseData.subStatus
         });
-      }
-
-      if (typeof FlexipagePanelInjector !== 'undefined') {
-        FlexipagePanelInjector.updateContext({
-          caseNumber: caseData.caseNumber,
-          subject: caseData.subject,
-          status: caseData.status,
-          subStatus: caseData.subStatus,
-          category: caseData.category,
-          subCategory: caseData.subCategory,
-          analysisNote: caseData.analysisNote,
-          customerId: caseData.custID,
-          institutionId: caseData.instID,
-          server: caseData.server,
-          timezone: resolvedTimezone || '—'
-        });
-        FlexipagePanelInjector.setCaseSummary(caseData);
-        FlexipagePanelInjector.setSlot2Message('Prepare tools to populate the reference workspace.');
       }
 
       // Initialize case comment memory (handles its own initialization via URL monitoring)
@@ -446,10 +417,6 @@
         MultiTabSync.init(this.currentCaseId);
         console.log('[ExLibris Extension] MultiTabSync initialized');
       }
-
-      // NOTE: CaseTimezoneResolver is now initialized from the banner button
-      // after panel injection is complete, not on page load
-      console.log('[ExLibris Extension] CaseTimezoneResolver will be initialized when panel is injected via banner');
 
       console.log('[ExLibris Extension] Case page features initialized');
     },
@@ -675,156 +642,6 @@
       }
     },
 
-    /**
-     * Handle panel actions registered through FlexipagePanelInjector
-     * @param {string} action
-     * @returns {Promise<boolean>} true if handled
-     */
-    async handlePanelAction(action) {
-      switch (action) {
-        case 'prepare-tools':
-          return this.handlePrepareToolsAction();
-        case 'enable-full':
-          return this.handleEnableFullAction();
-        default:
-          return false;
-      }
-    },
-
-    /**
-     * Execute the Prepare Tools workflow for staged enablement
-     * @returns {Promise<boolean>}
-     */
-    async handlePrepareToolsAction() {
-      if (typeof FlexipagePanelInjector === 'undefined') {
-        return true;
-      }
-
-      if (this.caseToolkit.prepared) {
-        FlexipagePanelInjector.setPreparationState('ready', {
-          message: 'Toolkit already prepared. Use Enable Full Feature to view the workspace.'
-        });
-        return true;
-      }
-
-      const menuConfig = this.caseToolkit.menuConfig || {};
-      const timezonePreference = this.resolveActiveTimezone(menuConfig.timezone);
-      const originalScrollTop = window.pageYOffset || document.documentElement.scrollTop || 0;
-
-      FlexipagePanelInjector.setPreparationState('working', {
-        message: 'Preparing toolkit...',
-        buttonLabel: 'Preparing...'
-      });
-      FlexipagePanelInjector.setSlot2Message('Preparing toolkit. Scanning the case to load metadata and workspace resources.');
-
-      let caseData = null;
-      let buttonGroups = null;
-      let scrollStats = null;
-
-      try {
-        const hasScrollController = typeof ScrollController !== 'undefined' && typeof ScrollController.ensureFullPageLoad === 'function';
-        if (hasScrollController) {
-          FlexipagePanelInjector.setStatusMessage('Preparing toolkit. Scrolling through the case to load all sections.', 'warning');
-          scrollStats = await ScrollController.ensureFullPageLoad();
-        } else {
-          console.warn('[ExLibris Extension] ScrollController module not available; skipping automated scroll.');
-        }
-
-        FlexipagePanelInjector.setStatusMessage('Preparing toolkit. Extracting updated case data.', 'warning');
-        caseData = await this.getCaseData(this.currentCaseId, { forceRefresh: true });
-
-        if (!caseData) {
-          throw new Error('Missing case data.');
-        }
-
-        if (typeof CaseDataExtractor !== 'undefined' && typeof CaseDataExtractor.getInitialMetadata === 'function') {
-          const freshMetadata = CaseDataExtractor.getInitialMetadata();
-          if (freshMetadata) {
-            this.caseToolkit.metadata = freshMetadata;
-            if (typeof FlexipagePanelInjector.setInitialMetadata === 'function') {
-              FlexipagePanelInjector.setInitialMetadata(freshMetadata);
-            }
-          }
-        }
-
-        const canInjectMenu =
-          typeof URLBuilder !== 'undefined' &&
-          typeof DynamicMenu !== 'undefined' &&
-          typeof SettingsManager !== 'undefined' &&
-          SettingsManager.isFeatureEnabled &&
-          SettingsManager.isFeatureEnabled('dynamicMenu');
-
-        if (canInjectMenu) {
-          buttonGroups = URLBuilder.buildAllButtons(
-            caseData,
-            menuConfig.buttonStyle || 'casual',
-            timezonePreference
-          );
-
-          DynamicMenu.setSettings(menuConfig.menuLocations || this.settings.menuLocations);
-          if (buttonGroups) {
-            await DynamicMenu.refresh(buttonGroups, caseData);
-          }
-        } else {
-          console.warn('[ExLibris Extension] Dynamic menu injection skipped (module unavailable or disabled).');
-        }
-
-        const preparedAtDate = new Date();
-
-        this.caseToolkit.caseData = caseData;
-        this.caseToolkit.buttonGroups = buttonGroups;
-        this.caseToolkit.prepared = true;
-        this.caseToolkit.preparedAt = preparedAtDate.toISOString();
-        this.caseToolkit.scrollStats = scrollStats;
-
-        FlexipagePanelInjector.updateContext({
-          category: caseData.category,
-          subCategory: caseData.subCategory,
-          analysisNote: caseData.analysisNote,
-          customerId: caseData.custID,
-          institutionId: caseData.instID,
-          server: caseData.server,
-          timezone: timezonePreference || '—'
-        });
-        FlexipagePanelInjector.setCaseSummary(caseData);
-
-        const preparedDisplay = preparedAtDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-        FlexipagePanelInjector.setSlot2Message(`Toolkit ready. Last prepared at ${preparedDisplay}. Toggle Enable Full Feature to reveal workspace resources.`);
-        FlexipagePanelInjector.setPreparationState('ready', {
-          message: 'Toolkit prepared. Toggle Enable Full Feature to reveal the workspace.'
-        });
-      } catch (error) {
-        console.error('[ExLibris Extension] Prepare Tools action failed.', error);
-        this.caseToolkit.prepared = false;
-        this.caseToolkit.preparedAt = null;
-        this.caseToolkit.scrollStats = null;
-        FlexipagePanelInjector.setPreparationState('error', {
-          message: 'Toolkit preparation failed. Check console for details and try again.'
-        });
-      } finally {
-        window.scrollTo({ top: originalScrollTop, behavior: 'auto' });
-      }
-
-      return true;
-    },
-
-    /**
-     * Gate Enable Full Feature action until preparation completes
-     * @returns {Promise<boolean>} true when handled
-     */
-    async handleEnableFullAction() {
-      if (typeof FlexipagePanelInjector === 'undefined') {
-        return true;
-      }
-
-      if (!this.caseToolkit.prepared) {
-        FlexipagePanelInjector.setStatusMessage('Prepare tools before enabling the full workspace.', 'warning');
-        return true;
-      }
-
-      // Allow default panel handler to toggle Slot 2
-      return false;
-    },
 
     /**
      * Handles messages from popup or background script
@@ -913,10 +730,6 @@
         FieldHighlighter.cleanup();
       }
 
-      // Remove menus
-      if (typeof DynamicMenu !== 'undefined') {
-        DynamicMenu.removeAllMenus();
-      }
 
       // Remove character counter
       if (typeof CharacterCounter !== 'undefined') {
@@ -938,20 +751,12 @@
         MultiTabSync.cleanup();
       }
 
-      // Cleanup FlexipagePanelInjector
-      if (typeof FlexipagePanelInjector !== 'undefined' && FlexipagePanelInjector.teardown) {
-        FlexipagePanelInjector.teardown();
-      }
 
       // NOTE: Do NOT cleanup PersistentBanner here - it should persist across SPA navigation
       // PersistentBanner is only cleaned up when:
       // 1. Feature is disabled (via settings listener)
       // 2. Extension is destroyed (via destroy() method)
 
-      // Cleanup CaseTimezoneResolver
-      if (typeof CaseTimezoneResolver !== 'undefined' && CaseTimezoneResolver.cleanup) {
-        CaseTimezoneResolver.cleanup();
-      }
     },
 
     /**

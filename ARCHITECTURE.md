@@ -565,6 +565,15 @@ No External Dependencies: All vanilla JavaScript
 
 ---
 
+## Timezone Pipeline
+
+- `modules/customerTimezoneLookup.js` loads `instTimezones.dsv`, builds indexes keyed by org code/customer/institution IDs, and keeps user overrides/unknown customers inside `chrome.storage.local`.
+- `CustomerDataManager.init()` awaits that helper and annotates both default and scraped customer lists with `timezone`, `timezoneOrgName`, and `timezoneDbServers`, exposing `getCustomerTimezone()` for downstream modules.
+- `CaseDataExtractor.processData()` calls back into the manager to stamp `customerTimezone`, `customerOrgCode`, etc. onto each case payload so PersistentBanner, DynamicMenu, CaseDetailExtractor, and exports all consume the same metadata.
+- Legacy writers (UnknownCustomerManager and CaseTimezoneResolver) now call `CustomerTimezoneLookup.storeTimezone()` to persist overrides instead of rolling their own cache.
+
+---
+
 ## Error Handling Strategy
 
 ### Module-Level

@@ -108,7 +108,7 @@ const StorageQuotaManager = (function() {
       lastCheckTime = Date.now();
 
       if (typeof Logger !== 'undefined') {
-        Logger.log('[StorageQuotaManager] Breakdown:', breakdown);
+        Logger.info('[StorageQuotaManager] Breakdown:', breakdown);
       }
 
       return breakdown;
@@ -286,7 +286,7 @@ const StorageQuotaManager = (function() {
   async function performAutoCleanup() {
     try {
       if (typeof Logger !== 'undefined') {
-        Logger.log('[StorageQuotaManager] Starting auto-cleanup');
+        Logger.info('[StorageQuotaManager] Starting auto-cleanup');
       }
 
       // Get settings for retention period
@@ -310,7 +310,7 @@ const StorageQuotaManager = (function() {
       if (keysToDelete.length > 0) {
         await chrome.storage.local.remove(keysToDelete);
         if (typeof Logger !== 'undefined') {
-          Logger.log(`[StorageQuotaManager] Cleaned up ${keysToDelete.length} old screenshots`);
+          Logger.info(`[StorageQuotaManager] Cleaned up ${keysToDelete.length} old screenshots`);
         }
         showSuccessToast(`Cleaned up ${keysToDelete.length} old screenshots`);
       }
@@ -371,7 +371,7 @@ const StorageQuotaManager = (function() {
       await chrome.storage.local.remove(storageKey);
       
       if (typeof Logger !== 'undefined') {
-        Logger.log('[StorageQuotaManager] Deleted screenshot:', storageKey);
+        Logger.info('[StorageQuotaManager] Deleted screenshot:', storageKey);
       }
 
       // Force refresh breakdown
@@ -397,7 +397,7 @@ const StorageQuotaManager = (function() {
       await chrome.storage.local.remove(storageKeys);
       
       if (typeof Logger !== 'undefined') {
-        Logger.log(`[StorageQuotaManager] Deleted ${storageKeys.length} screenshots`);
+        Logger.info(`[StorageQuotaManager] Deleted ${storageKeys.length} screenshots`);
       }
 
       // Force refresh breakdown
@@ -541,7 +541,7 @@ const StorageQuotaManager = (function() {
    */
   function init() {
     if (typeof Logger !== 'undefined') {
-      Logger.log('[StorageQuotaManager] Initializing');
+      Logger.info('[StorageQuotaManager] Initializing');
     }
 
     // Check quota on init

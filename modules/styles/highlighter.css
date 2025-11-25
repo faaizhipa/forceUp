@@ -1,26 +1,90 @@
 /**
  * Highlighter & Sticky Notes Stylesheet
  * Uses unique prefix: exl-hl-* to avoid conflicts with host site CSS
- * Inspired by persistentBanner.js styling for consistency
+ * Adapted to match persistentBanner.js styling for consistency
  */
 
+/* ========== PAGE LAYOUT ADJUSTMENT ========== */
+/* These styles ensure page content shifts down to accommodate banner */
+/* Applied early to prevent layout shifts */
+/* NOTE: Fixed header adjustments are handled via JavaScript for better compatibility */
+
+/* Primary strategy: Add padding to body only (not margin to avoid double spacing) */
+/* Only apply when banner is visible - removed when banner is hidden */
+body:not([data-exl-hl-banner-hidden]) {
+  padding-top: 48px !important;
+  margin-top: 0 !important;
+}
+
+/* Ensure body margin-top is removed when banner is hidden */
+body[data-exl-hl-banner-hidden] {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
+
+/* Also ensure html element has no top spacing when banner is hidden */
+html:has(body[data-exl-hl-banner-hidden]) {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Fallback for browsers without :has() support */
+body[data-exl-hl-banner-hidden] ~ * {
+  margin-top: 0 !important;
+}
+
+/* Ensure html element doesn't have conflicting margins */
+html {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Additional fix: ensure no gaps when banner is hidden */
+body[data-exl-hl-banner-hidden] > *:first-child {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Prevent white gaps - handle common first-child margin issues */
+body > *:first-child {
+  margin-top: 0 !important;
+}
+
+/* Prevent white overlay by ensuring body background extends */
+body {
+  background-attachment: fixed !important;
+}
+
+/* Ensure no double spacing from html margin */
+html, body {
+  margin: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* Only apply top padding to body, not html */
+html {
+  padding-top: 0 !important;
+}
+
 /* ========== STICKY BANNER ========== */
+/* Matches persistentBanner design patterns for consistency */
 .exl-hl-banner {
-  position: fixed;
-  top: 0;
+  position: fixed !important;
+  top: 0 !important;
   left: 0;
   right: 0;
+  width: 100%;
+  min-height: 48px !important;
   height: 3rem;
-  background: linear-gradient(135deg, oklch(0.45 0.15 270) 0%, oklch(0.40 0.13 270) 100%);
-  color: oklch(0.99 0 0);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 1.5rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  font-family: 'Salesforce Sans', Arial, sans-serif;
+  font-size: 11px;
+  border-bottom: 1px solid #0070d2;
   z-index: 999999;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 0.875rem;
+  overflow: hidden;
   animation: exl-hl-banner-slide-down 200ms ease-out;
 }
 
@@ -35,52 +99,106 @@
   }
 }
 
-.exl-hl-banner-left {
+/* Container - matches persistent banner pattern */
+.exl-hl-banner .exl-banner-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  max-width: 100%;
+  height: 100%;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Banner sections - matches persistent banner pattern */
+.exl-hl-banner .exl-banner-section {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-shrink: 0;
+  height: 100%;
+  padding: 0 8px;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-hl-banner .exl-banner-section:last-child {
+  border-right: none;
+}
+
+/* Banner label - matches persistent banner pattern */
+.exl-hl-banner .exl-banner-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #a0a0a0;
+  font-weight: 600;
+  white-space: nowrap;
+  margin-right: 4px;
+}
+
+/* Title section - matches persistent banner page type style */
+.exl-hl-banner-title {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 3px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-left: 3px solid #2e844a;
+  white-space: nowrap;
+  color: #ffffff;
+}
+
+/* Legacy left/right structure (for backward compatibility) */
+/* These styles ensure old structure still works while transitioning to section-based */
+.exl-hl-banner-left,
+.exl-hl-banner-right {
   display: flex;
   align-items: center;
   gap: 1rem;
 }
 
-.exl-hl-banner-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  margin: 0;
+.exl-hl-banner-left {
+  flex: 0 0 auto;
 }
 
 .exl-hl-banner-right {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  flex: 1 1 auto;
+  justify-content: flex-end;
 }
 
 /* ========== BUTTONS ========== */
+/* Matches persistentBanner button styling for consistency */
 .exl-hl-btn {
-  background: oklch(0.99 0 0);
-  color: oklch(0.45 0.15 270);
+  background-color: #0070d2;
+  color: #ffffff;
   border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 0.25rem;
-  font-size: 0.875rem;
+  border-radius: 3px;
+  padding: 4px 12px;
+  font-size: 11px;
   font-weight: 500;
-  letter-spacing: -0.005em;
   cursor: pointer;
-  transition: all 150ms ease-out;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  height: 26px;
+  line-height: 1;
   display: inline-flex;
   align-items: center;
-  gap: 0.375rem;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  gap: 4px;
+  font-family: 'Salesforce Sans', Arial, sans-serif;
 }
 
 .exl-hl-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-  filter: brightness(0.97);
+  background-color: #005fb2;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 .exl-hl-btn:active {
+  background-color: #00396b;
   transform: translateY(0);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
 .exl-hl-btn:disabled {
@@ -90,44 +208,48 @@
 }
 
 .exl-hl-btn-secondary {
-  background: rgba(255, 255, 255, 0.2);
-  color: oklch(0.99 0 0);
+  background-color: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
 .exl-hl-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background-color: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 /* ========== COLOR PALETTE ========== */
+/* Updated to work with dark banner background */
 .exl-hl-palette {
   display: flex;
-  gap: 0.5rem;
+  gap: 6px;
   align-items: center;
 }
 
 .exl-hl-color-chip {
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 0.25rem;
-  border: 2px solid transparent;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
   cursor: pointer;
-  transition: all 100ms ease-out;
+  transition: all 0.15s ease;
   position: relative;
 }
 
 .exl-hl-color-chip:hover {
-  transform: scale(1.1);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transform: scale(1.15);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.6);
 }
 
 .exl-hl-color-chip:active {
-  transform: scale(0.95);
+  transform: scale(1.0);
 }
 
 .exl-hl-color-chip.exl-hl-selected {
-  border-color: oklch(0.99 0 0);
-  transform: scale(1.05);
-  box-shadow: 0 0 0 2px oklch(0.45 0.15 270);
+  border-color: #ffffff;
+  transform: scale(1.1);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
 /* ========== LAYER DROPDOWN ========== */
@@ -137,8 +259,10 @@
 }
 
 .exl-hl-layer-btn {
-  padding: 0.5rem 0.875rem;
-  font-size: 0.875rem;
+  /* Inherits from .exl-hl-btn - matches persistentBanner button style */
+  padding: 4px 12px;
+  font-size: 11px;
+  height: 26px;
 }
 
 .exl-hl-layer-dropdown {
@@ -671,34 +795,54 @@
 /* ========== BANNER CLOSE BUTTON ========== */
 .exl-hl-banner-close-btn {
   position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  background: transparent;
-  border: none;
-  color: oklch(0.99 0 0);
-  font-size: 1.5rem;
+  top: 8px;
+  right: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  font-size: 18px;
   line-height: 1;
   cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  transition: all 150ms ease-out;
+  padding: 4px 8px;
+  border-radius: 3px;
+  transition: all 0.15s ease;
   opacity: 0.7;
-  font-weight: 300;
+  font-weight: 400;
   z-index: 10;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .exl-hl-banner-close-btn:hover {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
   transform: scale(1.1);
 }
 
 .exl-hl-banner-close-btn:active {
   transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.3);
 }
 
 /* ========== UNDO NOTIFICATION ========== */
-.exl-banner-notification {
+.exl-hl-undo-notification {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: #ffffff;
+  padding: 12px 16px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 999998;
+  font-family: 'Salesforce Sans', Arial, sans-serif;
+  font-size: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  max-width: 300px;
   animation: slideInUp 0.3s ease-out;
 }
 
@@ -724,16 +868,159 @@
   }
 }
 
-.exl-banner-notification button {
-  transition: background 0.2s ease;
+/* ========== FLOATING BUTTON ========== */
+.exl-hl-floating-btn {
+  position: fixed;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: #ffffff;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999998;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+  opacity: 0.7;
+  padding: 0;
+  line-height: 1;
 }
 
-.exl-banner-notification button:hover {
-  background: oklch(0.45 0.20 230) !important;
+.exl-hl-floating-btn:hover {
+  opacity: 1;
+  transform: translateY(-50%) scale(1.1);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
-.exl-banner-notification button:active {
-  transform: scale(0.95);
+.exl-hl-floating-btn:active {
+  transform: translateY(-50%) scale(0.95);
+}
+
+/* ========== DISMISSAL MODAL ========== */
+.exl-hl-dismissal-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.exl-hl-dismissal-modal {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  color: #ffffff;
+  animation: slideUp 0.3s ease-out;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.exl-hl-dismissal-modal-header {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: #ffffff;
+}
+
+.exl-hl-dismissal-modal-body {
+  margin-bottom: 16px;
+}
+
+.exl-hl-dismissal-modal-body p {
+  margin-bottom: 16px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.exl-hl-dismissal-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.exl-hl-dismissal-option {
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.exl-hl-dismissal-option:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.exl-hl-dismissal-option:active {
+  transform: translateY(0);
+}
+
+.exl-hl-dismissal-option strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.exl-hl-dismissal-option span {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.4;
+}
+
+.exl-hl-dismissal-footer {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  text-align: center;
+  line-height: 1.5;
 }
 
 /* ========== BOOKMARK MODALS ========== */

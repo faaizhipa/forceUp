@@ -30,6 +30,15 @@ const PersistentBanner = {
     maxPollingDuration: 10000, // Stop polling after 10 seconds
     pollingIntervalMs: 500, // Poll every 500ms
     
+    // Retry state for exponential backoff
+    retryTimeoutId: null,
+    retryAttempt: 0,
+    retryDelayMs: 5000, // Initial 5 seconds
+    maxRetryDelayMs: 60000, // Max 60 seconds
+    
+    // Complete metadata storage - stores all fields from CasePageDataExtractor
+    fullCaseMetadata: null,
+    
     // Message rotation state
     messageRotationInterval: null,
     currentMessageIndex: 0,
@@ -69,14 +78,31 @@ const PersistentBanner = {
         institutionId: null,
         server: null,
         productServiceName: null,
-        institutionCode: null
+        institutionCode: null,
+        timezone: null
     },
+    
+    // Customer time refresh interval
+    customerTimeInterval: null,
 
     // URL monitoring
     lastKnownUrl: null,
 
     // Environment menu state
     envMenuVisible: false,
+
+    // Popup menu state
+    activePopup: null, // 'tools' | 'wiki' | null
+    popupCloseHandler: null,
+
+    // Action-focused mode state
+    actionFocusedMode: {
+        active: false,
+        currentTool: null, // 'timezone-inspector' | 'sql-wizard' | 'customer-data'
+        originalCaseId: null,
+        originalCaseNumber: null,
+        originalCaseData: null
+    },
 
     // Subscriptions
     contextUnsubscribe: null,
@@ -1796,6 +1822,12 @@ const PersistentBanner = {
         this.setupContextSubscriptions();
         
         // Listen for CasePageDataExtractor events
+        // Initialize UserCustomerDataManager
+        if (typeof UserCustomerDataManager !== 'undefined') {
+            await UserCustomerDataManager.init();
+            console.log('[PersistentBanner] UserCustomerDataManager initialized');
+        }
+
         this.setupCaseDataListener();
         
         // Listen for settings changes
@@ -2031,7 +2063,7 @@ const PersistentBanner = {
 
     /**
      * Start polling CaseDataStore for incremental data updates
-     * Polls every 500ms until all primary metadata is captured or timeout reached
+     * Polls every 500ms until all metadata fields are captured or timeout reached
      */
     startDataPolling() {
         // Don't start if already polling
@@ -2046,15 +2078,28 @@ const PersistentBanner = {
             return;
         }
 
-        console.log('[PersistentBanner] Starting data polling for incremental updates');
+        console.log('[PersistentBanner] Starting data polling for complete metadata');
         this.pollingStartTime = Date.now();
 
         this.dataPollingInterval = this.registerTimer(setInterval(() => {
             // Check if we've exceeded max polling duration
             const elapsed = Date.now() - this.pollingStartTime;
             if (elapsed >= this.maxPollingDuration) {
-                console.log('[PersistentBanner] Polling timeout reached, stopping');
+                console.log('[PersistentBanner] Polling timeout reached, checking completeness...');
+                
+                // Check if metadata is complete before stopping
+                const isComplete = this.fullCaseMetadata && this.isMetadataComplete(this.fullCaseMetadata);
+                
+                if (isComplete) {
+                    console.log('[PersistentBanner] Metadata is complete, stopping polling');
                 this.stopDataPolling();
+                    this.cancelMetadataRetry(); // Cancel any pending retries
+                } else {
+                    console.log('[PersistentBanner] Metadata incomplete after timeout, scheduling retry');
+                    // Stop polling but schedule retry with exponential backoff
+                    this.stopDataPolling();
+                    this.scheduleMetadataRetry();
+                }
                 return;
             }
 
@@ -2063,16 +2108,7 @@ const PersistentBanner = {
             if (!context || !context.caseId || context.caseId !== this.currentCaseId) {
                 console.log('[PersistentBanner] Case context changed during polling, stopping');
                 this.stopDataPolling();
-                return;
-            }
-
-            // Check if all primary metadata is captured
-            const hasAllPrimaryMetadata = this.currentPage.caseNumber && 
-                                         this.currentPage.subject && 
-                                         this.currentPage.status;
-            if (hasAllPrimaryMetadata) {
-                console.log('[PersistentBanner] All primary metadata captured, stopping polling');
-                this.stopDataPolling();
+                this.cancelMetadataRetry();
                 return;
             }
 
@@ -2083,11 +2119,20 @@ const PersistentBanner = {
                     // Validate data matches current context
                     if (latestData.caseId === this.currentCaseId && 
                         (!context.caseNumber || latestData.caseNumber === context.caseNumber)) {
-                        // Update with latest data (only fields that are explicitly present)
+                        // Update with latest data (will store in fullCaseMetadata and update UI progressively)
                         this.applyDataUpdate(latestData, 'polling');
+                        
+                        // Check if metadata is now complete
+                        if (this.fullCaseMetadata && this.isMetadataComplete(this.fullCaseMetadata)) {
+                            console.log('[PersistentBanner] All metadata fields captured, stopping polling');
+                            this.stopDataPolling();
+                            this.cancelMetadataRetry();
+                            return;
+                        }
                     } else {
                         console.warn('[PersistentBanner] Polled data does not match current context, stopping polling');
                         this.stopDataPolling();
+                        this.cancelMetadataRetry();
                     }
                 }
             }
@@ -2106,6 +2151,269 @@ const PersistentBanner = {
             this.pollingStartTime = null;
             console.log('[PersistentBanner] Data polling stopped');
         }
+    },
+
+    /**
+     * Schedule metadata retry with exponential backoff
+     * Retries polling when metadata is incomplete after initial polling timeout
+     */
+    scheduleMetadataRetry() {
+        // Cancel any existing retry
+        this.cancelMetadataRetry();
+
+        // Validate we're still on a case page
+        const currentContext = typeof CaseContextWatcher !== 'undefined' ? CaseContextWatcher.getCurrentContext?.() : null;
+        if (!currentContext || !currentContext.caseId || currentContext.caseId !== this.currentCaseId) {
+            console.log('[PersistentBanner] Not scheduling retry - not on valid case page');
+            return;
+        }
+
+        // Check if metadata is already complete
+        if (this.fullCaseMetadata && this.isMetadataComplete(this.fullCaseMetadata)) {
+            console.log('[PersistentBanner] Metadata is already complete, skipping retry');
+            return;
+        }
+
+        // Calculate exponential backoff delay
+        const delay = Math.min(
+            this.retryDelayMs * Math.pow(2, this.retryAttempt),
+            this.maxRetryDelayMs
+        );
+
+        console.log(`[PersistentBanner] Scheduling metadata retry #${this.retryAttempt + 1} in ${delay}ms`);
+
+        this.retryTimeoutId = this.registerTimer(setTimeout(async () => {
+            this.retryTimeoutId = null;
+
+            // Validate we're still on the same case
+            const context = typeof CaseContextWatcher !== 'undefined' ? CaseContextWatcher.getCurrentContext?.() : null;
+            if (!context || !context.caseId || context.caseId !== this.currentCaseId) {
+                console.log('[PersistentBanner] Case changed during retry wait, cancelling retry');
+                this.retryAttempt = 0;
+                return;
+            }
+
+            // Check if metadata is now complete (maybe it was updated from another source)
+            if (this.fullCaseMetadata && this.isMetadataComplete(this.fullCaseMetadata)) {
+                console.log('[PersistentBanner] Metadata completed before retry, cancelling');
+                this.retryAttempt = 0;
+                return;
+            }
+
+            // Increment retry attempt
+            this.retryAttempt++;
+
+            console.log(`[PersistentBanner] Retrying metadata polling (attempt ${this.retryAttempt})`);
+
+            // Restart polling
+            this.startDataPolling();
+        }, delay));
+    },
+
+    /**
+     * Cancel pending metadata retry
+     */
+    cancelMetadataRetry() {
+        if (this.retryTimeoutId) {
+            clearTimeout(this.retryTimeoutId);
+            this.retryTimeoutId = null;
+            console.log('[PersistentBanner] Metadata retry cancelled');
+        }
+        // Reset retry attempt counter when cancelling (e.g., on navigation or completion)
+        this.retryAttempt = 0;
+    },
+
+    /**
+     * Get list of all required metadata fields from CasePageDataExtractor
+     * @returns {Array<string>} Array of field names
+     */
+    getRequiredMetadataFields() {
+        return [
+            // Basic case info
+            'caseId',
+            'caseNumber',
+            'subject',
+            'description',
+            
+            // Contact and Account
+            'accountName',
+            'contactName',
+            
+            // Product/Service Information
+            'platformService',
+            'productServiceName',
+            
+            // Case categorization
+            'category',
+            'subCategory',
+            'status',
+            'subStatus',
+            
+            // Customer data
+            'exLibrisAccountNumber',
+            'analysisNote',
+            'custID',
+            'instID',
+            'server',
+            
+            // Flexipage fields (anchored data)
+            'asset',
+            'affectedEnvironment',
+            'caseOwner',
+            'parentCase',
+            'parentCaseOwner',
+            
+            // Flexipage fields (non-anchored data)
+            'escalation',
+            'caseCreatedDate',
+            'caseClosedOn',
+            'customerExLibrisAccountNumber',
+            'pageStatus',
+            
+            // Timestamps
+            'extractedAt',
+            'lastModifiedDate',
+            
+            // Timezone (resolved during polling)
+            'timezone',
+            'timezoneDisplayName',
+            'timezoneSource'
+        ];
+    },
+
+    /**
+     * Get list of optional metadata fields that can legitimately be null
+     * @returns {Array<string>} Array of field names that are optional
+     */
+    getOptionalMetadataFields() {
+        return [
+            'description',
+            'contactName',
+            'platformService',
+            'productServiceName',
+            'category',
+            'subCategory',
+            'subStatus',
+            'analysisNote',
+            'asset',
+            'affectedEnvironment',
+            'parentCase',
+            'parentCaseOwner',
+            'escalation',
+            'caseCreatedDate',
+            'caseClosedOn',
+            'customerExLibrisAccountNumber',
+            'lastModifiedDate'
+        ];
+    },
+
+    /**
+     * Resolve and store timezone from case data
+     * Uses TimezoneConverter to resolve timezone and stores it in fullCaseMetadata
+     * @param {Object} caseData - Case data object
+     * @returns {Promise<void>}
+     */
+    async resolveAndStoreTimezone(caseData) {
+        if (!caseData) {
+            return;
+        }
+
+        // Only resolve timezone if we have required fields
+        if (!caseData.accountName && !caseData.exLibrisAccountNumber && !caseData.institutionCode) {
+            console.log('[PersistentBanner] Skipping timezone resolution - missing account information');
+            return;
+        }
+
+        // Check if timezone is already resolved and cached
+        if (this.fullCaseMetadata && 
+            this.fullCaseMetadata.timezone && 
+            this.fullCaseMetadata.exLibrisAccountNumber === caseData.exLibrisAccountNumber &&
+            this.fullCaseMetadata.accountName === caseData.accountName) {
+            console.log('[PersistentBanner] Timezone already resolved for this case');
+            return;
+        }
+
+        try {
+            if (typeof TimezoneConverter !== 'undefined' && typeof TimezoneConverter.resolveCaseTimezone === 'function') {
+                console.log('[PersistentBanner] Resolving timezone for case data');
+                const timezoneData = await TimezoneConverter.resolveCaseTimezone(caseData);
+                
+                if (timezoneData && timezoneData.timezone) {
+                    // Store timezone in fullCaseMetadata
+                    if (!this.fullCaseMetadata) {
+                        this.fullCaseMetadata = {};
+                    }
+                    
+                    this.fullCaseMetadata.timezone = timezoneData.timezone;
+                    this.fullCaseMetadata.timezoneDisplayName = timezoneData.displayName || timezoneData.timezone;
+                    this.fullCaseMetadata.timezoneSource = timezoneData.source || 'unknown';
+                    
+                    console.log('[PersistentBanner] Timezone resolved and stored:', {
+                        timezone: timezoneData.timezone,
+                        displayName: timezoneData.displayName,
+                        source: timezoneData.source
+                    });
+                    
+                    // Update UI to reflect timezone if banner is visible
+                    this.updateBannerUI();
+                } else {
+                    console.warn('[PersistentBanner] Timezone resolution returned no timezone data');
+                }
+            } else {
+                console.warn('[PersistentBanner] TimezoneConverter not available for timezone resolution');
+            }
+        } catch (error) {
+            console.error('[PersistentBanner] Error resolving timezone:', error);
+        }
+    },
+
+    /**
+     * Check if metadata is complete (all required fields populated)
+     * Required fields are: caseId, caseNumber, subject, accountName, status, exLibrisAccountNumber, extractedAt
+     * Optional fields can be null/undefined and still be considered complete
+     * @param {Object} data - Data object to check
+     * @returns {boolean} True if all required fields are populated
+     */
+    isMetadataComplete(data) {
+        if (!data) {
+            return false;
+        }
+
+        // Required fields that must be present and non-null/non-empty for metadata to be considered complete
+        const criticalRequiredFields = [
+            'caseId',
+            'caseNumber',
+            'subject',
+            'accountName',
+            'status',
+            'exLibrisAccountNumber',
+            'extractedAt'
+        ];
+        
+        // Check critical required fields
+        for (const field of criticalRequiredFields) {
+            const value = data[field];
+            
+            if (value === null || value === undefined) {
+                return false;
+            }
+            
+            // Empty strings are considered incomplete for required fields
+            if (typeof value === 'string' && value.trim() === '') {
+                return false;
+            }
+        }
+        
+        // Check timezone - required if we have account information
+        // Timezone may take time to resolve, so we check if account info exists first
+        if (data.exLibrisAccountNumber && (!data.timezone || data.timezone === null || data.timezone === undefined)) {
+            // If we have account info, timezone should be resolved eventually
+            // But we'll be lenient - if other critical fields are complete, consider it complete
+            // The retry mechanism will continue trying to resolve timezone
+            // For now, we'll only require timezone if we've had time to resolve it (e.g., after retries)
+        }
+        
+        return true;
     },
 
     /**
@@ -2130,28 +2438,116 @@ const PersistentBanner = {
             return;
         }
 
+        // Check if case ID changed - if so, clear all fields first
+        const caseIdChanged = this.displayedCaseId && data.caseId && this.displayedCaseId !== data.caseId;
+        const caseNumberChanged = data.caseNumber && data.caseNumber !== this.currentPage.caseNumber;
+        
+        // If case ID or case number changed, clear all metadata to prevent stale data
+        if (caseIdChanged || caseNumberChanged) {
+            console.log('[PersistentBanner] Case identifier changed, clearing all metadata:', {
+                caseIdChanged,
+                caseNumberChanged,
+                oldCaseId: this.displayedCaseId,
+                newCaseId: data.caseId,
+                oldCaseNumber: this.currentPage.caseNumber,
+                newCaseNumber: data.caseNumber
+            });
+            
+            // Clear all metadata fields including fullCaseMetadata
+            this.currentPage.subject = null;
+            this.currentPage.status = null;
+            this.currentPage.subStatus = null;
+            this.displayedCaseId = null;
+            this.displayedCaseNumber = null;
+            this.fullCaseMetadata = null;
+        }
+
+        // Store/merge complete metadata in fullCaseMetadata
+        if (!this.fullCaseMetadata) {
+            // Initialize fullCaseMetadata with all fields from data
+            this.fullCaseMetadata = { ...data };
+        } else {
+            // Merge new data with existing fullCaseMetadata (preserve fields not in new data)
+            // Only update fields that are explicitly present in new data (not undefined)
+            for (const key in data) {
+                if (data[key] !== undefined) {
+                    this.fullCaseMetadata[key] = data[key];
+                }
+            }
+        }
+
+        // Resolve timezone asynchronously (don't block UI update)
+        this.resolveAndStoreTimezone(this.fullCaseMetadata).catch(error => {
+            console.error('[PersistentBanner] Error resolving timezone in applyDataUpdate:', error);
+        });
+
         // Only update fields that are explicitly present in the new data (no fallback to stale values)
         let hasChanges = false;
 
         if (data.caseId) {
             this.displayedCaseId = data.caseId;
         }
-        if (data.caseNumber && data.caseNumber !== this.currentPage.caseNumber) {
+        if (data.caseNumber) {
+            // Always update case number when provided
+            if (data.caseNumber !== this.currentPage.caseNumber) {
             this.displayedCaseNumber = data.caseNumber;
             this.currentPage.caseNumber = data.caseNumber;
             hasChanges = true;
+                
+                // When case number changes, clear subject to force re-extraction from new case
+                if (this.currentPage.subject) {
+                    console.log('[PersistentBanner] Case number changed, clearing subject to prevent stale data');
+                    this.currentPage.subject = null;
+                }
+            }
         }
-        if (data.subject !== undefined && data.subject !== null && data.subject !== this.currentPage.subject) {
+        
+        // Always update subject if provided (even if null) when case number matches
+        // This ensures we clear stale subject when new case doesn't have one
+        if (data.subject !== undefined) {
+            if (data.caseNumber && data.caseNumber === this.currentPage.caseNumber) {
+                // Only update subject if case number matches current
+                if (data.subject !== this.currentPage.subject) {
             this.currentPage.subject = data.subject;
             hasChanges = true;
         }
-        if (data.status !== undefined && data.status !== null && data.status !== this.currentPage.status) {
+            } else if (!data.caseNumber && data.subject !== this.currentPage.subject) {
+                // If no case number in data, still update if different (for backward compatibility)
+                this.currentPage.subject = data.subject;
+                hasChanges = true;
+            }
+        } else if (caseNumberChanged) {
+            // Case number changed but no subject in data - ensure it's cleared
+            if (this.currentPage.subject) {
+                this.currentPage.subject = null;
+                hasChanges = true;
+            }
+        }
+        
+        if (data.status !== undefined && data.status !== null) {
+            if (data.status !== this.currentPage.status) {
             this.currentPage.status = data.status;
             hasChanges = true;
         }
-        if (data.subStatus !== undefined && data.subStatus !== null && data.subStatus !== this.currentPage.subStatus) {
+        } else if (caseNumberChanged || caseIdChanged) {
+            // Clear status when case changes
+            if (this.currentPage.status) {
+                this.currentPage.status = null;
+                hasChanges = true;
+            }
+        }
+        
+        if (data.subStatus !== undefined && data.subStatus !== null) {
+            if (data.subStatus !== this.currentPage.subStatus) {
             this.currentPage.subStatus = data.subStatus;
             hasChanges = true;
+            }
+        } else if (caseNumberChanged || caseIdChanged) {
+            // Clear subStatus when case changes
+            if (this.currentPage.subStatus) {
+                this.currentPage.subStatus = null;
+                hasChanges = true;
+            }
         }
 
         // Update customer metadata only if explicitly present
@@ -2185,6 +2581,12 @@ const PersistentBanner = {
             }
         }
 
+        // Enrich customer metadata from UserCustomerDataManager or CustomerDataManager if missing
+        if (this.customerMetadata.institutionCode && 
+            (!this.customerMetadata.customerId || !this.customerMetadata.institutionId || !this.customerMetadata.server)) {
+            this.enrichCustomerMetadataFromManagers(data.accountName);
+        }
+
         // Update page type
         if (!this.currentPage.type || this.currentPage.type !== 'case_page') {
             this.currentPage.type = 'case_page';
@@ -2192,14 +2594,157 @@ const PersistentBanner = {
             hasChanges = true;
         }
 
-        // Only update UI if there were actual changes
-        if (hasChanges) {
+        // Always update UI to show new data progressively (even if primary fields unchanged)
+        // This ensures partial data appears immediately as it's extracted during polling
+        const shouldUpdateUI = hasChanges || source === 'polling';
+        
+        if (shouldUpdateUI) {
             console.log(`[PersistentBanner] Applied data update from ${source}:`, {
                 caseNumber: this.currentPage.caseNumber,
                 subject: this.currentPage.subject,
-                status: this.currentPage.status
+                status: this.currentPage.status,
+                metadataComplete: this.fullCaseMetadata ? this.isMetadataComplete(this.fullCaseMetadata) : false
             });
+            
+            // Update UI immediately to show progressive loading
             this.updateBannerUI();
+        }
+    },
+
+    /**
+     * Get full case metadata
+     * Returns complete metadata object stored in PersistentBanner
+     * @returns {Object|null} Full case metadata or null if not available
+     */
+    getFullCaseMetadata() {
+        return this.fullCaseMetadata || null;
+    },
+
+    /**
+     * Get specific metadata field
+     * @param {string} fieldName - Name of the field to retrieve
+     * @returns {*} Field value or null if field doesn't exist or metadata not loaded
+     */
+    getMetadataField(fieldName) {
+        if (!this.fullCaseMetadata || !fieldName) {
+            return null;
+        }
+        return this.fullCaseMetadata[fieldName] !== undefined ? this.fullCaseMetadata[fieldName] : null;
+    },
+
+    /**
+     * Get all metadata (alias for getFullCaseMetadata)
+     * @returns {Object|null} Full case metadata or null if not available
+     */
+    getAllMetadata() {
+        return this.getFullCaseMetadata();
+    },
+
+    /**
+     * Check if metadata is complete
+     * @returns {boolean} True if all required fields are populated
+     */
+    hasCompleteMetadata() {
+        return this.fullCaseMetadata ? this.isMetadataComplete(this.fullCaseMetadata) : false;
+    },
+
+    /**
+     * Get list of missing metadata fields
+     * @returns {Array<string>} Array of field names that are missing
+     */
+    getMissingMetadataFields() {
+        if (!this.fullCaseMetadata) {
+            return this.getRequiredMetadataFields();
+        }
+
+        const requiredFields = this.getRequiredMetadataFields();
+        const optionalFields = this.getOptionalMetadataFields();
+        const missing = [];
+
+        for (const field of requiredFields) {
+            // Skip optional fields
+            if (optionalFields.includes(field)) {
+                continue;
+            }
+
+            const value = this.fullCaseMetadata[field];
+            
+            if (value === null || value === undefined) {
+                // Check if this is a timezone field that we should have resolved
+                if (field === 'timezone' && this.fullCaseMetadata.exLibrisAccountNumber) {
+                    missing.push(field);
+                    continue;
+                }
+                missing.push(field);
+            } else if (typeof value === 'string' && value.trim() === '') {
+                if (field !== 'description') {
+                    missing.push(field);
+                }
+            }
+        }
+
+        return missing;
+    },
+
+    /**
+     * Get metadata age in milliseconds
+     * @returns {number|null} Age in milliseconds or null if metadata not available or no timestamp
+     */
+    getMetadataAge() {
+        if (!this.fullCaseMetadata || !this.fullCaseMetadata.extractedAt) {
+            return null;
+        }
+
+        try {
+            const extractedTime = new Date(this.fullCaseMetadata.extractedAt).getTime();
+            return Date.now() - extractedTime;
+        } catch (error) {
+            console.error('[PersistentBanner] Error calculating metadata age:', error);
+            return null;
+        }
+    },
+
+    /**
+     * Enrich customer metadata from UserCustomerDataManager or CustomerDataManager
+     * Priority: UserCustomerDataManager > CustomerDataManager
+     * @param {string} accountName - Optional account name for lookup
+     */
+    enrichCustomerMetadataFromManagers(accountName = null) {
+        const institutionCode = this.customerMetadata.institutionCode;
+        if (!institutionCode) return;
+
+        let customerData = null;
+
+        // Check UserCustomerDataManager first (user-added data takes priority)
+        if (typeof UserCustomerDataManager !== 'undefined') {
+            customerData = UserCustomerDataManager.findByInstitutionCode(institutionCode, accountName);
+            if (customerData) {
+                console.log('[PersistentBanner] Found customer in UserCustomerDataManager:', customerData.institutionCode);
+            }
+        }
+
+        // Fallback to CustomerDataManager
+        if (!customerData && typeof CustomerDataManager !== 'undefined') {
+            customerData = CustomerDataManager.findByInstitutionCode(institutionCode, accountName);
+            if (customerData) {
+                console.log('[PersistentBanner] Found customer in CustomerDataManager:', customerData.institutionCode);
+            }
+        }
+
+        // Update metadata if customer found and fields are missing
+        if (customerData) {
+            if (!this.customerMetadata.customerId && customerData.custID) {
+                this.customerMetadata.customerId = customerData.custID;
+            }
+            if (!this.customerMetadata.institutionId && customerData.instID) {
+                this.customerMetadata.institutionId = customerData.instID;
+            }
+            if (!this.customerMetadata.server && customerData.server) {
+                this.customerMetadata.server = customerData.server;
+            }
+            if (!this.customerMetadata.institutionCode && customerData.institutionCode) {
+                this.customerMetadata.institutionCode = customerData.institutionCode;
+            }
         }
     },
 
@@ -2556,6 +3101,7 @@ const PersistentBanner = {
                         console.warn(`[PersistentBanner] Cannot display data: validation failed`);
                         // Clear stale data if validation fails
                         this.clearCaseData();
+                        this.updateBannerUI();
                         return;
                     }
                     
@@ -2568,6 +3114,7 @@ const PersistentBanner = {
                     console.error('[PersistentBanner] Error during validation:', error);
                     // On validation error, clear data to prevent stale display
                     this.clearCaseData();
+                    this.updateBannerUI();
                     return;
                 }
                 if (typeof CaseDataStore !== 'undefined') {
@@ -2645,10 +3192,26 @@ const PersistentBanner = {
                 institutionId: data.instID || null,  // 4-digit institution ID
                 server: data.server || null,  // Server code (ap02, na05, etc.)
                 productServiceName: data.platformService || null,  // Platform/Service with fallback
-                institutionCode: data.exLibrisAccountNumber || null  // Institution code (61USC_INST, etc.)
+                institutionCode: data.exLibrisAccountNumber || null,  // Institution code (61USC_INST, etc.)
+                timezone: data.customerTimezone || this.customerMetadata.timezone || null,
+                timezoneSource: data.customerTimezoneSource || this.customerMetadata.timezoneSource || null,
+                customerOrgCode: data.customerOrgCode || null,
+                customerOrgName: data.customerOrgName || null,
+                customerDbServers: data.customerDbServers || []
             };
             
             console.log('[PersistentBanner] Updated customer metadata:', this.customerMetadata);
+            
+            // Get timezone if not already set
+            if (!this.customerMetadata.timezone) {
+                this.getCustomerTimezone().then(timezone => {
+                    if (timezone) {
+                        this.customerMetadata.timezone = timezone;
+                        this.updateTimezoneDisplay();
+                        this.startCustomerTimeRefresh();
+                    }
+                });
+            }
             
             // Update current page status from direct page data (for gradient coloring)
             if (data.pageStatus) {
@@ -2702,14 +3265,18 @@ const PersistentBanner = {
      * Trigger manual case data extraction as fallback
      */
     triggerManualExtraction() {
-        const caseId = this.getCaseIdFromUrl(); // I do not believe you "this"
-        // Case Page (Details, Communication, or Files Tab)
+        // Check if we're on a case page first
         const urlNow = window.location.href;
         const casePageMatchForExtraction = urlNow.match(/\/lightning\/r\/Case\/([^\/]+)\/view(?:\?|$)/);
-        if (casePageMatchForExtraction) {
-            caseId = casePageMatchForExtraction[1];
+        
+        if (!casePageMatchForExtraction) {
+            // Not on a case page - this is expected, no need to log
+            return;
+        }
+        
+        const caseId = casePageMatchForExtraction[1];
             
-        if (caseId && typeof CasePageDataExtractor !== 'undefined' && typeof CasePageDataExtractor.extractNow === 'function') {
+        if (typeof CasePageDataExtractor !== 'undefined' && typeof CasePageDataExtractor.extractNow === 'function') {
             console.log('[PersistentBanner] Triggering manual extraction for case:', caseId);
             CasePageDataExtractor.extractNow(caseId);
         } else {
@@ -2810,9 +3377,22 @@ const PersistentBanner = {
      * @param {Object|null} context
      */
     handleContextUpdate(context) {
+        // Check for case navigation in action-focused mode
+        if (this.actionFocusedMode.active && context && context.isCase) {
+            const currentCaseId = context.caseId;
+            const currentCaseNumber = context.caseNumber;
+            
+            if (this.actionFocusedMode.originalCaseId && 
+                currentCaseId && 
+                currentCaseId !== this.actionFocusedMode.originalCaseId) {
+                // Case has changed - show warning
+                this.showStaleDataWarning(currentCaseNumber);
+            }
+        }
         if (!context || !context.caseId) {
             console.log('[PersistentBanner] Context indicates non-case page, clearing state');
             this.stopDataPolling();
+            this.cancelMetadataRetry();
             this.clearCaseData();
             this.currentPage = {
                 type: 'Unknown',
@@ -2839,6 +3419,7 @@ const PersistentBanner = {
                 contextCaseNumber: context.caseNumber
             });
             this.stopDataPolling();
+            this.cancelMetadataRetry();
             this.clearCaseData();
         }
 
@@ -2851,8 +3432,24 @@ const PersistentBanner = {
 
         if (caseChanged || caseNumberChanged) {
             console.log(`[PersistentBanner] Case context changed to ${context.caseNumber || 'unknown'} (${context.caseId})`);
+            
+            // Check for case navigation in action-focused mode
+            if (this.actionFocusedMode.active && context && context.isCase) {
+                const currentCaseId = context.caseId;
+                const currentCaseNumber = context.caseNumber;
+                
+                if (this.actionFocusedMode.originalCaseId && 
+                    currentCaseId && 
+                    currentCaseId !== this.actionFocusedMode.originalCaseId) {
+                    // Case has changed - show warning
+                    this.showStaleDataWarning(currentCaseNumber);
+                }
+            }
+            
             this.stopDataPolling();
             this.clearCaseData(true);
+            // Immediately update UI to clear stale data display
+            this.updateBannerUI();
             // Start polling for new case data
             if (context.caseNumber) {
                 // Small delay to allow extractors to start
@@ -2906,6 +3503,15 @@ const PersistentBanner = {
 
         if (data.caseId && this.currentCaseId && data.caseId !== this.currentCaseId) {
             console.warn('[PersistentBanner] Ignoring store data for different case', data.caseId, this.currentCaseId);
+            
+            // Check for case navigation in action-focused mode
+            if (this.actionFocusedMode.active) {
+                const currentContext = typeof CaseContextWatcher !== 'undefined' ? CaseContextWatcher.getCurrentContext?.() : null;
+                if (currentContext && currentContext.caseNumber) {
+                    this.showStaleDataWarning(currentContext.caseNumber);
+                }
+            }
+            
             return;
         }
 
@@ -2935,7 +3541,7 @@ const PersistentBanner = {
     handleUrlChange(newUrl) {
         console.log('[PersistentBanner] Handling URL change, resetting current page data');
         
-        // Clear case-specific data when navigating away
+        // Clear case-specific data when navigating away (this also clears fullCaseMetadata and cancels retries)
         this.clearCaseData();
         
         // Reset current page to initial state
@@ -2949,7 +3555,7 @@ const PersistentBanner = {
             timestamp: new Date().toISOString()
         };
         
-        // Update UI to show loading/unknown state
+        // Update UI to reflect cleared state
         this.updateBannerUI();
         
         // The content script will call updateCurrentPage with proper data after page analysis
@@ -2965,6 +3571,12 @@ const PersistentBanner = {
         // Stop polling when clearing data
         this.stopDataPolling();
         
+        // Cancel any pending retries
+        this.cancelMetadataRetry();
+        
+        // Clear full case metadata
+        this.fullCaseMetadata = null;
+        
         // Clear current case ID
         if (!preserveContext) {
             this.currentCaseId = null;
@@ -2974,13 +3586,17 @@ const PersistentBanner = {
         this.displayedCaseId = null;
         this.displayedCaseNumber = null;
         
+        // Stop customer time refresh
+        this.stopCustomerTimeRefresh();
+        
         // Clear customer metadata
         this.customerMetadata = {
             customerId: null,
             institutionId: null,
             server: null,
             productServiceName: null,
-            institutionCode: null
+            institutionCode: null,
+            timezone: null
         };
 
         // Reset displayed page metadata
@@ -2994,7 +3610,27 @@ const PersistentBanner = {
         // Reset environment menu state
         this.envMenuVisible = false;
         
-        console.log('[PersistentBanner] Case data cleared');
+        // Clear CaseDataStore to prevent stale data
+        if (typeof CaseDataStore !== 'undefined' && typeof CaseDataStore.clear === 'function') {
+            CaseDataStore.clear('navigation');
+        }
+        
+        // Clear cached case data in window.ExLibrisExtension
+        if (window.ExLibrisExtension) {
+            if (window.ExLibrisExtension.caseToolkit) {
+                window.ExLibrisExtension.caseToolkit.caseData = null;
+            }
+            window.ExLibrisExtension.apiCaseData = null;
+            window.ExLibrisExtension.apiCaseDataTimestamp = null;
+        }
+        
+        // Clear last extracted data in CasePageDataExtractor
+        if (typeof CasePageDataExtractor !== 'undefined') {
+            CasePageDataExtractor.lastExtractedData = null;
+            CasePageDataExtractor.currentCaseId = null;
+        }
+        
+        console.log('[PersistentBanner] Case data cleared (including cached data and full metadata)');
     },
 
     /**
@@ -3029,6 +3665,11 @@ const PersistentBanner = {
      * @param {Object} pageInfo
      */
     addToNavigationHistory(pageInfo) {
+        // Only add case pages to history
+        if (pageInfo.type !== 'case_page') {
+            return;
+        }
+
         // Don't add if it's the same as the last entry
         const lastEntry = this.navigationHistory[this.navigationHistory.length - 1];
         if (lastEntry && lastEntry.url === pageInfo.url) {
@@ -3036,8 +3677,19 @@ const PersistentBanner = {
             return;
         }
 
-        // Add to history
-        this.navigationHistory.push(pageInfo);
+        // Add to history with additional data for tooltip
+        const historyEntry = {
+            ...pageInfo,
+            subject: pageInfo.subject || this.currentPage.subject || null,
+            description: this.currentPage.description || null,
+            custID: this.customerMetadata.customerId || null,
+            instID: this.customerMetadata.institutionId || null,
+            server: this.customerMetadata.server || null,
+            institutionCode: this.customerMetadata.institutionCode || null,
+            status: this.currentPage.status || null
+        };
+        
+        this.navigationHistory.push(historyEntry);
 
         // Keep only last 3 items
         if (this.navigationHistory.length > this.maxHistoryItems) {
@@ -3089,12 +3741,14 @@ const PersistentBanner = {
                                 currentCaseNumber: validation.currentContext.caseNumber
                             });
                             this.clearCaseData();
+                            this.updateBannerUI();
                             return;
                         }
                     } else {
                         // No current context - clear stale data
                         console.warn(`[PersistentBanner] Cannot update page: ${validation.reason} (no current context)`);
                         this.clearCaseData();
+                        this.updateBannerUI();
                         return;
                     }
                 }
@@ -3151,14 +3805,13 @@ const PersistentBanner = {
         banner.innerHTML = `
             <div class="exl-banner-container">
                 <div class="exl-banner-section exl-banner-page-info">
-                    <div class="exl-banner-label">Current Page</div>
+                    <div class="exl-banner-label">Current<br>Page</div>
                     <div class="exl-banner-page-type" id="exl-banner-page-type">—</div>
                 </div>
                 
                 <div class="exl-banner-section exl-banner-metadata" id="exl-banner-metadata-section">
-                    <div class="exl-banner-label">Primary Metadata</div>
+                    <div class="exl-banner-label">Primary<br>Metadata</div>
                     <div class="exl-banner-metadata-grid" id="exl-banner-metadata">
-                        <span class="exl-banner-meta-item" id="exl-banner-case-item">Case: <strong id="exl-banner-case">—</strong></span>
                         <span class="exl-banner-meta-item" id="exl-banner-subject-item">Subject: <strong id="exl-banner-subject">—</strong></span>
                         <span class="exl-banner-meta-item" id="exl-banner-status-item">Status: <strong id="exl-banner-status">—</strong></span>
                         <span class="exl-banner-meta-item" id="exl-banner-substatus-item">Substatus: <strong id="exl-banner-substatus">—</strong></span>
@@ -3167,6 +3820,13 @@ const PersistentBanner = {
                         <span class="exl-banner-meta-item">CustID: <strong id="exl-banner-custid">—</strong></span>
                         <span class="exl-banner-meta-item">InstID: <strong id="exl-banner-instid">—</strong></span>
                         <span class="exl-banner-meta-item">Server: <strong id="exl-banner-server">—</strong></span>
+                        <span class="exl-banner-meta-item" id="exl-banner-timezone-item">Timezone: <strong id="exl-banner-timezone">—</strong></span>
+                        <span class="exl-banner-meta-item" id="exl-banner-customer-time-item">Customer Time: <strong id="exl-banner-customer-time">—</strong></span>
+                        <span class="exl-refresh-emoji" id="exl-refresh-emoji" data-action="refresh" title="Refresh and display the correct data and codes from the currently-viewed case">🔄</span>
+                        <div class="exl-customer-data-notification" id="exl-customer-data-notification" style="display: none;">
+                            <span class="exl-notification-text">Hmm...looks like we do not have this customer's internal details in memory.</span>
+                            <button class="exl-banner-btn exl-customer-data-btn" id="exl-customer-data-btn">Add/Modify Customer Data</button>
+                        </div>
                     </div>
                 </div>
                 
@@ -3181,27 +3841,39 @@ const PersistentBanner = {
                     </div>
                 </div>
                 
-                <div class="exl-banner-section exl-banner-env-toggle" id="exl-banner-env-toggle" style="display: none;">
-                    <button class="exl-banner-btn exl-banner-env-toggle-btn" id="exl-env-toggle-btn">
-                        Go to Customer Env ▶
-                    </button>
+                <div class="exl-banner-section exl-banner-actions">
+                    <button class="exl-banner-btn exl-popup-trigger" data-popup="env" title="Open Customer Environment menu">Customer Env</button>
+                    <button class="exl-banner-btn exl-popup-trigger" data-popup="tools" title="Open Tools menu">Tools</button>
+                    <button class="exl-banner-btn exl-popup-trigger" data-popup="wiki" title="Open Wiki Shortcuts menu">Wiki Shortcuts</button>
                 </div>
                 
-                <div class="exl-banner-section exl-banner-environment" id="exl-banner-env-section" style="display: none;">
-                    <div class="exl-env-buttons-container" id="exl-env-buttons-container">
-                        <!-- Buttons populated dynamically -->
+                <!-- Tools popup menu -->
+                <div class="exl-popup-menu" id="exl-tools-popup" style="display: none;">
+                    <div class="exl-popup-menu-content">
+                        <button class="exl-popup-menu-item exl-disabled" data-tool="timezone-inspector" title="Timezone Inspector (Coming Soon)" disabled>Timezone Inspector</button>
+                        <button class="exl-popup-menu-item exl-disabled" data-tool="sql-wizard" title="SQL Wizard (Coming Soon)" disabled>SQL Wizard</button>
+                        <button class="exl-popup-menu-item" data-tool="customer-data" title="Open Add/Modify Customer Data tool">Add/Modify Customer Data</button>
+                        <button class="exl-popup-menu-item" data-action="action1" title="Extract and enable copy buttons for case comments">Extract Case Comments</button>
+                        <button class="exl-popup-menu-item" data-action="action3" title="Copy case details as XML or TSV">Copy Case Details</button>
                     </div>
                 </div>
                 
-                <div class="exl-banner-section exl-banner-actions">
-                    <button class="exl-banner-btn" data-action="refresh" title="Refresh banner data from current page">🔄 Refresh</button>
-                    <button class="exl-banner-btn" data-action="action1" title="Extract and enable copy buttons for case comments">Extract Comments</button>
-                    <button class="exl-banner-btn" data-action="action2" title="Show or update the Flexipage panel in case pages">Show Panel</button>
-                    <button class="exl-banner-btn" data-action="action3" title="Copy case details as XML or TSV">Copy Details</button>
+                <!-- Wiki Shortcuts popup menu -->
+                <div class="exl-popup-menu" id="exl-wiki-popup" style="display: none;">
+                    <div class="exl-popup-menu-content" id="exl-wiki-popup-content">
+                        <!-- Populated dynamically from URLBuilder.getWikiLinks() -->
+                    </div>
+                </div>
+                
+                <!-- Customer Environment popup menu -->
+                <div class="exl-popup-menu" id="exl-env-popup" style="display: none;">
+                    <div class="exl-popup-menu-content" id="exl-env-popup-content">
+                        <!-- Populated dynamically from populateEnvButtons() -->
+                    </div>
                 </div>
                 
                 <div class="exl-banner-section exl-banner-history">
-                    <div class="exl-banner-label">Navigation History</div>
+                    <div class="exl-banner-label">Navigation<br>History</div>
                     <div class="exl-banner-history-list" id="exl-banner-history">
                         <div class="exl-banner-history-placeholder">No navigation history yet</div>
                     </div>
@@ -3224,11 +3896,9 @@ const PersistentBanner = {
         if (!banner) return;
 
         this.elements.pageType = banner.querySelector('#exl-banner-page-type');
-        this.elements.caseNumber = banner.querySelector('#exl-banner-case');
         this.elements.subject = banner.querySelector('#exl-banner-subject');
         this.elements.status = banner.querySelector('#exl-banner-status');
         this.elements.subStatus = banner.querySelector('#exl-banner-substatus');
-        this.elements.caseItem = banner.querySelector('#exl-banner-case-item');
         this.elements.subjectItem = banner.querySelector('#exl-banner-subject-item');
         this.elements.statusItem = banner.querySelector('#exl-banner-status-item');
         this.elements.substatusItem = banner.querySelector('#exl-banner-substatus-item');
@@ -3237,10 +3907,13 @@ const PersistentBanner = {
         this.elements.custId = banner.querySelector('#exl-banner-custid');
         this.elements.instId = banner.querySelector('#exl-banner-instid');
         this.elements.server = banner.querySelector('#exl-banner-server');
-        this.elements.envToggleSection = banner.querySelector('#exl-banner-env-toggle');
-        this.elements.envToggleBtn = banner.querySelector('#exl-env-toggle-btn');
-        this.elements.envSection = banner.querySelector('#exl-banner-env-section');
-        this.elements.envButtonsContainer = banner.querySelector('#exl-env-buttons-container');
+        this.elements.timezone = banner.querySelector('#exl-banner-timezone');
+        this.elements.customerTime = banner.querySelector('#exl-banner-customer-time');
+        this.elements.timezoneItem = banner.querySelector('#exl-banner-timezone-item');
+        this.elements.customerTimeItem = banner.querySelector('#exl-banner-customer-time-item');
+        this.elements.refreshEmoji = banner.querySelector('#exl-refresh-emoji');
+        this.elements.envPopup = banner.querySelector('#exl-env-popup');
+        this.elements.envPopupContent = banner.querySelector('#exl-env-popup-content');
         this.elements.historyList = banner.querySelector('#exl-banner-history');
         this.elements.messagesSection = banner.querySelector('#exl-banner-messages');
         this.elements.messageContent = banner.querySelector('#exl-banner-message-content');
@@ -3248,6 +3921,11 @@ const PersistentBanner = {
         this.elements.messageNextBtn = banner.querySelector('#exl-message-next');
         this.elements.messageIndex = banner.querySelector('#exl-message-index');
         this.elements.metadataSection = banner.querySelector('#exl-banner-metadata-section');
+        this.elements.customerDataNotification = banner.querySelector('#exl-customer-data-notification');
+        this.elements.customerDataBtn = banner.querySelector('#exl-customer-data-btn');
+        this.elements.toolsPopup = banner.querySelector('#exl-tools-popup');
+        this.elements.wikiPopup = banner.querySelector('#exl-wiki-popup');
+        this.elements.wikiPopupContent = banner.querySelector('#exl-wiki-popup-content');
     },
 
     /**
@@ -3265,15 +3943,23 @@ const PersistentBanner = {
             this.handleAction(action);
         });
 
-        // Handle environment toggle button
-        if (this.elements.envToggleBtn) {
-            this.elements.envToggleBtn.addEventListener('click', (event) => {
+        // Handle customer data button
+        if (this.elements.customerDataBtn) {
+            this.elements.customerDataBtn.addEventListener('click', (event) => {
                 event.stopPropagation();
-                this.toggleEnvMenu();
+                this.handleToolClick('customer-data');
             });
         }
 
-        // Handle environment button clicks
+        // Handle refresh emoji click
+        if (this.elements.refreshEmoji) {
+            this.elements.refreshEmoji.addEventListener('click', (event) => {
+                event.stopPropagation();
+                this.handleRefresh();
+            });
+        }
+
+        // Handle environment button clicks (from popup menu)
         banner.addEventListener('click', (event) => {
             const envButton = event.target.closest('[data-env-url]');
             if (!envButton) return;
@@ -3339,6 +4025,51 @@ const PersistentBanner = {
                 this.handleBannerClose();
             });
         }
+
+        // Handle popup trigger buttons
+        banner.addEventListener('click', (event) => {
+            const trigger = event.target.closest('[data-popup]');
+            if (trigger) {
+                const popupType = trigger.dataset.popup;
+                this.showPopupMenu(popupType, trigger);
+                event.stopPropagation();
+                return;
+            }
+
+            // Handle popup menu item clicks
+            const menuItem = event.target.closest('.exl-popup-menu-item');
+            if (menuItem) {
+                const toolName = menuItem.dataset.tool;
+                const action = menuItem.dataset.action;
+                
+                // Check if menu item is disabled
+                if (menuItem.disabled || menuItem.classList.contains('exl-disabled')) {
+                    console.log('[PersistentBanner] Menu item is disabled, ignoring click');
+                    event.stopPropagation();
+                    return;
+                }
+                
+                if (toolName) {
+                    this.handleToolClick(toolName);
+                } else if (action) {
+                    this.handleAction(action);
+                }
+                
+                this.hidePopupMenu();
+                event.stopPropagation();
+                return;
+            }
+        });
+
+        // Close popup when clicking outside
+        document.addEventListener('click', (event) => {
+            if (this.activePopup && !event.target.closest('.exl-popup-menu') && !event.target.closest('.exl-popup-trigger')) {
+                this.hidePopupMenu();
+            }
+        });
+
+        // Populate wiki shortcuts on init
+        this.populateWikiShortcuts();
     },
 
     /**
@@ -3356,10 +4087,14 @@ const PersistentBanner = {
                 this.handleCaseCommentExtractor();
                 break;
             case 'action2':
-                this.handleFlexipagePanel();
+            case 'tools':
+                // Handled by popup trigger click handler
                 break;
             case 'action3':
                 this.handleCaseDetailExtractor();
+                break;
+            case 'exit-tool':
+                this.exitActionFocusedMode();
                 break;
             default:
                 console.warn('[PersistentBanner] Unknown action:', action);
@@ -3678,150 +4413,6 @@ const PersistentBanner = {
         }
     },
 
-    /**
-     * Handle flexipage panel injection action
-     */
-    async handleFlexipagePanel() {
-        // Check if we're on a case page
-        if (this.currentPage.type !== 'case_page' || !this.currentPage.caseNumber) {
-            this.showNotification('Please navigate to a Case page first', 'warning');
-            return;
-        }
-
-        // Check if FlexipagePanelInjector is available
-        if (typeof FlexipagePanelInjector === 'undefined') {
-            this.showNotification('Flexipage Panel Injector module not loaded', 'error');
-            return;
-        }
-
-        try {
-            console.log('[PersistentBanner] Injecting panel and loading case data...');
-            
-            // Step 1: Extract or retrieve case data
-            let caseData = null;
-            let caseId = null;
-            
-            // Try to get case ID from URL
-            const urlMatch = window.location.pathname.match(/\/lightning\/r\/Case\/([a-zA-Z0-9]{15,18})/);
-            if (urlMatch) {
-                caseId = urlMatch[1];
-                console.log('[PersistentBanner] Detected case ID from URL:', caseId);
-            }
-            
-            // Try to get from cached toolkit first
-            if (window.ExLibrisExtension && 
-                window.ExLibrisExtension.caseToolkit && 
-                window.ExLibrisExtension.caseToolkit.caseData &&
-                window.ExLibrisExtension.currentCaseId === caseId) {
-                caseData = window.ExLibrisExtension.caseToolkit.caseData;
-                console.log('[PersistentBanner] Using cached case data for case:', caseData.caseNumber);
-            }
-            
-            // If no cached data or case ID mismatch, extract fresh data
-            if (!caseData && typeof CaseDataExtractor !== 'undefined') {
-                console.log('[PersistentBanner] No cached data, extracting fresh case data...');
-                this.showNotification('Loading case data...', 'info');
-                
-                try {
-                    caseData = await CaseDataExtractor.getData();
-                    
-                    // Update toolkit cache
-                    if (window.ExLibrisExtension && window.ExLibrisExtension.caseToolkit && caseData) {
-                        window.ExLibrisExtension.caseToolkit.caseData = caseData;
-                        window.ExLibrisExtension.currentCaseId = caseId;
-                        console.log('[PersistentBanner] Cached fresh case data:', caseData.caseNumber);
-                    }
-                } catch (error) {
-                    console.error('[PersistentBanner] Error extracting case data:', error);
-                    this.showNotification('Error extracting case data: ' + error.message, 'error');
-                    return;
-                }
-            }
-            
-            if (!caseData) {
-                this.showNotification('Could not extract case data. Please try again.', 'error');
-                return;
-            }
-            
-            // Step 2: Inject the panel
-            const success = FlexipagePanelInjector.ensureInjected();
-            
-            if (success) {
-                this.showNotification('Panel injected successfully. Updating with case data...', 'success');
-                
-                // Step 3: Register action handler if available
-                if (window.ExLibrisExtension && typeof window.ExLibrisExtension.handlePanelAction === 'function') {
-                    FlexipagePanelInjector.registerActionHandler((action) => {
-                        return window.ExLibrisExtension.handlePanelAction(action);
-                    });
-                }
-                
-                // Step 4: Update panel with case data
-                const initialMetadata = (typeof CaseDataExtractor !== 'undefined' && 
-                                       typeof CaseDataExtractor.getInitialMetadata === 'function')
-                    ? CaseDataExtractor.getInitialMetadata()
-                    : null;
-                
-                if (initialMetadata) {
-                    FlexipagePanelInjector.setInitialMetadata(initialMetadata);
-                }
-                
-                // Get timezone setting
-                const resolvedTimezone = window.ExLibrisExtension 
-                    ? window.ExLibrisExtension.resolveActiveTimezone(
-                        window.ExLibrisExtension.settings?.exlibris?.ui?.timezone || 
-                        window.ExLibrisExtension.settings?.timezone
-                    )
-                    : null;
-                
-                // Update full context
-                FlexipagePanelInjector.updateContext({
-                    caseNumber: caseData.caseNumber,
-                    subject: caseData.subject,
-                    status: caseData.status,
-                    subStatus: caseData.subStatus,
-                    category: caseData.category,
-                    subCategory: caseData.subCategory,
-                    analysisNote: caseData.analysisNote,
-                    customerId: caseData.custID,
-                    institutionId: caseData.instID,
-                    server: caseData.server,
-                    timezone: resolvedTimezone || '—'
-                });
-                
-                FlexipagePanelInjector.setCaseSummary(caseData);
-                
-                // Set initial preparation state
-                FlexipagePanelInjector.setPreparationState('initial', {
-                    message: 'Case data loaded. Click "Prepare Tools" to enable full features.'
-                });
-                
-                FlexipagePanelInjector.setSlot2Message('Case data ready. Prepare tools to populate the reference workspace.');
-                
-                // Step 5: Initialize CaseTimezoneResolver with full case data
-                // Wait for panel to be fully rendered before initializing timezone resolver
-                if (typeof CaseTimezoneResolver !== 'undefined' && caseData.accountName) {
-                    setTimeout(async () => {
-                        console.log('[PersistentBanner] Initializing CaseTimezoneResolver for account:', caseData.accountName);
-                        // Pass full case data to enable institution-based timezone lookup
-                        await CaseTimezoneResolver.init(caseData);
-                    }, 1000); // 1 second delay to ensure panel DOM is fully ready
-                } else if (!caseData.accountName) {
-                    console.warn('[PersistentBanner] No account name available for timezone detection');
-                }
-                
-                this.showNotification(
-                    `Panel ready for case ${caseData.caseNumber}. Click "Prepare Tools" to continue.`,
-                    'success'
-                );
-            } else {
-                this.showNotification('Could not inject panel. Make sure you are on a Case record page.', 'warning');
-            }
-        } catch (error) {
-            console.error('[PersistentBanner] Error injecting Flexipage panel:', error);
-            this.showNotification('Error injecting panel: ' + error.message, 'error');
-        }
-    },
 
     /**
      * Handle case detail extractor action
@@ -4123,15 +4714,21 @@ const PersistentBanner = {
      */
     updateBannerUI() {
         if (!this.elements.pageType) return;
-
-        // Update page type with friendly display name
-        const displayName = this.currentPage.displayType || this.getPageTypeDisplayName(this.currentPage.type);
-        this.elements.pageType.textContent = displayName;
         
         // Update page type styling based on raw type
         const rawType = this.currentPage.type;
         this.elements.pageType.className = 'exl-banner-page-type';
         this.elements.pageType.classList.add(`exl-page-${rawType.toLowerCase().replace(/\s+/g, '-').replace(/_/g, '-')}`);
+        
+        // For case pages and case comment pages, show case number instead of display name
+        if (rawType === 'case_page' || rawType === 'case_comments') {
+            const caseNumber = this.currentPage.caseNumber || '—';
+            this.elements.pageType.textContent = caseNumber;
+        } else {
+            // Update page type with friendly display name
+            const displayName = this.currentPage.displayType || this.getPageTypeDisplayName(this.currentPage.type);
+            this.elements.pageType.textContent = displayName;
+        }
 
         // FIRST: Check if we're on a case page or case comments
         // These pages NEVER show messages - they have their own data
@@ -4221,9 +4818,6 @@ const PersistentBanner = {
      */
     updateMetadataFields() {
         // Update case metadata
-        if (this.elements.caseNumber) {
-            this.elements.caseNumber.textContent = this.currentPage.caseNumber || '—';
-        }
         if (this.elements.subject) {
             this.elements.subject.textContent = this.currentPage.subject || '—';
         }
@@ -4251,45 +4845,281 @@ const PersistentBanner = {
             this.elements.server.textContent = this.customerMetadata.server || '—';
         }
         
-        // Show/hide environment toggle button and populate buttons
-        const hasEnvData = this.customerMetadata.customerId && 
-                          this.customerMetadata.institutionId && 
-                          this.customerMetadata.server;
+        // Update timezone and customer time
+        this.updateTimezoneDisplay();
+        this.updateCustomerTime();
+        this.startCustomerTimeRefresh();
         
-        // Show toggle button if we have environment data
-        if (this.elements.envToggleSection) {
-            this.elements.envToggleSection.style.display = hasEnvData ? 'flex' : 'none';
-        }
-        
-        // Populate environment buttons if data is available
-        if (hasEnvData && this.elements.envButtonsContainer) {
-            this.populateEnvButtons();
-        }
-        
-        // Keep environment section hidden by default (user must click toggle)
-        if (this.elements.envSection) {
-            this.elements.envSection.style.display = 'none';
-        }
-        // Reset menu visibility state when updating UI
-        this.envMenuVisible = false;
-        if (this.elements.envToggleBtn) {
-            this.elements.envToggleBtn.textContent = 'Go to Customer Env ▶';
+        // Combine status and substatus
+        if (this.elements.status) {
+            if (this.currentPage.subStatus && this.currentPage.subStatus !== '—') {
+                this.elements.status.textContent = `${this.currentPage.status || '—'} - ${this.currentPage.subStatus}`;
+            } else {
+                this.elements.status.textContent = this.currentPage.status || '—';
+            }
         }
         
-        // Show/hide case/subject/status/substatus based on customer data availability
-        const hasCustomerData = hasEnvData;
-        if (this.elements.caseItem) {
-            this.elements.caseItem.style.display = hasCustomerData ? 'none' : 'inline';
-        }
-        if (this.elements.subjectItem) {
-            this.elements.subjectItem.style.display = hasCustomerData ? 'none' : 'inline';
-        }
-        if (this.elements.statusItem) {
-            this.elements.statusItem.style.display = hasCustomerData ? 'none' : 'inline';
-        }
+        // Hide substatus field (combined with status)
         if (this.elements.substatusItem) {
-            this.elements.substatusItem.style.display = hasCustomerData ? 'none' : 'inline';
+            this.elements.substatusItem.style.display = 'none';
         }
+        
+        // Check customer data completeness and show notification if needed
+        this.checkAndShowCustomerDataNotification();
+    },
+    
+    /**
+     * Get customer timezone from case data or lookup helper
+     * @returns {Promise<string|null>} Timezone string or null
+     */
+    async getCustomerTimezone() {
+        const caseData = this.caseToolkit?.caseData || (typeof CaseDataStore !== 'undefined'
+            ? CaseDataStore.getCurrentData?.()
+            : null);
+
+        if (caseData?.customerTimezone) {
+            return caseData.customerTimezone;
+        }
+
+        const identifiers = {
+            institutionCode: this.customerMetadata.institutionCode,
+            customerId: this.customerMetadata.customerId,
+            instID: this.customerMetadata.institutionId,
+            accountName: this.currentPage?.accountName || this.customerMetadata.accountName || null
+        };
+
+        if (typeof CustomerDataManager !== 'undefined' && typeof CustomerDataManager.getCustomerTimezone === 'function') {
+            try {
+                const timezoneInfo = await CustomerDataManager.getCustomerTimezone(identifiers);
+                if (timezoneInfo && timezoneInfo.timezone) {
+                    return timezoneInfo.timezone;
+                }
+            } catch (error) {
+                console.warn('[PersistentBanner] Error getting timezone from CustomerDataManager:', error);
+            }
+        } else if (typeof CustomerTimezoneLookup !== 'undefined') {
+            try {
+                const timezoneResult = await CustomerTimezoneLookup.getTimezone(identifiers);
+                if (timezoneResult && timezoneResult.timezone) {
+                    return timezoneResult.timezone;
+                }
+            } catch (error) {
+                console.warn('[PersistentBanner] Error getting timezone from CustomerTimezoneLookup:', error);
+            }
+        }
+
+        return null;
+    },
+    
+    /**
+     * Update timezone display in metadata
+     */
+    async updateTimezoneDisplay() {
+        if (!this.elements.timezone) return;
+        
+        // Get timezone if not already stored
+        if (!this.customerMetadata.timezone) {
+            this.customerMetadata.timezone = await this.getCustomerTimezone();
+        }
+        
+        const timezone = this.customerMetadata.timezone;
+        if (timezone) {
+            // Format timezone for display (e.g., "America/New_York" -> "America/New York")
+            const displayTimezone = timezone.replace(/_/g, ' ');
+            this.elements.timezone.textContent = displayTimezone;
+        } else {
+            this.elements.timezone.textContent = '—';
+        }
+    },
+    
+    /**
+     * Update customer time display
+     */
+    updateCustomerTime() {
+        if (!this.elements.customerTime) return;
+        
+        const timezone = this.customerMetadata.timezone;
+        if (!timezone) {
+            this.elements.customerTime.textContent = '—';
+            return;
+        }
+        
+        try {
+            // Get current time in customer timezone
+            const now = new Date();
+            const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: timezone,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+            
+            const timeString = formatter.format(now);
+            this.elements.customerTime.textContent = timeString;
+        } catch (error) {
+            console.warn('[PersistentBanner] Error formatting customer time:', error);
+            this.elements.customerTime.textContent = '—';
+        }
+    },
+    
+    /**
+     * Start customer time refresh interval (30 seconds)
+     */
+    startCustomerTimeRefresh() {
+        // Clear existing interval
+        if (this.customerTimeInterval) {
+            clearInterval(this.customerTimeInterval);
+            this.customerTimeInterval = null;
+        }
+        
+        // Only start if we have a timezone
+        if (!this.customerMetadata.timezone) {
+            return;
+        }
+        
+        // Update immediately
+        this.updateCustomerTime();
+        
+        // Set up 30-second interval
+        this.customerTimeInterval = setInterval(() => {
+            this.updateCustomerTime();
+        }, 30000);
+        
+        // Track interval for cleanup
+        this.trackedTimers.push(this.customerTimeInterval);
+    },
+    
+    /**
+     * Stop customer time refresh interval
+     */
+    stopCustomerTimeRefresh() {
+        if (this.customerTimeInterval) {
+            clearInterval(this.customerTimeInterval);
+            this.customerTimeInterval = null;
+        }
+    },
+
+    /**
+     * Check if customer data is complete and show notification if missing
+     */
+    checkAndShowCustomerDataNotification() {
+        const completeness = this.checkCustomerDataCompleteness();
+        
+        if (completeness.missing) {
+            // Show notification
+            if (this.elements.customerDataNotification) {
+                this.elements.customerDataNotification.style.display = 'flex';
+        }
+            
+            // Hide missing metadata fields
+            if (completeness.missingFields.includes('custID') && this.elements.custId) {
+                this.elements.custId.closest('.exl-banner-meta-item')?.style.setProperty('display', 'none');
+            }
+            if (completeness.missingFields.includes('instID') && this.elements.instId) {
+                this.elements.instId.closest('.exl-banner-meta-item')?.style.setProperty('display', 'none');
+            }
+            if (completeness.missingFields.includes('server') && this.elements.server) {
+                this.elements.server.closest('.exl-banner-meta-item')?.style.setProperty('display', 'none');
+            }
+        } else {
+            // Hide notification
+            if (this.elements.customerDataNotification) {
+                this.elements.customerDataNotification.style.display = 'none';
+        }
+        
+            // Show all metadata fields
+            if (this.elements.custId) {
+                this.elements.custId.closest('.exl-banner-meta-item')?.style.setProperty('display', 'inline');
+            }
+            if (this.elements.instId) {
+                this.elements.instId.closest('.exl-banner-meta-item')?.style.setProperty('display', 'inline');
+            }
+            if (this.elements.server) {
+                this.elements.server.closest('.exl-banner-meta-item')?.style.setProperty('display', 'inline');
+            }
+        }
+    },
+
+    /**
+     * Check if customer data is complete
+     * Returns object with missing status, reason, and missing fields
+     * @returns {Object} { missing: boolean, reason: string|null, missingFields: Array<string> }
+     */
+    checkCustomerDataCompleteness() {
+        const institutionCode = this.customerMetadata.institutionCode;
+        // Try to get accountName from current case data
+        let accountName = null;
+        if (typeof CaseDataStore !== 'undefined' && CaseDataStore.getCurrentData) {
+            const storeData = CaseDataStore.getCurrentData();
+            if (storeData && storeData.accountName) {
+                accountName = storeData.accountName;
+            }
+        }
+        // Fallback to currentPage if available
+        if (!accountName && this.currentPage.accountName) {
+            accountName = this.currentPage.accountName;
+        }
+        
+        if (!institutionCode && !accountName) {
+            // No customer identifier available
+            return { missing: false, reason: null, missingFields: [] };
+        }
+
+        // Check critical fields
+        const criticalFields = {
+            custID: this.customerMetadata.customerId,
+            instID: this.customerMetadata.institutionId,
+            server: this.customerMetadata.server
+        };
+
+        const missingFields = [];
+        for (const [field, value] of Object.entries(criticalFields)) {
+            if (!value || value === '—') {
+                missingFields.push(field);
+            }
+        }
+
+        // If all critical fields are present, customer data is complete
+        if (missingFields.length === 0) {
+            return { missing: false, reason: null, missingFields: [] };
+        }
+
+        // Check if customer exists in CustomerDataManager or UserCustomerDataManager
+        let customerFound = false;
+        
+        // Check UserCustomerDataManager first (user-added data takes priority)
+        if (typeof UserCustomerDataManager !== 'undefined') {
+            const userCustomer = UserCustomerDataManager.findByInstitutionCode(institutionCode, accountName);
+            if (userCustomer) {
+                // Check if user customer has all critical fields
+                const userHasAllFields = userCustomer.custID && userCustomer.instID && userCustomer.server;
+                if (userHasAllFields) {
+                    return { missing: false, reason: null, missingFields: [] };
+        }
+                customerFound = true;
+            }
+        }
+
+        // Check CustomerDataManager
+        if (typeof CustomerDataManager !== 'undefined') {
+            const defaultCustomer = CustomerDataManager.findByInstitutionCode(institutionCode, accountName);
+            if (defaultCustomer) {
+                // Check if default customer has all critical fields
+                const defaultHasAllFields = defaultCustomer.custID && defaultCustomer.instID && defaultCustomer.server;
+                if (defaultHasAllFields) {
+                    return { missing: false, reason: null, missingFields: [] };
+                }
+                customerFound = true;
+            }
+        }
+
+        // Customer not found or missing critical fields
+        return {
+            missing: true,
+            reason: customerFound ? 'incomplete' : 'not_found',
+            missingFields
+        };
     },
 
     /**
@@ -4307,16 +5137,67 @@ const PersistentBanner = {
                 const baseColor = statusConfig.base;
                 const gradient = this.createStatusGradient(baseColor);
                 this.elements.banner.style.background = gradient;
-                console.log(`[PersistentBanner] Applied ${statusConfig.category} gradient for status: ${this.currentPage.status}`);
+                
+                // Update accent colors to match status
+                this.updateAccentColors(baseColor);
+                
+                console.log(`[PersistentBanner] Applied ${statusConfig.category} gradient and accent colors for status: ${this.currentPage.status}`);
             } else {
-                // Unknown status - use default gradient
+                // Unknown status - use default gradient and reset accents
                 this.elements.banner.style.background = this.DEFAULT_GRADIENT;
+                this.updateAccentColors(null);
                 console.log(`[PersistentBanner] Unknown status "${this.currentPage.status}", using default gradient`);
             }
         } else {
-            // Not a case page or no status - use default gradient
+            // Not a case page or no status - use default gradient and reset accents
             this.elements.banner.style.background = this.DEFAULT_GRADIENT;
+            this.updateAccentColors(null);
         }
+    },
+    
+    /**
+     * Update accent colors (borders, buttons) to match status color
+     * @param {string|null} statusColor - Status color in rgb() format, or null to reset
+     */
+    updateAccentColors(statusColor) {
+        if (!this.elements.banner) return;
+        
+        // Update page type border-left color
+        if (this.elements.pageType) {
+            if (statusColor) {
+                this.elements.pageType.style.borderLeftColor = statusColor;
+            } else {
+                // Reset to default
+                this.elements.pageType.style.borderLeftColor = '';
+            }
+        }
+        
+        // Update button colors (use status color as background)
+        const buttons = this.elements.banner.querySelectorAll('.exl-banner-btn, .exl-popup-trigger');
+        buttons.forEach(button => {
+            if (statusColor) {
+                // Use the status color as background, white text for legibility
+                button.style.backgroundColor = statusColor;
+                button.style.color = '#ffffff';
+                button.style.borderColor = statusColor;
+            } else {
+                // Reset to default
+                button.style.backgroundColor = '';
+                button.style.color = '';
+                button.style.borderColor = '';
+            }
+        });
+        
+        // Update popup menu item hover colors
+        const popupItems = this.elements.banner.querySelectorAll('.exl-popup-menu-item:not(.exl-disabled)');
+        popupItems.forEach(item => {
+            if (statusColor) {
+                // Store original hover handler or use CSS variable
+                item.style.setProperty('--hover-color', statusColor);
+            } else {
+                item.style.removeProperty('--hover-color');
+            }
+        });
     },
 
     /**
@@ -4347,22 +5228,60 @@ const PersistentBanner = {
     updateNavigationHistoryUI() {
         if (!this.elements.historyList) return;
 
-        if (this.navigationHistory.length === 0) {
+        // Filter to only case pages (should already be filtered, but double-check)
+        const caseHistory = this.navigationHistory.filter(item => item.type === 'case_page');
+
+        if (caseHistory.length === 0) {
             this.elements.historyList.innerHTML = '<div class="exl-banner-history-placeholder">No navigation history yet</div>';
             return;
         }
 
         // Build history items (reverse order - newest first)
-        const historyHTML = [...this.navigationHistory].reverse().map((item, index) => {
-            const relativeIndex = this.navigationHistory.length - index;
-            const caseInfo = item.caseNumber ? `Case ${item.caseNumber}` : item.type;
-            const subjectPreview = item.subject ? ` - ${this.truncate(item.subject, 40)}` : '';
+        const historyHTML = [...caseHistory].reverse().map((item, index) => {
+            const relativeIndex = caseHistory.length - index;
+            const institutionCode = item.institutionCode || '';
+            const subject = item.subject || '';
+            
+            // Get status color for this history item
+            let statusColor = null;
+            let statusCategory = null;
+            let backgroundColor = 'rgba(255, 255, 255, 0.05)'; // Default transparency
+            
+            if (item.status && this.STATUS_COLORS[item.status]) {
+                const statusConfig = this.STATUS_COLORS[item.status];
+                statusColor = statusConfig.base;
+                statusCategory = statusConfig.category;
+                
+                // For red and orange statuses, use less transparent background
+                if (statusCategory === 'red' || statusCategory === 'orange') {
+                    backgroundColor = this.rgbToRgba(statusColor, 0.15);
+                } else {
+                    backgroundColor = this.rgbToRgba(statusColor, 0.05);
+                }
+            }
+            
+            // Build tooltip with case details
+            const tooltipParts = [];
+            if (item.caseNumber) tooltipParts.push(`Case: ${item.caseNumber}`);
+            if (item.institutionCode) tooltipParts.push(`Institution Code: ${item.institutionCode}`);
+            if (item.subject) tooltipParts.push(`Subject: ${item.subject}`);
+            if (item.description) tooltipParts.push(`Description: ${item.description}`);
+            if (item.custID) tooltipParts.push(`CustID: ${item.custID}`);
+            if (item.instID) tooltipParts.push(`InstID: ${item.instID}`);
+            if (item.server) tooltipParts.push(`Server: ${item.server}`);
+            if (item.status) tooltipParts.push(`Status: ${item.status}`);
+            const tooltip = tooltipParts.join('\n');
+            
+            // Build style string for history item
+            const itemStyle = `background-color: ${backgroundColor};${statusColor ? ` border-left-color: ${statusColor};` : ''}`;
             
             return `
-                <div class="exl-banner-history-item" data-history-url="${item.url}" title="Click to navigate">
+                <div class="exl-banner-history-item" data-history-url="${item.url}" title="${tooltip || 'No details available'}" style="${itemStyle}">
                     <span class="exl-history-number">${relativeIndex}</span>
-                    <span class="exl-history-type">${item.type}</span>
-                    <span class="exl-history-details">${caseInfo}${subjectPreview}</span>
+                    <div style="display: flex; flex-direction: column;">
+                        <span class="exl-history-type">${institutionCode || 'N/A'}</span>
+                        <span class="exl-history-details">${subject ? this.truncate(subject, 40) : 'No subject'}</span>
+                    </div>
                 </div>
             `;
         }).join('');
@@ -4379,6 +5298,29 @@ const PersistentBanner = {
     truncate(text, maxLength) {
         if (!text || text.length <= maxLength) return text;
         return text.substring(0, maxLength) + '...';
+    },
+
+    /**
+     * Convert rgb() color string to rgba() with specified opacity
+     * @param {string} rgbString - RGB color string like "rgb(107, 9, 40)"
+     * @param {number} opacity - Opacity value 0-1
+     * @returns {string} RGBA color string
+     */
+    rgbToRgba(rgbString, opacity) {
+        if (!rgbString || !rgbString.startsWith('rgb(')) {
+            return `rgba(255, 255, 255, ${opacity})`;
+        }
+        
+        // Extract RGB values: "rgb(107, 9, 40)" -> ["107", "9", "40"]
+        const match = rgbString.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+        if (match) {
+            const r = match[1];
+            const g = match[2];
+            const b = match[3];
+            return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+        }
+        
+        return `rgba(255, 255, 255, ${opacity})`;
     },
 
     /**
@@ -4850,20 +5792,23 @@ const PersistentBanner = {
      * Populate environment buttons with Production and Sandbox links
      */
     populateEnvButtons() {
-        if (!this.elements.envButtonsContainer) return;
+        if (!this.elements.envPopupContent) return;
         
-        const { server, institutionId, productServiceName } = this.customerMetadata;
+        const { server, institutionCode, productServiceName } = this.customerMetadata;
         
-        // Build institution code - for now using institutionId as placeholder
-        // In production, you'd need proper institution code extraction
-        const institutionCode = institutionId;
+        // Use institutionCode (not institutionId) for URLs
+        if (!institutionCode) {
+            console.warn('[PersistentBanner] Cannot populate env buttons - institutionCode not available');
+            this.elements.envPopupContent.innerHTML = '<div class="exl-popup-menu-item" style="color: #999; cursor: default;">No environment data available</div>';
+            return;
+        }
         
         const buttonsHtml = [];
         
         // Production Back Office button
         buttonsHtml.push(`
-            <button class="exl-banner-btn exl-env-btn" 
-                    data-env-url="https://${server}.alma.exlibrisgroup.com/esploro/?institution=${institutionCode}"
+            <button class="exl-popup-menu-item" 
+                    data-env-url="https://${server}.alma.exlibrisgroup.com/mng/login?institute=${institutionCode}&productCode=esploro&debug=true"
                     title="Open Production Back Office">
                 <span class="exl-env-label">Prod</span> Back Office
             </button>
@@ -4871,8 +5816,8 @@ const PersistentBanner = {
         
         // Production Live View button
         buttonsHtml.push(`
-            <button class="exl-banner-btn exl-env-btn" 
-                    data-env-url="https://${server}.alma.exlibrisgroup.com/mng/login?institute=${institutionCode}&productCode=esploro&debug=true"
+            <button class="exl-popup-menu-item" 
+                    data-env-url="https://${server}.alma.exlibrisgroup.com/esploro/?institution=${institutionCode}"
                     title="Open Production Live View">
                 <span class="exl-env-label">Prod</span> Live View
             </button>
@@ -4880,16 +5825,16 @@ const PersistentBanner = {
         
         // SQA Environment buttons (always available)
         buttonsHtml.push(`
-            <button class="exl-banner-btn exl-env-btn" 
-                    data-env-url="https://sqa-${server}.alma.exlibrisgroup.com/esploro/?institution=${institutionCode}"
+            <button class="exl-popup-menu-item" 
+                    data-env-url="https://sqa-${server}.alma.exlibrisgroup.com/mng/login?institute=${institutionCode}&productCode=esploro&debug=true"
                     title="Open SQA Back Office">
                 <span class="exl-env-label">SQA</span> Back Office
             </button>
         `);
         
         buttonsHtml.push(`
-            <button class="exl-banner-btn exl-env-btn" 
-                    data-env-url="https://sqa-${server}.alma.exlibrisgroup.com/mng/login?institute=${institutionCode}&productCode=esploro&debug=true"
+            <button class="exl-popup-menu-item" 
+                    data-env-url="https://sqa-${server}.alma.exlibrisgroup.com/esploro/?institution=${institutionCode}"
                     title="Open SQA Live View">
                 <span class="exl-env-label">SQA</span> Live View
             </button>
@@ -4900,8 +5845,8 @@ const PersistentBanner = {
             if (productServiceName.includes('esploro advanced')) {
                 // Premium Sandbox Back Office
                 buttonsHtml.push(`
-                    <button class="exl-banner-btn exl-env-btn" 
-                            data-env-url="https://psb-${server}.alma.exlibrisgroup.com/esploro/?institution=${institutionCode}"
+                    <button class="exl-popup-menu-item" 
+                            data-env-url="https://psb-${server}.alma.exlibrisgroup.com/mng/login?institute=${institutionCode}&productCode=esploro&debug=true"
                             title="Open Premium Sandbox Back Office">
                         <span class="exl-env-label">PSB</span> Back Office
                     </button>
@@ -4909,8 +5854,8 @@ const PersistentBanner = {
                 
                 // Premium Sandbox Live View
                 buttonsHtml.push(`
-                    <button class="exl-banner-btn exl-env-btn" 
-                            data-env-url="https://psb-${server}.alma.exlibrisgroup.com/mng/login?institute=${institutionCode}&productCode=esploro&debug=true"
+                    <button class="exl-popup-menu-item" 
+                            data-env-url="https://psb-${server}.alma.exlibrisgroup.com/esploro/?institution=${institutionCode}"
                             title="Open Premium Sandbox Live View">
                         <span class="exl-env-label">PSB</span> Live View
                     </button>
@@ -4918,8 +5863,8 @@ const PersistentBanner = {
             } else if (productServiceName.includes('esploro standard')) {
                 // Standard Sandbox Back Office
                 buttonsHtml.push(`
-                    <button class="exl-banner-btn exl-env-btn" 
-                            data-env-url="https://sb-${server}.alma.exlibrisgroup.com/esploro/?institution=${institutionCode}"
+                    <button class="exl-popup-menu-item" 
+                            data-env-url="https://sb-${server}.alma.exlibrisgroup.com/mng/login?institute=${institutionCode}&productCode=esploro&debug=true"
                             title="Open Sandbox Back Office">
                         <span class="exl-env-label">SB</span> Back Office
                     </button>
@@ -4927,8 +5872,8 @@ const PersistentBanner = {
                 
                 // Standard Sandbox Live View
                 buttonsHtml.push(`
-                    <button class="exl-banner-btn exl-env-btn" 
-                            data-env-url="https://sb-${server}.alma.exlibrisgroup.com/mng/login?institute=${institutionCode}&productCode=esploro&debug=true"
+                    <button class="exl-popup-menu-item" 
+                            data-env-url="https://sb-${server}.alma.exlibrisgroup.com/esploro/?institution=${institutionCode}"
                             title="Open Sandbox Live View">
                         <span class="exl-env-label">SB</span> Live View
                     </button>
@@ -4936,27 +5881,709 @@ const PersistentBanner = {
             }
         }
         
-        this.elements.envButtonsContainer.innerHTML = buttonsHtml.join('');
+        this.elements.envPopupContent.innerHTML = buttonsHtml.join('');
+    },
+
+
+    /**
+     * Show popup menu
+     * @param {string} popupType - 'tools' | 'wiki'
+     * @param {HTMLElement} trigger - Button that triggered the popup
+     */
+    showPopupMenu(popupType, trigger) {
+        // Hide any existing popup
+        this.hidePopupMenu();
+
+        let popup;
+        if (popupType === 'tools') {
+            popup = this.elements.toolsPopup;
+        } else if (popupType === 'wiki') {
+            popup = this.elements.wikiPopup;
+        } else if (popupType === 'env') {
+            popup = this.elements.envPopup;
+            // Populate environment buttons when opening popup
+            this.populateEnvButtons();
+        } else {
+            return;
+        }
+        
+        if (!popup) return;
+
+        // Get trigger button position
+        const triggerRect = trigger.getBoundingClientRect();
+        const bannerRect = this.elements.banner.getBoundingClientRect();
+
+        // Position popup below the trigger button
+        popup.style.position = 'fixed';
+        popup.style.top = `${triggerRect.bottom + 4}px`;
+        popup.style.left = `${triggerRect.left}px`;
+        popup.style.display = 'block';
+        popup.style.zIndex = '10000';
+
+        this.activePopup = popupType;
+
+        // Add click outside handler
+        this.popupCloseHandler = (event) => {
+            if (!popup.contains(event.target) && !trigger.contains(event.target)) {
+                this.hidePopupMenu();
+            }
+        };
+        
+        // Use setTimeout to avoid immediate closure
+        setTimeout(() => {
+            document.addEventListener('click', this.popupCloseHandler, true);
+        }, 0);
     },
 
     /**
-     * Toggle environment menu visibility
+     * Hide popup menu
      */
-    toggleEnvMenu() {
-        if (!this.elements.envSection || !this.elements.envToggleBtn) return;
-        
-        this.envMenuVisible = !this.envMenuVisible;
-        
-        if (this.envMenuVisible) {
-            // Show environment buttons
-            this.elements.envSection.style.display = 'flex';
-            this.elements.envToggleBtn.textContent = '◀ Return to Menu';
-            console.log('[PersistentBanner] Environment menu opened');
-        } else {
-            // Hide environment buttons
-            this.elements.envSection.style.display = 'none';
-            this.elements.envToggleBtn.textContent = 'Go to Customer Env ▶';
-            console.log('[PersistentBanner] Environment menu closed');
+    hidePopupMenu() {
+        if (this.elements.toolsPopup) {
+            this.elements.toolsPopup.style.display = 'none';
         }
+        if (this.elements.wikiPopup) {
+            this.elements.wikiPopup.style.display = 'none';
+        }
+        if (this.elements.envPopup) {
+            this.elements.envPopup.style.display = 'none';
+        }
+
+        if (this.popupCloseHandler) {
+            document.removeEventListener('click', this.popupCloseHandler, true);
+            this.popupCloseHandler = null;
+        }
+
+        this.activePopup = null;
+    },
+
+    /**
+     * Populate Wiki Shortcuts popup with links from URLBuilder
+     */
+    populateWikiShortcuts() {
+        if (!this.elements.wikiPopupContent) return;
+
+        if (typeof URLBuilder === 'undefined' || typeof URLBuilder.getWikiLinks !== 'function') {
+            console.warn('[PersistentBanner] URLBuilder.getWikiLinks not available');
+            return;
+        }
+
+        const wikiLinks = URLBuilder.getWikiLinks();
+        this.elements.wikiPopupContent.innerHTML = '';
+
+        wikiLinks.forEach((link) => {
+            const button = document.createElement('button');
+            button.className = 'exl-popup-menu-item';
+            button.textContent = link.label;
+            button.title = link.url;
+            button.addEventListener('click', () => {
+                window.open(link.url, '_blank');
+                this.hidePopupMenu();
+            });
+            this.elements.wikiPopupContent.appendChild(button);
+        });
+    },
+
+    /**
+     * Handle tool button click
+     * @param {string} toolName - Name of the tool
+     */
+    handleToolClick(toolName) {
+        console.log('[PersistentBanner] Tool clicked:', toolName);
+
+        // Tools that use action-focused mode
+        const actionFocusedTools = ['timezone-inspector', 'sql-wizard', 'customer-data'];
+
+        if (actionFocusedTools.includes(toolName)) {
+            // Get current case data
+            const currentCaseData = this.getCurrentCaseData();
+            this.enterActionFocusedMode(toolName, currentCaseData);
+        } else {
+            console.warn('[PersistentBanner] Unknown tool:', toolName);
+        }
+    },
+
+    /**
+     * Get current case data for tools
+     * @returns {Object|null}
+     */
+    getCurrentCaseData() {
+        // Try to get from CaseDataStore first
+        if (typeof CaseDataStore !== 'undefined' && CaseDataStore.getCurrentData) {
+            const storeData = CaseDataStore.getCurrentData();
+            if (storeData && storeData.data) {
+                return storeData.data;
+            }
+        }
+
+        // Fallback to displayed data
+        return {
+            caseId: this.displayedCaseId,
+            caseNumber: this.displayedCaseNumber,
+            subject: this.currentPage.subject,
+            status: this.currentPage.status,
+            subStatus: this.currentPage.subStatus,
+            ...this.customerMetadata
+        };
+    },
+
+    /**
+     * Enter action-focused mode for a tool
+     * @param {string} toolName - Name of the tool
+     * @param {Object} caseData - Case data to use
+     */
+    enterActionFocusedMode(toolName, caseData) {
+        if (!this.elements.banner) return;
+
+        // Store original case data
+        this.actionFocusedMode.active = true;
+        this.actionFocusedMode.currentTool = toolName;
+        this.actionFocusedMode.originalCaseId = caseData?.caseId || this.displayedCaseId;
+        this.actionFocusedMode.originalCaseNumber = caseData?.caseNumber || this.displayedCaseNumber;
+        this.actionFocusedMode.originalCaseData = caseData;
+
+        // Add action-focused class to banner
+        this.elements.banner.classList.add('action-focused');
+
+        // Hide normal sections
+        this.hideNormalSections();
+
+        // Show tool view
+        this.renderActionFocusedView(toolName);
+
+        console.log('[PersistentBanner] Entered action-focused mode for:', toolName);
+    },
+
+    /**
+     * Exit action-focused mode
+     */
+    exitActionFocusedMode() {
+        if (!this.elements.banner) return;
+
+        // Remove action-focused class
+        this.elements.banner.classList.remove('action-focused');
+        this.elements.banner.classList.remove('exl-banner-stale-warning');
+
+        // Clear state
+        this.actionFocusedMode.active = false;
+        this.actionFocusedMode.currentTool = null;
+        this.actionFocusedMode.originalCaseId = null;
+        this.actionFocusedMode.originalCaseNumber = null;
+        this.actionFocusedMode.originalCaseData = null;
+
+        // Hide tool views
+        const toolViews = this.elements.banner.querySelectorAll('.exl-tool-view');
+        toolViews.forEach(view => view.style.display = 'none');
+
+        // Show normal sections
+        this.showNormalSections();
+
+        console.log('[PersistentBanner] Exited action-focused mode');
+    },
+
+    /**
+     * Hide normal banner sections when in action-focused mode
+     */
+    hideNormalSections() {
+        const sectionsToHide = [
+            '#exl-banner-page-type',
+            '#exl-banner-subject',
+            '#exl-banner-status',
+            '#exl-banner-actions',
+            '#exl-banner-history',
+            '#exl-banner-messages',
+            '#exl-banner-metadata-section'
+        ];
+
+        sectionsToHide.forEach(selector => {
+            const element = this.elements.banner.querySelector(selector);
+            if (element) {
+                element.style.display = 'none';
+            }
+        });
+    },
+
+    /**
+     * Show normal banner sections after exiting action-focused mode
+     */
+    showNormalSections() {
+        const sectionsToShow = [
+            { selector: '#exl-banner-page-type', display: 'block' },
+            { selector: '#exl-banner-subject', display: 'block' },
+            { selector: '#exl-banner-status', display: 'block' },
+            { selector: '#exl-banner-actions', display: 'flex' },
+            { selector: '#exl-banner-history', display: 'block' },
+            { selector: '#exl-banner-messages', display: 'block' },
+            { selector: '#exl-banner-metadata-section', display: 'block' }
+        ];
+
+        sectionsToShow.forEach(({ selector, display }) => {
+            const element = this.elements.banner.querySelector(selector);
+            if (element) {
+                element.style.display = display;
+            }
+        });
+
+        if (this.envMenuVisible && this.elements.envSection) {
+            this.elements.envSection.style.display = 'flex';
+        }
+    },
+
+    /**
+     * Render action-focused view for a tool
+     * @param {string} toolName - Name of the tool
+     */
+    renderActionFocusedView(toolName) {
+        if (!this.elements.banner) return;
+
+        // Hide all tool views first
+        const toolViews = this.elements.banner.querySelectorAll('.exl-tool-view');
+        toolViews.forEach(view => view.style.display = 'none');
+
+        // Find or create tool view
+        let toolView = this.elements.banner.querySelector(`[data-tool="${toolName}"]`);
+        
+        if (!toolView) {
+            // Create tool view based on tool name
+            if (toolName === 'customer-data') {
+                toolView = this.createCustomerDataEditorView();
+        } else {
+            toolView = this.createToolViewPlaceholder(toolName);
+            }
+            this.elements.banner.appendChild(toolView);
+        }
+
+        // Show the tool view
+        toolView.style.display = 'block';
+    },
+
+    /**
+     * Create placeholder tool view
+     * @param {string} toolName - Name of the tool
+     * @returns {HTMLElement}
+     */
+    createToolViewPlaceholder(toolName) {
+        const toolView = document.createElement('div');
+        toolView.className = 'exl-tool-view';
+        toolView.setAttribute('data-tool', toolName);
+
+        const toolLabels = {
+            'timezone-inspector': 'Timezone Inspector',
+            'sql-wizard': 'SQL Wizard',
+            'customer-data': 'Add/Modify Customer Data'
+        };
+
+        toolView.innerHTML = `
+            <div class="exl-tool-header">
+                <h3>${toolLabels[toolName] || toolName}</h3>
+                <button class="exl-back-btn" data-action="exit-tool">← Back</button>
+            </div>
+            <div class="exl-tool-content">
+                <p>${toolLabels[toolName] || toolName} tool - specifications to be provided</p>
+                <!-- Placeholder for future implementation -->
+            </div>
+        `;
+
+        // Add back button handler
+        const backBtn = toolView.querySelector('[data-action="exit-tool"]');
+        if (backBtn) {
+            backBtn.addEventListener('click', () => {
+                this.exitActionFocusedMode();
+            });
+        }
+
+        return toolView;
+    },
+
+    /**
+     * Create customer data editor view
+     * @returns {HTMLElement}
+     */
+    createCustomerDataEditorView() {
+        const toolView = document.createElement('div');
+        toolView.className = 'exl-tool-view exl-customer-data-editor';
+        toolView.setAttribute('data-tool', 'customer-data');
+
+        // Get current case data
+        const caseData = this.getCurrentCaseData();
+        const caseNumber = caseData?.caseNumber || this.displayedCaseNumber || '—';
+        const subject = caseData?.subject || this.currentPage.subject || '—';
+        const accountName = caseData?.accountName || '—';
+        const exLibrisAccountNumber = caseData?.exLibrisAccountNumber || this.customerMetadata.institutionCode || '—';
+
+        // Get current customer data (from UserCustomerDataManager or CustomerDataManager)
+        let customerData = null;
+        if (typeof UserCustomerDataManager !== 'undefined' && exLibrisAccountNumber && exLibrisAccountNumber !== '—') {
+            customerData = UserCustomerDataManager.findByInstitutionCode(exLibrisAccountNumber, accountName);
+        }
+        if (!customerData && typeof CustomerDataManager !== 'undefined' && exLibrisAccountNumber && exLibrisAccountNumber !== '—') {
+            customerData = CustomerDataManager.findByInstitutionCode(exLibrisAccountNumber, accountName);
+        }
+
+        // Merge with current metadata
+        const currentData = {
+            institutionCode: exLibrisAccountNumber !== '—' ? exLibrisAccountNumber : (customerData?.institutionCode || ''),
+            custID: this.customerMetadata.customerId || customerData?.custID || '',
+            instID: this.customerMetadata.institutionId || customerData?.instID || '',
+            server: this.customerMetadata.server || customerData?.server || '',
+            name: accountName !== '—' ? accountName : (customerData?.name || ''),
+            portalCustomDomain: customerData?.portalCustomDomain || '',
+            prefix: customerData?.prefix || '',
+            status: customerData?.status || '',
+            esploroEdition: customerData?.esploroEdition || '',
+            sandboxEdition: customerData?.sandboxEdition || '',
+            hasScopus: customerData?.hasScopus || '',
+            comments: customerData?.comments || ''
+        };
+
+        toolView.innerHTML = `
+            <div class="exl-tool-header">
+                <h3>Add/Modify Customer Data</h3>
+                <div class="exl-tool-header-actions">
+                    <button class="exl-banner-btn exl-export-btn" id="exl-customer-data-export" title="Export customer list">Export List</button>
+                    <button class="exl-banner-btn exl-import-btn" id="exl-customer-data-import" title="Import customer list">Import List</button>
+                    <button class="exl-back-btn" data-action="exit-tool">← Back</button>
+                </div>
+            </div>
+            <div class="exl-tool-content">
+                <div class="exl-customer-data-section">
+                    <h4>Case Information (Read-Only)</h4>
+                    <div class="exl-customer-data-readonly">
+                        <div class="exl-field-row">
+                            <span class="exl-field-label">Case Number:</span>
+                            <span class="exl-field-value">${caseNumber}</span>
+                        </div>
+                        <div class="exl-field-row">
+                            <span class="exl-field-label">Subject:</span>
+                            <span class="exl-field-value">${subject}</span>
+                        </div>
+                        <div class="exl-field-row">
+                            <span class="exl-field-label">Account Name:</span>
+                            <span class="exl-field-value">${accountName}</span>
+                        </div>
+                        <div class="exl-field-row">
+                            <span class="exl-field-label">Ex Libris Account Number:</span>
+                            <span class="exl-field-value">${exLibrisAccountNumber}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="exl-customer-data-section">
+                    <h4>Customer Metadata (Editable)</h4>
+                    <div class="exl-customer-data-fields" id="exl-customer-data-fields">
+                        ${this.createEditableField('institutionCode', 'Institution Code', currentData.institutionCode, true)}
+                        ${this.createEditableField('custID', 'Customer ID', currentData.custID, true)}
+                        ${this.createEditableField('instID', 'Institution ID', currentData.instID, true)}
+                        ${this.createEditableField('server', 'Server', currentData.server, true)}
+                        ${this.createEditableField('name', 'Name', currentData.name, false)}
+                        ${this.createEditableField('portalCustomDomain', 'Portal Custom Domain', currentData.portalCustomDomain, false)}
+                        ${this.createEditableField('prefix', 'Prefix', currentData.prefix, false)}
+                        ${this.createEditableField('status', 'Status', currentData.status, false)}
+                        ${this.createEditableField('esploroEdition', 'Esploro Edition', currentData.esploroEdition, false)}
+                        ${this.createEditableField('sandboxEdition', 'Sandbox Edition', currentData.sandboxEdition, false)}
+                        ${this.createEditableField('hasScopus', 'Has Scopus', currentData.hasScopus, false)}
+                        ${this.createEditableField('comments', 'Comments', currentData.comments, false)}
+                    </div>
+                    <div class="exl-customer-data-actions">
+                        <button class="exl-banner-btn exl-save-btn" id="exl-customer-data-save">Save Customer</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Wire up event handlers
+        this.wireCustomerDataEditorEvents(toolView, currentData);
+
+        return toolView;
+    },
+
+    /**
+     * Create editable field HTML
+     * @param {string} fieldName - Field name
+     * @param {string} label - Field label
+     * @param {string} value - Current value
+     * @param {boolean} isRequired - Whether field is required
+     * @returns {string} HTML string
+     */
+    createEditableField(fieldName, label, value, isRequired) {
+        const displayValue = value || '—';
+        const requiredClass = isRequired ? 'exl-field-required' : '';
+        const requiredIndicator = isRequired ? ' <span class="exl-required-indicator">*</span>' : '';
+        
+        return `
+            <div class="exl-editable-field ${requiredClass}" data-field="${fieldName}">
+                <span class="exl-field-label">${label}:${requiredIndicator}</span>
+                <div class="exl-field-display" data-field-display="${fieldName}">${displayValue}</div>
+                <div class="exl-field-edit" data-field-edit="${fieldName}" style="display: none;">
+                    <input type="text" class="exl-field-input" data-field-input="${fieldName}" value="${value || ''}" placeholder="Enter ${label.toLowerCase()}">
+                    <button class="exl-field-save-btn" data-field-save="${fieldName}">Save</button>
+                </div>
+            </div>
+        `;
+    },
+
+    /**
+     * Wire up event handlers for customer data editor
+     * @param {HTMLElement} toolView - Tool view element
+     * @param {Object} initialData - Initial customer data
+     */
+    wireCustomerDataEditorEvents(toolView, initialData) {
+        // Back button
+        const backBtn = toolView.querySelector('[data-action="exit-tool"]');
+        if (backBtn) {
+            backBtn.addEventListener('click', () => {
+                this.exitActionFocusedMode();
+            });
+        }
+
+        // Editable fields - click to edit
+        const fieldDisplays = toolView.querySelectorAll('[data-field-display]');
+        fieldDisplays.forEach(display => {
+            display.addEventListener('click', () => {
+                const fieldName = display.dataset.fieldDisplay;
+                this.showFieldEditor(toolView, fieldName);
+            });
+        });
+
+        // Save buttons for individual fields
+        const fieldSaveBtns = toolView.querySelectorAll('[data-field-save]');
+        fieldSaveBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const fieldName = btn.dataset.fieldSave;
+                this.saveFieldValue(toolView, fieldName);
+            });
+        });
+
+        // Input blur to save
+        const fieldInputs = toolView.querySelectorAll('[data-field-input]');
+        fieldInputs.forEach(input => {
+            input.addEventListener('blur', () => {
+                const fieldName = input.dataset.fieldInput;
+                this.saveFieldValue(toolView, fieldName);
+            });
+        });
+
+        // Save Customer button
+        const saveBtn = toolView.querySelector('#exl-customer-data-save');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => {
+                this.saveCustomerData(toolView);
+            });
+        }
+
+        // Export button
+        const exportBtn = toolView.querySelector('#exl-customer-data-export');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', () => {
+                this.exportCustomerList();
+            });
+        }
+
+        // Import button
+        const importBtn = toolView.querySelector('#exl-customer-data-import');
+        if (importBtn) {
+            importBtn.addEventListener('click', () => {
+                this.importCustomerList();
+            });
+        }
+    },
+
+    /**
+     * Show field editor
+     * @param {HTMLElement} toolView - Tool view element
+     * @param {string} fieldName - Field name
+     */
+    showFieldEditor(toolView, fieldName) {
+        const display = toolView.querySelector(`[data-field-display="${fieldName}"]`);
+        const edit = toolView.querySelector(`[data-field-edit="${fieldName}"]`);
+        const input = toolView.querySelector(`[data-field-input="${fieldName}"]`);
+        
+        if (display && edit && input) {
+            display.style.display = 'none';
+            edit.style.display = 'flex';
+            input.focus();
+            input.select();
+        }
+    },
+
+    /**
+     * Save field value
+     * @param {HTMLElement} toolView - Tool view element
+     * @param {string} fieldName - Field name
+     */
+    saveFieldValue(toolView, fieldName) {
+        const display = toolView.querySelector(`[data-field-display="${fieldName}"]`);
+        const edit = toolView.querySelector(`[data-field-edit="${fieldName}"]`);
+        const input = toolView.querySelector(`[data-field-input="${fieldName}"]`);
+        
+        if (display && edit && input) {
+            const newValue = input.value.trim();
+            display.textContent = newValue || '—';
+            display.style.display = 'block';
+            edit.style.display = 'none';
+        }
+    },
+
+    /**
+     * Save customer data
+     * @param {HTMLElement} toolView - Tool view element
+     */
+    async saveCustomerData(toolView) {
+        if (typeof UserCustomerDataManager === 'undefined') {
+            console.error('[PersistentBanner] UserCustomerDataManager not available');
+            alert('Customer data manager not available. Please refresh the page.');
+            return;
+        }
+
+        // Collect all field values
+        const customerData = {};
+        const fieldInputs = toolView.querySelectorAll('[data-field-input]');
+        fieldInputs.forEach(input => {
+            const fieldName = input.dataset.fieldInput;
+            const value = input.value.trim();
+            if (value) {
+                customerData[fieldName] = value;
+            }
+        });
+
+        // Validate required fields
+        if (!customerData.institutionCode) {
+            alert('Institution Code is required.');
+            return;
+        }
+
+        try {
+            // Check if customer already exists
+            const existing = UserCustomerDataManager.findByInstitutionCode(customerData.institutionCode);
+            
+            if (existing) {
+                // Update existing
+                await UserCustomerDataManager.update(customerData.institutionCode, customerData);
+                console.log('[PersistentBanner] Updated customer:', customerData.institutionCode);
+            } else {
+                // Add new
+                await UserCustomerDataManager.add(customerData);
+                console.log('[PersistentBanner] Added customer:', customerData.institutionCode);
+            }
+
+            // Update customer metadata in banner
+            this.customerMetadata.customerId = customerData.custID || this.customerMetadata.customerId;
+            this.customerMetadata.institutionId = customerData.instID || this.customerMetadata.institutionId;
+            this.customerMetadata.server = customerData.server || this.customerMetadata.server;
+            this.customerMetadata.institutionCode = customerData.institutionCode || this.customerMetadata.institutionCode;
+
+            // Refresh banner UI
+            this.updateBannerUI();
+
+            // Show success message
+            alert('Customer data saved successfully!');
+        } catch (error) {
+            console.error('[PersistentBanner] Error saving customer data:', error);
+            alert('Error saving customer data: ' + error.message);
+        }
+    },
+
+    /**
+     * Export customer list
+     */
+    exportCustomerList() {
+        if (typeof UserCustomerDataManager === 'undefined') {
+            console.error('[PersistentBanner] UserCustomerDataManager not available');
+            alert('Customer data manager not available.');
+            return;
+        }
+
+        try {
+            const jsonData = UserCustomerDataManager.export();
+            const blob = new Blob([jsonData], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const date = new Date().toISOString().split('T')[0];
+            a.href = url;
+            a.download = `user-customer-list-${date}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            console.log('[PersistentBanner] Exported customer list');
+        } catch (error) {
+            console.error('[PersistentBanner] Error exporting customer list:', error);
+            alert('Error exporting customer list: ' + error.message);
+        }
+    },
+
+    /**
+     * Import customer list
+     */
+    importCustomerList() {
+        if (typeof UserCustomerDataManager === 'undefined') {
+            console.error('[PersistentBanner] UserCustomerDataManager not available');
+            alert('Customer data manager not available.');
+            return;
+        }
+
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            try {
+                const text = await file.text();
+                const jsonData = JSON.parse(text);
+
+                // Confirm import
+                const overwrite = confirm('Import customer list? This will merge with existing data. Click OK to merge, or Cancel to cancel.');
+                if (!overwrite) return;
+
+                const result = await UserCustomerDataManager.import(jsonData, { overwrite: false });
+                alert(`Import complete: ${result.valid} valid customers (${result.added} added, ${result.updated} updated)`);
+                
+                // Refresh banner UI
+                this.updateBannerUI();
+            } catch (error) {
+                console.error('[PersistentBanner] Error importing customer list:', error);
+                alert('Error importing customer list: ' + error.message);
+            }
+        };
+        input.click();
+    },
+
+    /**
+     * Show stale data warning when case changes in action-focused mode
+     * @param {string} currentCaseNumber - Current case number
+     */
+    showStaleDataWarning(currentCaseNumber) {
+        if (!this.elements.banner || !this.actionFocusedMode.active) return;
+
+        const toolLabels = {
+            'timezone-inspector': 'Timezone Inspector',
+            'sql-wizard': 'SQL Wizard',
+            'customer-data': 'Add/Modify Customer Data'
+        };
+
+        const toolName = toolLabels[this.actionFocusedMode.currentTool] || this.actionFocusedMode.currentTool;
+        const originalCaseNumber = this.actionFocusedMode.originalCaseNumber;
+
+        // Add warning class to banner
+        this.elements.banner.classList.add('exl-banner-stale-warning');
+
+        // Find or create warning message element
+        let warningEl = this.elements.banner.querySelector('.exl-stale-warning-message');
+        if (!warningEl) {
+            warningEl = document.createElement('div');
+            warningEl.className = 'exl-stale-warning-message';
+            const toolView = this.elements.banner.querySelector('.exl-tool-view[style*="block"]');
+            if (toolView) {
+                toolView.insertBefore(warningEl, toolView.firstChild);
+            } else {
+                this.elements.banner.insertBefore(warningEl, this.elements.banner.firstChild);
+            }
+        }
+
+        warningEl.textContent = `${toolName} is using data from case #${originalCaseNumber}. Please return to banner homepage to use data from currently viewed case #${currentCaseNumber}.`;
+        warningEl.style.display = 'block';
+
+        console.warn(`[PersistentBanner] Stale data warning: ${toolName} using case #${originalCaseNumber}, current case #${currentCaseNumber}`);
     },
 };

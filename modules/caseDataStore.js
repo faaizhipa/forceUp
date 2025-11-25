@@ -81,13 +81,41 @@ const CaseDataStore = {
 
     if (typeof CaseContextWatcher !== 'undefined') {
       await CaseContextWatcher.init?.();
-      const context = CaseContextWatcher.getCurrentContext?.();
-      if (!context || !context.caseId) {
-        console.warn('[CaseDataStore] No active case context, rejecting data');
-        return;
+      
+      // Try to get stable context with a short timeout
+      let context = null;
+      try {
+        if (typeof CaseContextWatcher.getStableContext === 'function') {
+          context = await Promise.race([
+            CaseContextWatcher.getStableContext({ requireCase: false, timeout: 1000 }),
+            new Promise(resolve => setTimeout(() => resolve(null), 1000))
+          ]);
+        } else {
+          context = CaseContextWatcher.getCurrentContext?.();
+        }
+      } catch (error) {
+        console.warn('[CaseDataStore] Error getting context:', error);
+        // Fallback: try direct getCurrentContext
+        context = CaseContextWatcher.getCurrentContext?.();
       }
-
-      if (context.caseId !== data.caseId) {
+      
+      // If context is not available yet, try to extract caseId from URL as fallback
+      if (!context || !context.caseId) {
+        const urlMatch = window.location.href.match(/\/Case\/([a-zA-Z0-9]{15,18})\//);
+        const urlCaseId = urlMatch ? urlMatch[1] : null;
+        
+        // If URL caseId matches data caseId, allow storage (context might not be ready yet)
+        if (urlCaseId && urlCaseId === data.caseId) {
+          console.log('[CaseDataStore] Context not ready, but URL caseId matches, allowing storage');
+          // Continue to store the data
+        } else {
+          console.warn('[CaseDataStore] No active case context and URL caseId mismatch, rejecting data', {
+            dataCaseId: data.caseId,
+            urlCaseId: urlCaseId
+          });
+          return;
+        }
+      } else if (context.caseId !== data.caseId) {
         console.warn('[CaseDataStore] Case mismatch, rejecting data', {
           dataCaseId: data.caseId,
           contextCaseId: context.caseId

@@ -15,6 +15,7 @@ const CustomerDataManager = (function() {
   let currentSource = DEFAULT_SOURCE; // 'default' or 'scraped'
   let customerData = null;
   let isInitialized = false;
+  let timezoneIndexes = null;
 
   // ========== DEFAULT CUSTOMER LIST ==========
   
@@ -744,10 +745,48 @@ const CustomerDataManager = (function() {
    * @returns {Array}
    */
   function getActiveList() {
-    if (currentSource === SCRAPED_SOURCE && customerData && customerData.scraped) {
-      return customerData.scraped.data || [];
+    const list = (currentSource === SCRAPED_SOURCE && customerData && customerData.scraped)
+      ? (customerData.scraped.data || [])
+      : defaultCustomerList;
+
+    annotateCustomerList(list);
+    return list;
+  }
+
+  function annotateCustomerList(list) {
+    if (!Array.isArray(list) || !list.length || !timezoneIndexes) {
+      return;
     }
-    return defaultCustomerList;
+    list.forEach((customer) => annotateCustomerRecord(customer));
+  }
+
+  function annotateCustomerRecord(customer) {
+    if (!customer || customer.__timezoneAnnotated || !timezoneIndexes) {
+      return customer;
+    }
+
+    const orgCode = customer.institutionCode ? customer.institutionCode.toUpperCase() : null;
+    const customerId = customer.custID || customer.customerId;
+    const instId = customer.instID || customer.institutionId;
+
+    let timezoneRecord = null;
+    if (orgCode && timezoneIndexes.byOrgCode[orgCode]) {
+      timezoneRecord = timezoneIndexes.byOrgCode[orgCode];
+    } else if (customerId && timezoneIndexes.byCustomerId[customerId]) {
+      timezoneRecord = timezoneIndexes.byCustomerId[customerId];
+    } else if (instId && timezoneIndexes.byInstitutionId[instId]) {
+      timezoneRecord = timezoneIndexes.byInstitutionId[instId];
+    }
+
+    if (timezoneRecord) {
+      customer.timezone = customer.timezone || timezoneRecord.timezone;
+      customer.timezoneOrgName = timezoneRecord.orgName || customer.name || null;
+      customer.timezoneDbServers = Array.from(timezoneRecord.dbServers || []);
+      customer.timezoneSource = customer.timezoneSource || 'instTimezones';
+    }
+
+    customer.__timezoneAnnotated = true;
+    return customer;
   }
 
   // ========== PUBLIC API ==========
@@ -778,6 +817,18 @@ const CustomerDataManager = (function() {
             },
             scraped: null
           };
+        }
+
+        if (typeof CustomerTimezoneLookup !== 'undefined') {
+          await CustomerTimezoneLookup.init();
+          timezoneIndexes = await CustomerTimezoneLookup.getIndexes();
+          annotateCustomerList(defaultCustomerList);
+          if (customerData?.scraped?.data) {
+            annotateCustomerList(customerData.scraped.data);
+          }
+          console.log('[CustomerDataManager] CustomerTimezoneLookup data ready');
+        } else {
+          console.warn('[CustomerDataManager] CustomerTimezoneLookup not loaded');
         }
 
         isInitialized = true;
@@ -812,7 +863,7 @@ const CustomerDataManager = (function() {
       
       if (customer) {
         console.log(`[CustomerDataManager] Found customer (exact match): ${customer.name} (${institutionCode})`);
-        return customer;
+        return annotateCustomerRecord(customer);
       }
       
       // Strategy 2: Check if institution code contains the Ex-Libris account number
@@ -822,7 +873,7 @@ const CustomerDataManager = (function() {
         
         if (customer) {
           console.log(`[CustomerDataManager] Found customer (partial match): ${customer.name} (${institutionCode} matched ${customer.institutionCode})`);
-          return customer;
+          return annotateCustomerRecord(customer);
         }
       }
       
@@ -842,7 +893,7 @@ const CustomerDataManager = (function() {
         
         if (customer) {
           console.log(`[CustomerDataManager] Found customer (name match): ${customer.name} matched "${accountName}"`);
-          return customer;
+          return annotateCustomerRecord(customer);
         }
       }
       
@@ -940,6 +991,36 @@ const CustomerDataManager = (function() {
         scrapedLastUpdate: customerData?.scraped?.lastUpdate || null,
         currentCount: getActiveList().length
       };
+    },
+
+    /**
+     * Resolves customer timezone information using the lookup helper
+     * @param {Object} identifiers
+     * @returns {Promise<Object|null>}
+     */
+    async getCustomerTimezone(identifiers = {}) {
+      if (!isInitialized) {
+        await this.init();
+      }
+
+      if (typeof CustomerTimezoneLookup === 'undefined') {
+        console.warn('[CustomerDataManager] CustomerTimezoneLookup not available');
+        return null;
+      }
+
+      const enriched = { ...identifiers };
+
+      if (!enriched.institutionCode && identifiers.customer) {
+        enriched.institutionCode = identifiers.customer.institutionCode;
+      }
+      if (!enriched.customerId && identifiers.customer) {
+        enriched.customerId = identifiers.customer.custID || identifiers.customer.customerid;
+      }
+      if (!enriched.instID && identifiers.customer) {
+        enriched.instID = identifiers.customer.instID || identifiers.customer.institutionid;
+      }
+
+      return CustomerTimezoneLookup.resolveTimezone(enriched);
     },
 
     /**

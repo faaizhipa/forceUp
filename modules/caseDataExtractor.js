@@ -37,7 +37,12 @@ const CaseDataExtractor = {
       customerId: null,
       instID: null,
       institutionId: null,
-      customerName: null
+      customerName: null,
+      customerTimezone: null,
+      customerTimezoneSource: null,
+      customerOrgCode: null,
+      customerOrgName: null,
+      customerDbServers: []
     };
   },
 
@@ -528,6 +533,35 @@ const CaseDataExtractor = {
       console.log(`[CaseDataExtractor] Applied customer data - custID: ${processed.custID}, instID: ${processed.instID}, server: ${processed.server}`);
     } else if (processed.institutionCode) {
       console.warn(`[CaseDataExtractor] No customer record found for ${processed.institutionCode}`);
+    }
+
+    // Step 5: Resolve timezone information
+    if (typeof CustomerDataManager !== 'undefined' && typeof CustomerDataManager.getCustomerTimezone === 'function') {
+      try {
+        const timezoneInfo = await CustomerDataManager.getCustomerTimezone({
+          institutionCode: processed.institutionCode || processed.customerCode,
+          customerId: processed.custID || processed.customerid,
+          instID: processed.instID || processed.institutionid,
+          accountName: processed.accountName,
+          customer: customerRecord
+        });
+
+        if (timezoneInfo && timezoneInfo.timezone) {
+          processed.customerTimezone = timezoneInfo.timezone;
+          processed.customerTimezoneSource = timezoneInfo.source || 'instTimezones';
+          processed.customerOrgCode = timezoneInfo.orgCode || processed.institutionCode || processed.customerCode || null;
+          processed.customerOrgName = timezoneInfo.orgName || processed.customerName || null;
+          processed.customerDbServers = timezoneInfo.dbServers || [];
+        }
+      } catch (error) {
+        console.error('[CaseDataExtractor] Error resolving customer timezone:', error);
+      }
+    } else if (customerRecord && customerRecord.timezone) {
+      processed.customerTimezone = customerRecord.timezone;
+      processed.customerTimezoneSource = customerRecord.timezoneSource || 'customer-record';
+      processed.customerOrgCode = customerRecord.institutionCode || processed.institutionCode || null;
+      processed.customerOrgName = customerRecord.timezoneOrgName || customerRecord.name || null;
+      processed.customerDbServers = customerRecord.timezoneDbServers || [];
     }
 
     return processed;

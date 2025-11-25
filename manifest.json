@@ -35,6 +35,8 @@
             "modules/settingsManager.js",
             "modules/siteActivationManager.js",
             "modules/customerDataManager.js",
+            "modules/customerTimezoneLookup.js",
+            "modules/userCustomerDataManager.js",
             "modules/caseDataExtractor.js",
             "modules/caseCommentExtractor.js",
             "modules/casePageDataExtractor.js",
@@ -45,27 +47,19 @@
             "modules/contextMenuHandler.js",
             "modules/multiTabSync.js",
             "modules/caseCommentMemory.js",
-            "modules/dynamicMenu.js",
             "modules/characterCounter.js",
             "modules/shadowTextExtractor.js",
             "modules/eventSimulator.js",
             "modules/scrollController.js",
             "modules/navigationObserver.js",
-            "modules/timezoneDetector.js",
             "modules/addressTimezoneResolver.js",
             "modules/accountAddressExtractor.js",
-            "modules/timezoneStorage.js",
-            "modules/institutionTimezoneManager.js",
-            "modules/caseTimezoneResolver.js",
             "modules/unknownCustomerManager.js",
             "modules/caseDetailExtractor.js",
             "modules/userPreferences.js",
-            "modules/timezoneUtils.js",
-            "modules/timezoneConverter.js",
             "modules/configurationWarningBanner.js",
             "modules/persistentBanner.js",
             "modules/implementationStatus.js",
-            "modules/flexipagePanelInjector.js",
             "content_script_exlibris.js"
          ],
          "matches": [
@@ -89,6 +83,7 @@
             "modules/storageQuotaManager.js",
             "modules/screenshotManager.js",
             "modules/highlighter.js",
+            "modules/noteKeyboardBlocker.js",
             "modules/stickyNotes.js",
             "modules/bookmarkManager.js",
             "content_script_highlighter.js"
@@ -124,7 +119,8 @@
       {
          "resources": [
             "modules/styles/injected-panel.css",
-            "icons/*.png"
+            "icons/*.png",
+            "instTimezones.dsv"
          ],
          "matches": [
             "https://proquestllc.lightning.force.com/*",

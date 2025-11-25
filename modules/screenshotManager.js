@@ -40,13 +40,13 @@ const ScreenshotManager = (function() {
   function init() {
     if (isRestrictedDomain()) {
       if (typeof Logger !== 'undefined') {
-        Logger.log('[ScreenshotManager] Not initializing - restricted Salesforce domain');
+        Logger.info('[ScreenshotManager] Not initializing - restricted Salesforce domain');
       }
       return false;
     }
 
     if (typeof Logger !== 'undefined') {
-      Logger.log('[ScreenshotManager] Initializing on non-Salesforce domain');
+      Logger.info('[ScreenshotManager] Initializing on non-Salesforce domain');
     }
 
     // Register keyboard shortcut will be handled by KeyboardShortcuts module
@@ -579,7 +579,7 @@ const ScreenshotManager = (function() {
   function applyEffect(effectType, event) {
     // Simplified implementation - would need more complex logic for region-based effects
     if (typeof Logger !== 'undefined') {
-      Logger.log('[ScreenshotManager] Effect application not yet implemented:', effectType);
+      Logger.info('[ScreenshotManager] Effect application not yet implemented:', effectType);
     }
   }
 
@@ -665,7 +665,7 @@ const ScreenshotManager = (function() {
       await chrome.storage.local.set({ [storageKey]: screenshotData });
 
       if (typeof Logger !== 'undefined') {
-        Logger.log('[ScreenshotManager] Screenshot saved:', storageKey);
+        Logger.info('[ScreenshotManager] Screenshot saved:', storageKey);
       }
 
     } catch (error) {
@@ -692,7 +692,7 @@ const ScreenshotManager = (function() {
       ]);
 
       if (typeof Logger !== 'undefined') {
-        Logger.log('[ScreenshotManager] Image copied to clipboard');
+        Logger.info('[ScreenshotManager] Image copied to clipboard');
       }
 
     } catch (error) {

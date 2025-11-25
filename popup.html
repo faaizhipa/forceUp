@@ -615,6 +615,48 @@
       </div>
 
       <div class="setting-group">
+        <h2>✨ Highlighter Banner</h2>
+        <div id="highlighter-banner-section">
+          <div class="activation-info">
+            <span class="domain-label">Current URL:</span>
+            <span id="highlighter-banner-url" class="domain-value" style="max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Loading...</span>
+          </div>
+          <div class="activation-status-row" style="margin-top: 10px;">
+            <span id="highlighter-banner-status" class="status-badge status-inactive">●Hidden</span>
+            <button id="toggle-highlighter-banner-btn" class="toggle-btn" data-enabled="false">
+              Show Banner
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <h2>✨ Highlighter Banner Sites</h2>
+        <p class="info-text">Manage which sites show the banner by default (besides the default domains)</p>
+        
+        <!-- Add Site Form -->
+        <div style="margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <label for="addSiteType" style="font-size: 12px; margin: 0;">Type:</label>
+            <select id="addSiteType" style="flex: 1; max-width: 120px; padding: 6px; font-size: 12px;">
+              <option value="domain">Domain</option>
+              <option value="url">URL</option>
+            </select>
+            <input type="text" id="addSiteInput" placeholder="example.com or https://example.com/page" style="flex: 2; padding: 6px; font-size: 12px;">
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button id="addSiteBtn" class="button-small" style="flex: 1;">Add Site</button>
+            <button id="addCurrentSiteBtn" class="button-small" style="flex: 1;">Add Current Site</button>
+          </div>
+        </div>
+        
+        <!-- Whitelisted Sites List -->
+        <div id="whitelistedSitesList" style="margin-top: 12px;">
+          <p class="info-text" style="font-size: 11px; margin: 0;">Loading...</p>
+        </div>
+      </div>
+
+      <div class="setting-group">
         <h2>🎨 UI Preferences</h2>
         <label for="labelStyleSelect">Button Label Style</label>
         <select id="labelStyleSelect" title="Button Label Style">
