@@ -490,11 +490,13 @@ const FlexipagePanelInjector = {
 
             let customerTimezone = caseData?.customerTimezone || this.customerMetadata.timezone || null;
 
-            if (!customerTimezone && typeof CustomerDataManager !== 'undefined' && typeof CustomerDataManager.getCustomerTimezone === 'function') {
-                const lookup = await CustomerDataManager.getCustomerTimezone({
+            if (!customerTimezone && typeof CustomerMasterManager !== 'undefined') {
+                const lookup = await CustomerMasterManager.resolveTimezone({
                     institutionCode: caseData?.institutionCode || this.customerMetadata.institutionCode,
+                    accountCode: caseData?.accountCode,
+                    server: caseData?.server || this.customerMetadata.server,
                     customerId: caseData?.custID || this.customerMetadata.customerId,
-                    instID: caseData?.instID || this.customerMetadata.institutionId,
+                    institutionId: caseData?.instID || this.customerMetadata.institutionId,
                     accountName: caseData?.accountName || this.customerMetadata.accountName
                 });
                 customerTimezone = lookup?.timezone || null;

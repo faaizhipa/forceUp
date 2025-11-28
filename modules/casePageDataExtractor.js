@@ -432,18 +432,19 @@ const CasePageDataExtractor = {
       dataSource: 'API' // Mark data source for debugging
     };
 
-    // Enrich with customer data from CustomerDataManager
-    if (typeof CustomerDataManager !== 'undefined' && data.exLibrisAccountNumber) {
-      const customerInfo = CustomerDataManager.findByInstitutionCode(
+    // Enrich with customer data from CustomerMasterManager
+    if (typeof CustomerMasterManager !== 'undefined' && data.exLibrisAccountNumber) {
+      const customerInfo = CustomerMasterManager.findByInstitutionCode(
         data.exLibrisAccountNumber,
         data.accountName
       );
       
       if (customerInfo) {
-        data.custID = customerInfo.custID;
-        data.instID = customerInfo.instID;
+        data.custID = customerInfo.customerId;
+        data.instID = customerInfo.institutionId;
         data.server = customerInfo.server;
-        console.log('[CasePageDataExtractor] API data enriched with customer info:', customerInfo.name);
+        data.region = customerInfo.region;
+        console.log('[CasePageDataExtractor] API data enriched with customer info:', customerInfo.accountName);
       }
     }
 
@@ -474,12 +475,12 @@ const CasePageDataExtractor = {
       const apiData = window.ExLibrisExtension.apiCaseData;
       const apiTimestamp = window.ExLibrisExtension.apiCaseDataTimestamp;
       
-      // Check if data is fresh (within last 5 seconds)
+      // Check if data is fresh (within last 30 seconds)
       const age = Date.now() - (apiTimestamp || 0);
-      if (age < 5000) {
+      if (age < 30000) {
         // Verify API data matches current case
         if (apiData.CaseNumber === contextCaseNumber || !contextCaseNumber) {
-          console.log('[CasePageDataExtractor] Using fresh API data (age: ${age}ms)');
+          console.log(`[CasePageDataExtractor] Using fresh API data (age: ${age}ms)`);
           return this.normalizeApiData(apiData, contextCaseId);
         } else {
           console.warn('[CasePageDataExtractor] API data case number mismatch, falling back to DOM', {
@@ -488,7 +489,7 @@ const CasePageDataExtractor = {
           });
         }
       } else {
-        console.log('[CasePageDataExtractor] API data too old (age: ${age}ms), falling back to DOM');
+        console.log(`[CasePageDataExtractor] API data too old (age: ${age}ms), falling back to DOM`);
       }
     }
 
@@ -616,54 +617,56 @@ const CasePageDataExtractor = {
       lastModifiedDate: this.getLastModifiedDate()
     };
 
-    // Enrich with customer data from CustomerDataManager
-    if (typeof CustomerDataManager !== 'undefined' && data.exLibrisAccountNumber) {
+    // Enrich with customer data from CustomerMasterManager
+    if (typeof CustomerMasterManager !== 'undefined' && data.exLibrisAccountNumber) {
       // Pass both institution code and account name for flexible matching
-      const customerInfo = CustomerDataManager.findByInstitutionCode(
+      const customerInfo = CustomerMasterManager.findByInstitutionCode(
         data.exLibrisAccountNumber,
         data.accountName // Fallback to account name matching
       );
       
       if (customerInfo) {
-        data.custID = customerInfo.custID;
-        data.instID = customerInfo.instID;
+        data.custID = customerInfo.customerId;
+        data.instID = customerInfo.institutionId;
         data.server = customerInfo.server;
-        console.log('[CasePageDataExtractor] Found customer by institution code:', customerInfo.name);
+        data.region = customerInfo.region;
+        console.log('[CasePageDataExtractor] Found customer by institution code:', customerInfo.accountName);
         console.log('[CasePageDataExtractor] Using server from customer record:', customerInfo.server);
-        console.log('[CasePageDataExtractor] Applied customer data - custID:', customerInfo.custID, 'instID:', customerInfo.instID, 'server:', customerInfo.server);
+        console.log('[CasePageDataExtractor] Applied customer data - custID:', data.custID, 'instID:', data.instID, 'server:', data.server);
       }
     }
 
-    // Resolve timezone information (CasePageDataExtractor's independent implementation)
-    // Uses ONLY CustomerDataManager.getCustomerTimezone() as the single source of truth
-    // No fallbacks - if CustomerDataManager is unavailable or doesn't resolve, timezone remains null
+    // Resolve timezone information using CustomerMasterManager as single source of truth
+    // CustomerMasterManager loads from customerMasterList.json and supports user overrides
+    // No fallbacks - if CustomerMasterManager is unavailable or doesn't resolve, timezone remains null
     if (data.accountName || data.exLibrisAccountNumber) {
       try {
-        // Single source of truth: CustomerDataManager.getCustomerTimezone()
-        // This uses CustomerTimezoneLookup which reads from timezones_index.json and user overrides
-        if (typeof CustomerDataManager !== 'undefined' && typeof CustomerDataManager.getCustomerTimezone === 'function') {
-          const timezoneInfo = await CustomerDataManager.getCustomerTimezone({
-            accountName: data.accountName, // Primary lookup key
-            institutionCode: data.exLibrisAccountNumber // Fallback lookup
-            // customerId and instID no longer used for timezone lookup
+        if (typeof CustomerMasterManager !== 'undefined') {
+          const timezoneInfo = await CustomerMasterManager.resolveTimezone({
+            accountName: data.accountName,
+            institutionCode: data.exLibrisAccountNumber,
+            server: data.server,
+            customerId: data.custID,
+            institutionId: data.instID
           });
 
           if (timezoneInfo && timezoneInfo.timezone) {
             data.timezone = timezoneInfo.timezone;
-            data.timezoneDisplayName = timezoneInfo.displayName || timezoneInfo.timezone.replace(/_/g, ' ');
-            data.timezoneSource = timezoneInfo.source || 'customerDataManager';
-            console.log('[CasePageDataExtractor] Timezone resolved via CustomerDataManager:', {
+            data.timezoneDisplayName = timezoneInfo.timezone.replace(/_/g, ' ');
+            data.timezoneSource = timezoneInfo.source || 'customerMasterManager';
+            console.log('[CasePageDataExtractor] Timezone resolved via CustomerMasterManager:', {
               timezone: timezoneInfo.timezone,
-              source: timezoneInfo.source
+              source: timezoneInfo.source,
+              matchType: timezoneInfo.matchType
             });
           } else {
-            console.log('[CasePageDataExtractor] Timezone not found in CustomerDataManager for:', {
+            console.log('[CasePageDataExtractor] Timezone not found in CustomerMasterManager for:', {
               institutionCode: data.exLibrisAccountNumber,
               accountName: data.accountName
             });
           }
         } else {
-          console.warn('[CasePageDataExtractor] CustomerDataManager not available for timezone resolution');
+          console.warn('[CasePageDataExtractor] CustomerMasterManager not available for timezone resolution');
         }
       } catch (error) {
         console.error('[CasePageDataExtractor] Error resolving timezone:', error);
@@ -1318,6 +1321,7 @@ const CasePageDataExtractor = {
    * @returns {Promise<Object|null>}
    */
   async extractNow(force = false) {
+    this.currentCaseId = this.getCaseIdFromUrl();
     if (!this.currentCaseId) {
       console.warn('[CasePageDataExtractor] No case page currently loaded');
       return null;

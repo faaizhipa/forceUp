@@ -10,10 +10,11 @@
 
 ## Important Documentation
 
-- **Complete Architecture:** See `ARCHITECTURE.md`
+- **Complete Architecture:** See `docs/02-architecture-and-design.md`
 - **Case Comment Extractor Module:** See `.github/CASE_COMMENT_EXTRACTOR.md` (comprehensive guide)
 - **Feature Updates:** See `FEATURE_SUMMARY.md`
-- **Bug Fixes:** See `BUGFIX_CASE_LIST_ONLY.md`
+- **Project Rules:** See `PROJECT_RULES.md`
+- **AI Guidelines:** See `.github/copilot-instructions.md`
 
 ---
 

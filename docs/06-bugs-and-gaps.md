@@ -157,7 +157,7 @@ function observeTitleUpdate(expectedCaseNumber, timeout = 3000) {
 
 **Status**: 🟡 Partially Fixed  
 **Severity**: MEDIUM  
-**Affected Modules**: CasePageDataExtractor, CustomerDataManager
+**Affected Modules**: CasePageDataExtractor, CustomerMasterManager
 
 **Problem**:
 Legacy cache layer has been removed, but there's no persistence mechanism. All data is re-extracted on every navigation.

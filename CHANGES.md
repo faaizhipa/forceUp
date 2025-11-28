@@ -33,6 +33,146 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2025-11-28] - Bug Fix - FetchInterceptor Data Recovery and TTL
+
+**Description**: Fixed multiple issues preventing FetchInterceptor from being effectively used as the primary case data source. The FetchInterceptor intercepts Salesforce API calls to extract case data before DOM parsing, providing faster and more reliable data.
+
+**Problems Fixed**:
+1. **Pending data never consumed** - `window._pendingApiCaseData` was set by FetchInterceptor but never read
+2. **Event never listened to** - `caseDataFromApi` event was dispatched but no subscribers existed
+3. **TTL too short** - 5-second freshness window often expired before extraction ran
+4. **Stale data on navigation** - Old API data persisted when navigating to new cases
+
+**Changes Made**:
+- Added pending API data recovery in `init()` to retrieve data captured before ExLibrisExtension existed
+- Added `caseDataFromApi` event listener for real-time API data updates
+- Increased API data TTL from 5 seconds to 30 seconds
+- Clear API data on navigation to prevent stale data from previous cases
+
+**Files Changed**:
+- `content_script_exlibris.js` - Added pending data recovery, event listener, navigation clearing
+- `modules/casePageDataExtractor.js` - Increased TTL from 5000ms to 30000ms
+
+**Console Log Flow (Success)**:
+```
+[FetchInterceptor] Case data captured from API: { caseNumber: "00001234", fieldCount: 45 }
+[ExLibris Extension] Received API case data via event
+[CasePageDataExtractor] Using fresh API data (age: 150ms)
+```
+
+**Lessons Learned**:
+- Modules loaded at `document_start` may capture data before main objects exist - always check for pending data
+- Event listeners should be registered early to catch events from fast-loading modules
+- 5-second TTL is too aggressive for SPA navigation - 30 seconds provides buffer while still ensuring freshness
+- Always clear cached data on navigation in SPAs to prevent cross-case data contamination
+
+**Related Issues/PRs**: FetchInterceptor effectiveness fix
+
+---
+
+### [2025-11-28] - Documentation - Initialization and Module Reference Updates
+
+**Description**: Updated documentation to reflect the new initialization architecture and CustomerMasterManager module, including the new `safeInit` pattern with error boundaries and timeout handling.
+
+**Key Changes**:
+- Updated references from `CustomerDataManager` + `CustomerTimezoneLookup` → `CustomerMasterManager`
+- Updated initialization sequence in documentation to reflect new state machine pattern
+- Added `UserCustomerDataManager` as the override layer for user-added entries
+- Archived 9 obsolete implementation notes from `.github/` folder
+
+**Files Updated**:
+- `.github/copilot-instructions.md` - Updated module references and data management layer
+- `.github/DEVELOPER_GUIDE.md` - Fixed outdated architecture references
+- `DEPENDENCIES.md` - Updated all module dependency references
+- `BEST_PRACTICES.md` - Updated module examples
+- `DEBUG_INSTRUCTIONS.md` - Updated expected initialization log sequence
+
+**New Initialization Features Documented**:
+- `initState` state machine ('idle' | 'initializing' | 'ready' | 'error')
+- `safeInit()` helper for error-bounded module initialization
+- 30-second timeout wrapper for initialization
+- Improved logging with initialization duration
+
+**Related Issues/PRs**: Module consolidation and initialization refactor
+
+---
+
+### [2025-11-28] - Features - Build and Packaging Infrastructure
+
+**Description**: Added comprehensive build tooling, packaging scripts, and debugging utilities to make the extension easier to deploy and troubleshoot in production.
+
+**Files Created**:
+- `package.json` - npm package configuration with build scripts
+- `scripts/build.js` - Build script for creating production-ready dist/
+- `scripts/package.js` - Package script for creating ZIP releases
+- `scripts/validate.js` - Validation script for checking extension integrity
+- `scripts/version.js` - Version management script
+- `scripts/clean.js` - Clean script for removing build artifacts
+- `modules/debugHelper.js` - Runtime debug utilities (console diagnostics)
+- `DEPLOYMENT.md` - Comprehensive deployment and troubleshooting guide
+- `.gitignore` - Git ignore rules for build artifacts
+
+**New npm Commands**:
+- `npm run build` / `npm run build:prod` - Create production build
+- `npm run package` - Create ZIP package in releases/
+- `npm run validate` - Validate extension integrity
+- `npm run version:bump` - Bump version numbers
+- `npm run clean` - Remove build artifacts
+
+**DebugHelper Console Commands**:
+- `DebugHelper.status()` - Full status report
+- `DebugHelper.modules()` - List loaded modules
+- `DebugHelper.caseData()` - Current case data
+- `DebugHelper.storage()` - View storage contents
+- `DebugHelper.testTimezone('name')` - Test timezone resolution
+- `DebugHelper.export()` - Export debug info to JSON
+
+**Lessons Learned**:
+- Proper build tooling reduces manual deployment errors
+- Debug utilities in production help with remote troubleshooting
+- Version management scripts ensure consistency across manifest and package.json
+- Validation before packaging catches missing files early
+
+**Related Issues/PRs**: Deployment infrastructure improvement
+
+---
+
+### [2025-11-27] - Features - CustomerMasterManager Replacement
+
+**Description**: Replaced the dual-layer customer/timezone system (`CustomerDataManager` + `CustomerTimezoneLookup`) with a unified `CustomerMasterManager` module. The new system uses `customerMasterList.json` (7,212 institution records with pre-resolved timezones) as the single source of truth, providing faster lookups via multiple indexed keys and cleaner code architecture.
+
+**Key Changes**:
+- Created `scripts/buildCustomerMasterJSON.js` to convert the master list JS file to indexed JSON
+- Created `modules/customerMasterManager.js` with unified API for customer lookup and timezone resolution
+- Updated `manifest.json` to use new module and expose `customerMasterList.json`
+- Updated all consuming modules to use `CustomerMasterManager`:
+  - `caseDataExtractor.js` - Uses `CustomerMasterManager.resolveTimezone()` and `findByInstitutionCode()`
+  - `casePageDataExtractor.js` - Uses `CustomerMasterManager.resolveTimezone()` and `findByInstitutionCode()`
+  - `persistentBanner.js` - Uses `CustomerMasterManager` for timezone resolution and customer lookup
+  - `dynamicMenu.js` - Uses `CustomerMasterManager.resolveTimezone()` for timezone display
+  - `flexipagePanelInjector.js` - Uses `CustomerMasterManager.resolveTimezone()` for timezone lookup
+  - `content_script_exlibris.js` - Initializes `CustomerMasterManager` instead of the two old modules
+
+**Removed Files**:
+- `modules/customerDataManager.js` (replaced by CustomerMasterManager)
+- `modules/customerTimezoneLookup.js` (replaced by CustomerMasterManager)
+- `timezones_index.json` (replaced by customerMasterList.json)
+- `timezones_index.js` (replaced by customerMasterList.json)
+
+**New Data Features**:
+- 7,212 institution records with pre-resolved timezones
+- Multiple lookup indexes: byAccountName, byInstitutionCode, byAccountCode, byServerIds
+- Server and region data included for better URL generation
+- User overrides preserved via chrome.storage.local
+
+**Lessons Learned**:
+- Unifying customer data and timezone lookup eliminates redundant code paths and data duplication
+- Pre-building indexes in the JSON file speeds up runtime lookups significantly
+- Using consistent field names (customerId vs custID) requires backwards-compatible aliases in the new API
+- UserCustomerDataManager remains separate for user-added custom entries (priority over master list)
+
+**Related Issues/PRs**: Customer timezone pipeline refactor
+
 ### [2025-11-24] - Features - Customer Timezone Lookup Pipeline
 
 **Description**: Replaced the legacy timezone modules (`timezoneDetector`, `timezoneStorage`, `institutionTimezoneManager`, `timezoneUtils`, `timezoneConverter`) with a single `CustomerTimezoneLookup` helper that parses `instTimezones.dsv`, builds indexed lookups, and exposes a consistent API for overrides/export. Customer records and case data now receive enriched timezone metadata, DynamicMenu renders conversions without depending on the removed module, and the Flexipage workspace surfaces the same data.
@@ -147,6 +287,46 @@ Each entry follows this structure:
 
 **Related Issues/PRs**: Cache invalidation implementation to prevent stale data issue
 
+### [2025-11-28] - Documentation - Documentation Structure Cleanup
+
+**Description**: Major documentation cleanup and reorganization to establish `docs/` folder as single source of truth and reduce redundancy.
+
+**Changes Made**:
+- Created `archive/` folder for obsolete documentation
+- Archived 18 obsolete implementation notes and planning documents
+- Updated cross-references in active documentation
+- Created `archive/README.md` with archive index
+
+**Files Archived**: 
+- `ARCHITECTURE.md`, `BANNER_DESIGN_ANALYSIS.md`, `CACHE_GLOBAL_STATE_INTEGRATION_PLAN.md`
+- `CASEDETAILEXTRACTOR_DATAFLOW_ANALYSIS.md`, `CLEANUP_SUMMARY.md`, `CODEBASE_ANALYSIS.md`
+- `COMPLETE_FLOW_DOCUMENTATION.md`, `comprehensive-codebase-documentation.plan.md`
+- `CROSS_TAB_SYNC_IMPLEMENTATION.md`, `explanation.md` (root), `FEATURE_IMPLEMENTATION_PLAN.md`
+- `FETCH_INTERCEPTION_ANALYSIS.md`, `HIGHLIGHTER_BANNER_REDESIGN.md`, `IMPLEMENTATION_GUIDE.md`
+- `IMPLEMENTATION_PLAN_TOOLS_REFACTOR.md`, `IMPLEMENTATION_PROGRESS.md`
+- `PLAN_REMOVE_BANNER_CHECKBOX_AND_TAB_NAV.md`, `PROMPT.md`
+
+**Files Updated**:
+- `docs/explanation.md` - Updated documentation structure references
+- `docs/02-architecture-and-design.md` - Removed archived file references
+- `docs/04-data-flow.md` - Removed archived file references
+
+**New Structure**:
+- Root level: Essential reference docs (8 files)
+- `docs/`: Comprehensive documentation (7 files + explanation.md)
+- `.github/`: AI/developer guidelines (2 files)
+- `archive/`: Historical documentation (18 files)
+
+**Lessons Learned**:
+- Single source of truth prevents confusion from duplicate/outdated docs
+- Implementation notes should be archived after implementation is complete
+- Clear archive structure with README helps future reference if needed
+- Focused documentation is easier to maintain than scattered files
+
+**Related Issues/PRs**: Documentation cleanup initiative
+
+---
+
 ### [2024-01-XX] - Documentation - Comprehensive Codebase Documentation
 
 **Description**: Created comprehensive documentation system with multiple focused documents:
@@ -200,11 +380,11 @@ Copy this template when adding new entries:
 
 ## Change Statistics
 
-- **Total Changes**: 1
-- **Bug Fixes**: 0
-- **Features**: 0
+- **Total Changes**: 6
+- **Bug Fixes**: 2
+- **Features**: 2
 - **Refactoring**: 0
-- **Documentation**: 1
+- **Documentation**: 2
 - **Performance**: 0
 - **Security**: 0
 
@@ -212,8 +392,17 @@ Copy this template when adding new entries:
 
 ## Recent Changes Summary
 
-### Documentation (1)
-- Comprehensive codebase documentation system created
+### Documentation (2)
+- [2025-11-28] Documentation structure cleanup and archive creation
+- [2024-01-XX] Comprehensive codebase documentation system created
+
+### Features (2)
+- [2025-11-24] Customer Timezone Lookup Pipeline
+- [2024-12-XX] Timezone Converter Feature
+
+### Bug Fixes (2)
+- [2024-12-XX] CaseDetailExtractor Stale Data Prevention
+- [2024-12-XX] Cache Invalidation for Case Data Extractors
 
 ---
 

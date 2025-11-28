@@ -143,10 +143,14 @@ const NavigationObserver = {
         }
         
         // Check URL change
-        const urlChanged = newUrl !== this.currentUrl;
+        const urlChanged = newUrl !== this.currentUrl ? newUrl !== window.ExLibrisExtension.lastUrl : false;
         
+        if (!urlChanged) {
+            return;
+        }
+
         // Check title change
-        const titleChanged = newTitle !== this.currentTitle;
+        const titleChanged = this.currentTitle !== null && newTitle !== this.currentTitle;
         
         // Check case context change
         const caseIdChanged = newContext?.caseId !== this.currentCaseId;

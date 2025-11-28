@@ -555,7 +555,7 @@ async init() {
 **Inconsistency**: Some modules use IIFE pattern, others use object literal
 
 **Examples**:
-- IIFE: `CustomerDataManager`, `ContextMenuHandler`, `TimezoneStorage`
+- IIFE: `CustomerMasterManager`, `ContextMenuHandler`, `UserCustomerDataManager`
 - Object: `Logger`, `DebounceUtils`, `TextFormatter`, `FieldHighlighter`
 
 **Impact**: Low - both patterns work, but inconsistent
@@ -4296,7 +4296,7 @@ MyModule.displayCaseData = function(data) {
 ### Unit Testing
 
 1. **Mock Dependencies**
-   - Mock `CustomerDataManager`
+   - Mock `CustomerMasterManager`
    - Mock `chrome.storage`
    - Mock DOM elements
 

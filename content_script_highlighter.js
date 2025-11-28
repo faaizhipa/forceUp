@@ -127,8 +127,13 @@
     currentUrl: null,
     urlCheckInterval: null,
     floatingButtonElement: null,
+    floatingBannerElement: null,
     undoNotificationTimer: null,
     closeButtonElement: null,
+    bannerMode: 'hidden', // 'hidden' | 'floating' | 'sticky'
+    isDragging: false,
+    dragStartPos: { x: 0, y: 0 },
+    buttonPosition: { x: null, y: null },
 
     /**
      * Initialize controller
@@ -178,19 +183,37 @@
         await StickyNotes.init();
         await BookmarkManager.init();
 
+        // Load banner mode from storage
+        await this.loadBannerMode();
+        
+        // Load saved banner color and sync to sticky notes
+        chrome.storage.local.get(['exl_hl_current_banner_color'], (result) => {
+          const colorId = result.exl_hl_current_banner_color;
+          if (typeof colorId === 'number' && colorId >= 1 && colorId <= 11) {
+            this.currentBannerColor = colorId;
+            // Sync to sticky notes
+            if (typeof StickyNotes !== 'undefined' && StickyNotes.setDefaultColor) {
+              StickyNotes.setDefaultColor(colorId);
+            }
+          }
+        });
+        
         // Check if banner should be shown using new decision logic BEFORE creating UI
         const bannerResult = await this.shouldShowBannerForSite();
         
-        if (bannerResult.show) {
-          // Banner should show - create it
+        if (bannerResult.show && this.bannerMode !== 'floating') {
+          // Banner should show - create it as sticky
           this.createBanner();
           this.setupListeners();
           
-          // Setup MutationObserver to watch for dynamically added fixed elements
-          this.setupFixedElementObserver();
+          // Setup MutationObserver to watch for dynamically added fixed elements (only for sticky mode)
+          if (this.bannerMode === 'sticky') {
+            this.setupFixedElementObserver();
+          }
           
-          // Hide floating button
+          // Hide floating button and floating banner
           this.hideFloatingButton();
+          this.hideFloatingBanner();
         } else {
           console.log('[HighlighterController] Banner should not show:', bannerResult.reason);
           // Banner should not show - create it but keep it hidden, show floating button instead
@@ -207,6 +230,8 @@
           }
           this.adjustPageLayout(false);
           this.removeEarlyLayoutAdjustment();
+          // CRITICAL: Clean up ALL fixed element adjustments when banner is not shown
+          this.removeFixedElementAdjustments();
           
           // Ensure gaps are removed - force cleanup after a short delay
           setTimeout(() => {
@@ -220,14 +245,24 @@
                 document.body.style.setProperty('margin-top', '0', 'important');
               }
             }
+            // Clean up fixed element adjustments again to ensure nothing is missed
+            this.removeFixedElementAdjustments();
           }, 100);
           
           // Show floating button (for non-default/non-whitelisted sites or dismissed sites)
-          await this.checkAndShowFloatingButton();
-          
-          // Ensure floating button is shown even if check failed
-          if (!this.floatingButtonElement || this.floatingButtonElement.style.display === 'none') {
-            this.showFloatingButton();
+          // Only show if banner mode is not explicitly set to sticky
+          if (this.bannerMode !== 'sticky') {
+            await this.checkAndShowFloatingButton();
+            
+            // Ensure floating button is shown even if check failed
+            if (!this.floatingButtonElement || this.floatingButtonElement.style.display === 'none') {
+              await this.showFloatingButton();
+            }
+            
+            // If banner mode is floating, show floating banner instead of button if already expanded
+            if (this.bannerMode === 'floating') {
+              // Floating banner will be shown on button click
+            }
           }
         }
 
@@ -700,6 +735,19 @@
       const titleSection = document.createElement('div');
       titleSection.className = 'exl-banner-section';
       
+      // Add button to convert sticky banner to floating banner
+      const stickyToFloatBtn = document.createElement('button');
+      stickyToFloatBtn.className = 'exl-hl-sticky-to-float-btn';
+      stickyToFloatBtn.innerHTML = '⤋';
+      stickyToFloatBtn.title = 'Switch to floating banner';
+      stickyToFloatBtn.setAttribute('aria-label', 'Switch to floating banner');
+      stickyToFloatBtn.setAttribute('tabindex', '0');
+      stickyToFloatBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await this.switchToFloatingMode();
+      });
+      titleSection.appendChild(stickyToFloatBtn);
+      
       const titleLabel = document.createElement('div');
       titleLabel.className = 'exl-banner-label';
       titleLabel.textContent = 'Tool';
@@ -793,16 +841,19 @@
       // Ensure banner height is at least 48px
       this.ensureBannerHeight();
 
-      // Adjust page content to avoid banner overlap
-      this.adjustPageLayout(true);
-      
-      // Handle "skip to main content" links that might overlap
-      this.handleSkipToContentLinks();
-      
-      // Also adjust fixed elements after banner is inserted (in case DOM changed)
-      setTimeout(() => {
-        this.adjustFixedElements();
-      }, 200);
+      // Only adjust page layout if NOT in sticky mode (sticky mode overlays content, no adjustments needed)
+      if (this.bannerMode !== 'sticky') {
+        // Adjust page content to avoid banner overlap
+        this.adjustPageLayout(true);
+        
+        // Handle "skip to main content" links that might overlap
+        this.handleSkipToContentLinks();
+        
+        // Also adjust fixed elements after banner is inserted (in case DOM changed)
+        setTimeout(() => {
+          this.adjustFixedElements();
+        }, 200);
+      }
     },
 
     /**
@@ -1236,9 +1287,171 @@
     },
 
     /**
+     * Load banner mode from storage
+     */
+    async loadBannerMode() {
+      return new Promise((resolve) => {
+        chrome.storage.local.get(['exl_hl_banner_mode'], (result) => {
+          const mode = result.exl_hl_banner_mode;
+          if (mode === 'floating' || mode === 'sticky' || mode === 'hidden') {
+            this.bannerMode = mode;
+          } else {
+            this.bannerMode = 'hidden';
+          }
+          resolve(this.bannerMode);
+        });
+      });
+    },
+
+    /**
+     * Save banner mode to storage
+     */
+    async saveBannerMode(mode) {
+      if (mode !== 'floating' && mode !== 'sticky' && mode !== 'hidden') {
+        console.warn('[HighlighterController] Invalid banner mode:', mode);
+        return;
+      }
+      this.bannerMode = mode;
+      chrome.storage.local.set({ exl_hl_banner_mode: mode }, () => {
+        console.log('[HighlighterController] Saved banner mode:', mode);
+      });
+    },
+
+    /**
+     * Load floating button position from storage
+     */
+    async loadFloatingButtonPosition() {
+      return new Promise((resolve) => {
+        chrome.storage.local.get(['exl_hl_floating_button_position'], (result) => {
+          const pos = result.exl_hl_floating_button_position;
+          if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
+            this.buttonPosition = { x: pos.x, y: pos.y };
+            resolve(this.buttonPosition);
+          } else {
+            resolve(null);
+          }
+        });
+      });
+    },
+
+    /**
+     * Save floating button position to storage
+     */
+    async saveFloatingButtonPosition(x, y) {
+      this.buttonPosition = { x, y };
+      chrome.storage.local.set({ exl_hl_floating_button_position: { x, y } }, () => {
+        console.log('[HighlighterController] Saved floating button position:', x, y);
+      });
+    },
+
+    /**
+     * Make floating button draggable
+     */
+    makeFloatingButtonDraggable(button) {
+      if (!button) return;
+
+      let isDragging = false;
+      let startX = 0;
+      let startY = 0;
+      let initialLeft = 0;
+      let initialTop = 0;
+
+      const startDrag = (e) => {
+        // Don't start drag on button click (only on drag gesture)
+        if (e.target !== button && !button.contains(e.target)) return;
+        
+        // Prevent drag if clicking on button (to allow toggle functionality)
+        const clickThreshold = 5; // pixels
+        const mouseDownX = e.clientX;
+        const mouseDownY = e.clientY;
+        let hasMoved = false;
+
+        const onMouseMove = (e) => {
+          const deltaX = Math.abs(e.clientX - mouseDownX);
+          const deltaY = Math.abs(e.clientY - mouseDownY);
+          
+          if (deltaX > clickThreshold || deltaY > clickThreshold) {
+            hasMoved = true;
+            if (!isDragging) {
+              isDragging = true;
+              this.isDragging = true;
+              button.classList.add('dragging');
+              
+              const rect = button.getBoundingClientRect();
+              startX = e.clientX;
+              startY = e.clientY;
+              initialLeft = rect.left;
+              initialTop = rect.top;
+              
+              // Prevent text selection during drag
+              document.body.style.userSelect = 'none';
+              document.body.style.cursor = 'grabbing';
+            }
+            
+            // Calculate new position
+            const deltaX = e.clientX - startX;
+            const deltaY = e.clientY - startY;
+            
+            let newLeft = initialLeft + deltaX;
+            let newTop = initialTop + deltaY;
+            
+            // Constrain to viewport boundaries
+            const buttonWidth = button.offsetWidth;
+            const buttonHeight = button.offsetHeight;
+            const maxX = window.innerWidth - buttonWidth;
+            const maxY = window.innerHeight - buttonHeight;
+            
+            newLeft = Math.max(0, Math.min(newLeft, maxX));
+            newTop = Math.max(0, Math.min(newTop, maxY));
+            
+            // Update position
+            button.style.left = `${newLeft}px`;
+            button.style.top = `${newTop}px`;
+            button.style.right = 'auto';
+            button.style.transform = 'none';
+          }
+        };
+
+        const onMouseUp = (e) => {
+          if (isDragging) {
+            isDragging = false;
+            this.isDragging = false;
+            button.classList.remove('dragging');
+            
+            // Restore cursor and selection
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
+            
+            // Save position
+            const rect = button.getBoundingClientRect();
+            this.saveFloatingButtonPosition(rect.left, rect.top);
+          } else if (!hasMoved) {
+            // It was a click, not a drag - toggle floating banner
+            this.toggleFloatingBanner();
+          }
+          
+          document.removeEventListener('mousemove', onMouseMove);
+          document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      };
+
+      button.addEventListener('mousedown', startDrag);
+      
+      // Prevent context menu on long press
+      button.addEventListener('contextmenu', (e) => {
+        if (isDragging) {
+          e.preventDefault();
+        }
+      });
+    },
+
+    /**
      * Create and show floating button
      */
-    showFloatingButton() {
+    async showFloatingButton() {
       // Ensure body exists before appending
       if (!document.body) {
         // Wait for DOM to be ready
@@ -1254,6 +1467,14 @@
       // Don't create if already exists
       if (this.floatingButtonElement) {
         this.floatingButtonElement.style.display = 'block';
+        // Load saved position
+        await this.loadFloatingButtonPosition();
+        if (this.buttonPosition.x !== null && this.buttonPosition.y !== null) {
+          this.floatingButtonElement.style.left = `${this.buttonPosition.x}px`;
+          this.floatingButtonElement.style.top = `${this.buttonPosition.y}px`;
+          this.floatingButtonElement.style.right = 'auto';
+          this.floatingButtonElement.style.transform = 'none';
+        }
         return;
       }
       
@@ -1263,9 +1484,17 @@
       floatingBtn.title = 'Show Highlighter Banner';
       floatingBtn.setAttribute('aria-label', 'Show Highlighter Banner');
       
-      floatingBtn.addEventListener('click', async () => {
-        await this.reactivateBannerForCurrentUrl();
-      });
+      // Load saved position or use default
+      await this.loadFloatingButtonPosition();
+      if (this.buttonPosition.x !== null && this.buttonPosition.y !== null) {
+        floatingBtn.style.left = `${this.buttonPosition.x}px`;
+        floatingBtn.style.top = `${this.buttonPosition.y}px`;
+        floatingBtn.style.right = 'auto';
+        floatingBtn.style.transform = 'none';
+      }
+      
+      // Make button draggable
+      this.makeFloatingButtonDraggable(floatingBtn);
       
       document.body.appendChild(floatingBtn);
       this.floatingButtonElement = floatingBtn;
@@ -1279,6 +1508,254 @@
       if (this.floatingButtonElement) {
         this.floatingButtonElement.style.display = 'none';
       }
+    },
+
+    /**
+     * Create floating sidebar banner that expands from button
+     */
+    showFloatingBanner() {
+      // Don't create if already exists
+      if (this.floatingBannerElement) {
+        this.floatingBannerElement.style.display = 'flex';
+        return;
+      }
+
+      if (!this.floatingButtonElement) {
+        console.warn('[HighlighterController] Cannot show floating banner: button not found');
+        return;
+      }
+
+      // Get button position
+      const buttonRect = this.floatingButtonElement.getBoundingClientRect();
+      const buttonY = buttonRect.top;
+
+      // Create floating banner container
+      const floatingBanner = document.createElement('div');
+      floatingBanner.className = 'exl-hl-floating-banner';
+      floatingBanner.id = 'exl-hl-floating-banner';
+
+      // Create container with all banner sections
+      const container = document.createElement('div');
+      container.className = 'exl-banner-container';
+
+      // Section 1: Title
+      const titleSection = document.createElement('div');
+      titleSection.className = 'exl-banner-section';
+      
+      const titleLabel = document.createElement('div');
+      titleLabel.className = 'exl-banner-label';
+      titleLabel.textContent = 'Tool';
+      
+      const title = document.createElement('div');
+      title.className = 'exl-hl-banner-title';
+      title.textContent = '✨ Highlighter';
+      
+      titleSection.appendChild(titleLabel);
+      titleSection.appendChild(title);
+      container.appendChild(titleSection);
+
+      // Section 2: Highlight Action
+      const highlightSection = document.createElement('div');
+      highlightSection.className = 'exl-banner-section';
+      
+      const highlightBtn = document.createElement('button');
+      highlightBtn.className = 'exl-hl-btn';
+      highlightBtn.innerHTML = '🖍️ Highlight';
+      highlightBtn.title = 'Highlight selected text';
+      highlightBtn.addEventListener('click', () => {
+        Highlighter.createHighlight();
+      });
+      
+      highlightSection.appendChild(highlightBtn);
+      container.appendChild(highlightSection);
+
+      // Section 3: Color Palette
+      const paletteSection = document.createElement('div');
+      paletteSection.className = 'exl-banner-section';
+      
+      const paletteLabel = document.createElement('div');
+      paletteLabel.className = 'exl-banner-label';
+      paletteLabel.textContent = 'Colors';
+      
+      const palette = this.createColorPalette();
+      paletteSection.appendChild(paletteLabel);
+      paletteSection.appendChild(palette);
+      container.appendChild(paletteSection);
+
+      // Section 4: Layers
+      const layerSection = document.createElement('div');
+      layerSection.className = 'exl-banner-section';
+      
+      const layerBtn = this.createLayerDropdown();
+      layerSection.appendChild(layerBtn);
+      container.appendChild(layerSection);
+
+      // Section 5: Actions (Notes, Collections, Bookmark)
+      const actionsSection = document.createElement('div');
+      actionsSection.className = 'exl-banner-section exl-banner-actions';
+      
+      const noteBtn = document.createElement('button');
+      noteBtn.className = 'exl-hl-btn';
+      noteBtn.innerHTML = '📝 Add Note';
+      noteBtn.title = 'Create sticky note';
+      noteBtn.addEventListener('click', () => {
+        StickyNotes.createNote();
+      });
+
+      const collectionsBtn = document.createElement('button');
+      collectionsBtn.className = 'exl-hl-btn';
+      collectionsBtn.innerHTML = '📚 Collections';
+      collectionsBtn.title = 'Open collections';
+      collectionsBtn.addEventListener('click', () => {
+        BookmarkManager.openPanel();
+      });
+
+      const bookmarkBtn = document.createElement('button');
+      bookmarkBtn.className = 'exl-hl-btn';
+      bookmarkBtn.innerHTML = '🔖 Bookmark';
+      bookmarkBtn.title = 'Bookmark this page';
+      bookmarkBtn.addEventListener('click', () => {
+        this.showBookmarkDialog();
+      });
+      
+      actionsSection.appendChild(noteBtn);
+      actionsSection.appendChild(collectionsBtn);
+      actionsSection.appendChild(bookmarkBtn);
+      container.appendChild(actionsSection);
+
+      floatingBanner.appendChild(container);
+
+      // Add collapse button (chevron pointing toward button)
+      const collapseBtn = document.createElement('button');
+      collapseBtn.className = 'exl-hl-floating-collapse-btn';
+      collapseBtn.innerHTML = '◀';
+      collapseBtn.title = 'Collapse to button';
+      collapseBtn.setAttribute('aria-label', 'Collapse banner');
+      collapseBtn.setAttribute('tabindex', '0');
+      collapseBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.hideFloatingBanner();
+      });
+      floatingBanner.appendChild(collapseBtn);
+
+      // Add pin button (pin inside window)
+      const pinBtn = document.createElement('button');
+      pinBtn.className = 'exl-hl-floating-pin-btn';
+      pinBtn.innerHTML = '📌';
+      pinBtn.title = 'Pin to top';
+      pinBtn.setAttribute('aria-label', 'Pin banner to top');
+      pinBtn.setAttribute('tabindex', '0');
+      pinBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.switchToStickyMode();
+      });
+      floatingBanner.appendChild(pinBtn);
+
+      // Position floating banner on left side, anchored to button Y position
+      floatingBanner.style.top = `${buttonY}px`;
+      floatingBanner.style.left = '0px';
+      floatingBanner.style.height = '48px';
+
+      document.body.appendChild(floatingBanner);
+      this.floatingBannerElement = floatingBanner;
+
+      // Hide floating button when banner is shown
+      if (this.floatingButtonElement) {
+        this.floatingButtonElement.style.display = 'none';
+      }
+
+      console.log('[HighlighterController] Floating banner shown');
+    },
+
+    /**
+     * Hide floating banner and show button
+     */
+    hideFloatingBanner() {
+      if (this.floatingBannerElement) {
+        this.floatingBannerElement.style.display = 'none';
+      }
+      
+      // Show floating button
+      if (this.floatingButtonElement) {
+        this.floatingButtonElement.style.display = 'block';
+      }
+      
+      console.log('[HighlighterController] Floating banner hidden');
+    },
+
+    /**
+     * Toggle between floating button and floating banner
+     */
+    toggleFloatingBanner() {
+      if (this.floatingBannerElement && this.floatingBannerElement.style.display !== 'none') {
+        this.hideFloatingBanner();
+      } else {
+        this.showFloatingBanner();
+      }
+    },
+
+    /**
+     * Switch from floating to sticky mode
+     */
+    async switchToStickyMode() {
+      // Hide floating banner and button
+      this.hideFloatingBanner();
+      if (this.floatingButtonElement) {
+        this.floatingButtonElement.style.display = 'none';
+      }
+
+      // Show sticky banner
+      if (!this.bannerElement) {
+        this.createBanner();
+        this.setupListeners();
+      }
+      
+      if (this.bannerElement) {
+        this.bannerElement.style.display = 'block';
+        this.bannerElement.classList.add('sticky-mode');
+        
+        // Mark body
+        if (document.body) {
+          document.body.removeAttribute('data-exl-hl-banner-hidden');
+        }
+
+        // Ensure no layout adjustments are applied (sticky mode overlays content)
+        this.adjustPageLayout(false);
+        this.removeFixedElementAdjustments();
+      }
+
+      // Save mode
+      await this.saveBannerMode('sticky');
+      
+      console.log('[HighlighterController] Switched to sticky mode');
+    },
+
+    /**
+     * Switch from sticky to floating mode
+     */
+    async switchToFloatingMode() {
+      // Hide sticky banner
+      if (this.bannerElement) {
+        this.bannerElement.style.display = 'none';
+        this.bannerElement.classList.remove('sticky-mode');
+        
+        // Mark body
+        if (document.body) {
+          document.body.setAttribute('data-exl-hl-banner-hidden', 'true');
+        }
+        
+        // Remove all layout adjustments
+        this.adjustPageLayout(false);
+        this.removeFixedElementAdjustments();
+      }
+
+      // Show floating button
+      await this.showFloatingButton();
+
+      // Save mode
+      await this.saveBannerMode('floating');
+      
+      console.log('[HighlighterController] Switched to floating mode');
     },
 
     /**
@@ -1405,6 +1882,19 @@
           
           // Set color in highlighter
           Highlighter.setColor(color.id);
+          
+          // Store current banner color for sticky notes sync
+          this.currentBannerColor = color.id;
+          
+          // Sync to sticky notes default color
+          if (typeof StickyNotes !== 'undefined' && StickyNotes.setDefaultColor) {
+            StickyNotes.setDefaultColor(color.id);
+          }
+          
+          // Save current banner color to storage
+          chrome.storage.local.set({ exl_hl_current_banner_color: color.id }, () => {
+            console.log('[HighlighterController] Saved current banner color:', color.id);
+          });
           
           // If there's a text selection, highlight it with this color
           let selectionNow = window.getSelection();
@@ -1844,7 +2334,39 @@
      * Find and adjust fixed-positioned elements that might overlap banner
      * This handles elements with position: fixed and top: 0 (or close to 0)
      */
+    /**
+     * Check if banner is actually visible (not just exists in DOM)
+     * Returns false if banner is hidden, doesn't exist, or only floating button is shown
+     */
+    isBannerVisible() {
+      if (!this.bannerElement) {
+        return false;
+      }
+      
+      const display = window.getComputedStyle(this.bannerElement).display;
+      const visibility = window.getComputedStyle(this.bannerElement).visibility;
+      const opacity = window.getComputedStyle(this.bannerElement).opacity;
+      
+      // Banner is visible only if display is not 'none', visibility is not 'hidden', and opacity is > 0
+      return display !== 'none' && visibility !== 'hidden' && parseFloat(opacity) > 0;
+    },
+
     adjustFixedElements() {
+      // CRITICAL: Only adjust elements if banner is actually visible
+      // When banner is hidden (mini button shown), ALL styling should be inactive
+      if (!this.isBannerVisible()) {
+        console.log('[HighlighterController] Banner not visible, skipping fixed element adjustments');
+        // Clean up any existing adjustments when banner is not visible
+        this.removeFixedElementAdjustments();
+        return;
+      }
+
+      // Don't adjust fixed elements if banner mode is sticky (sticky overlays content, no adjustments needed)
+      if (this.bannerMode === 'sticky') {
+        console.log('[HighlighterController] Skipping fixed element adjustments (sticky mode - banner overlays)');
+        return;
+      }
+      
       const BANNER_HEIGHT_PX = 48;
       const ADJUSTMENT_ATTR = 'data-exl-hl-adjusted';
       
@@ -1893,19 +2415,39 @@
 
     /**
      * Remove adjustments from fixed elements
+     * Cleans up all styling applied by adjustFixedElements()
      */
     removeFixedElementAdjustments() {
       const ADJUSTMENT_ATTR = 'data-exl-hl-adjusted';
+      const SKIP_LINK_ADJUSTED_ATTR = 'data-exl-hl-skip-link-adjusted';
+      const SKIP_LINK_HIDDEN_ATTR = 'data-exl-hl-skip-link-hidden';
       
       try {
+        // Remove adjustments from fixed elements
         const adjustedElements = document.querySelectorAll(`[${ADJUSTMENT_ATTR}]`);
         adjustedElements.forEach(el => {
+          // Remove the inline style property (including !important)
           el.style.removeProperty('top');
           el.removeAttribute(ADJUSTMENT_ATTR);
         });
         
-        if (adjustedElements.length > 0) {
-          console.log(`[HighlighterController] Removed adjustments from ${adjustedElements.length} elements`);
+        // Clean up skip link adjustments
+        const skipLinkAdjusted = document.querySelectorAll(`[${SKIP_LINK_ADJUSTED_ATTR}]`);
+        skipLinkAdjusted.forEach(el => {
+          el.style.removeProperty('top');
+          el.removeAttribute(SKIP_LINK_ADJUSTED_ATTR);
+        });
+        
+        // Clean up skip link hidden markers
+        const skipLinkHidden = document.querySelectorAll(`[${SKIP_LINK_HIDDEN_ATTR}]`);
+        skipLinkHidden.forEach(el => {
+          el.style.removeProperty('display');
+          el.removeAttribute(SKIP_LINK_HIDDEN_ATTR);
+        });
+        
+        const totalCleaned = adjustedElements.length + skipLinkAdjusted.length + skipLinkHidden.length;
+        if (totalCleaned > 0) {
+          console.log(`[HighlighterController] Removed adjustments from ${totalCleaned} elements (${adjustedElements.length} fixed, ${skipLinkAdjusted.length} skip links)`);
         }
       } catch (error) {
         console.error('[HighlighterController] Error removing fixed element adjustments:', error);
@@ -1918,8 +2460,15 @@
      * Uses padding only (not margin) to avoid double spacing
      * Note: Early layout adjustment may already be applied
      * Follows best practices: constants, element checks, error handling
+     * IMPORTANT: Does NOT apply adjustments when banner mode is 'sticky' (sticky overlays content)
      */
     adjustPageLayout(apply) {
+      // Don't apply adjustments if banner mode is sticky (sticky overlays content, no layout shifts)
+      if (apply && this.bannerMode === 'sticky') {
+        console.log('[HighlighterController] Skipping layout adjustments (sticky mode - banner overlays)');
+        return;
+      }
+
       const BANNER_HEIGHT_PX = 48; // 3rem = 48px (constant, not magic number)
       const EARLY_STYLE_ID = 'exl-hl-early-layout';
       const STATE_FLAG = '__exlHlEarlyLayoutApplied';
@@ -2131,12 +2680,20 @@
           });
           
           if (shouldAdjust) {
+            // Only adjust if banner is actually visible
+            if (!this.isBannerVisible()) {
+              return;
+            }
+            
             // Debounce adjustments to avoid excessive calls
             clearTimeout(this._fixedElementAdjustTimeout);
             this._fixedElementAdjustTimeout = setTimeout(() => {
-              this.adjustFixedElements();
-              // Also check for new skip links
-              this.handleSkipToContentLinks();
+              // Double-check visibility before adjusting
+              if (this.isBannerVisible()) {
+                this.adjustFixedElements();
+                // Also check for new skip links
+                this.handleSkipToContentLinks();
+              }
             }, 200);
           }
         });
@@ -2292,11 +2849,13 @@
             this.adjustPageLayout(true);
             // Hide floating button when banner is shown
             this.hideFloatingButton();
-            // Re-adjust fixed elements after a delay for new page content
+            // Re-adjust fixed elements after a delay for new page content (only if banner is visible)
             setTimeout(() => {
-              this.adjustFixedElements();
-              // Re-check skip links for new page
-              this.handleSkipToContentLinks();
+              if (this.isBannerVisible()) {
+                this.adjustFixedElements();
+                // Re-check skip links for new page
+                this.handleSkipToContentLinks();
+              }
             }, 300);
           } else {
             // Create banner if it doesn't exist
@@ -2313,6 +2872,8 @@
             }
             this.adjustPageLayout(false);
             this.removeEarlyLayoutAdjustment();
+            // CRITICAL: Clean up ALL fixed element adjustments when banner is hidden
+            this.removeFixedElementAdjustments();
           }
           
           // Force cleanup of gaps after a delay to ensure styles are applied
@@ -2327,6 +2888,8 @@
                 document.body.style.setProperty('margin-top', '0', 'important');
               }
             }
+            // Clean up fixed element adjustments again to ensure nothing is missed
+            this.removeFixedElementAdjustments();
             // Check html element too
             if (document.documentElement) {
               const htmlPadding = parseInt(window.getComputedStyle(document.documentElement).paddingTop, 10);

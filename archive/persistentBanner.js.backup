@@ -3551,7 +3551,7 @@ const PersistentBanner = {
         if (hasCaseNumber && !this.dataPollingInterval) {
             this.startDataPolling();
             this.currentPage.type = 'case_page';
-        } else {this.currentPage.type = pageIdentifier.identifyPage().type;}
+        }
         
         // Stop polling if all primary metadata is captured
         const hasAllPrimaryMetadata = this.currentPage.caseNumber && 
@@ -3798,7 +3798,9 @@ const PersistentBanner = {
             institutionCode: this.customerMetadata.institutionCode || this.customerMetadata.instCode || null,
             status: this.currentPage.status || null,
             accountCode: this.customerMetadata.accountCode || this.currentPage.accountCode || this.currentPage.exLibrisAccountNumber || null,
-            accountName: this.customerMetadata.accountName || this.currentPage.accountName || null
+            accountName: this.customerMetadata.accountName || this.currentPage.accountName || null,
+            accountCodePrefix: this.customerMetadata.accountCodePrefix || this.currentPage.accountCodePrefix || null,
+            accountCodeSuffix: this.customerMetadata.accountCodeSuffix || this.currentPage.accountCodeSuffix || null,
    
         };
 
@@ -4496,9 +4498,9 @@ const PersistentBanner = {
                             institutionId: freshData.instID || null,
                             server: freshData.server || null,
                             productServiceName: freshData.productServiceName || null,
-                            institutionCode: freshData.instCode || freshData.institutionCode || null,
+                            institutionCode: freshData.instCode || null,
                             customerCode: freshData.exLibrisAccountNumber || null,
-                            timezone: freshData.customerTimezone || freshData.timezone || null
+                            timezone: freshData.customerTimezone || null
 
                         };
                     }
@@ -5118,7 +5120,7 @@ const PersistentBanner = {
             this.elements.product.textContent = this.customerMetadata.productServiceName || '—';
         }
         if (this.elements.instCode) {
-            this.elements.instCode.textContent = this.customerMetadata.institutionCode || this.customerMetadata.instCode || '—';
+            this.elements.instCode.textContent = this.customerMetadata.institutionCode || '—';
         }
         if (this.elements.custId) {
             this.elements.custId.textContent = this.customerMetadata.custId || this.customerMetadata.customerId || '—';
@@ -5128,9 +5130,6 @@ const PersistentBanner = {
         }
         if (this.elements.server) {
             this.elements.server.textContent = this.customerMetadata.server || '—';
-        }
-        if (this.elements.timezone) {
-            this.elements.timezone.textContent = this.customerMetadata.timezone || '—';
         }
         
         // Update timezone and customer time
@@ -5173,7 +5172,7 @@ const PersistentBanner = {
             institutionCode: this.customerMetadata.institutionCode || this.currentPage.institutionCode || null,
             customerId: this.customerMetadata.customerId || this.customerMetadata.custId || this.currentPage.custId || this.currentPage.customerId || null,
             instID: this.customerMetadata.institutionId || this.customerMetadata.instId || this.currentPage.instId || this.currentPage.institutionId || null,
-            accountName: this.currentPage?.accountName || this.customerMetadata.accountName || this.data.accountName || this.customerMetadata.exLibrisAccountNumber || null
+            accountName: this.currentPage?.accountName || this.customerMetadata.accountName || this.data.accountName || null
         };
 
         if (typeof CustomerMasterManager !== 'undefined') {
@@ -5329,22 +5328,18 @@ const PersistentBanner = {
         const institutionCode = this.customerMetadata.institutionCode || this.currentPage.institutionCode || this.customerMetadata.instCode || null;
         const accountCode = this.customerMetadata.accountCode || this.currentPage.accountCode || this.currentPage.exLibrisAccountNumber || null;
         const accountName = this.customerMetadata.accountName || this.currentPage.accountName || null;
+        const accountCodePrefix = accountCode.substring(0, accountCode.indexOf("-"));
         
         
-        // if (!institutionCode && !accountName) {
-        //     return { missing: false, reason: null, missingFields: [] };
-        // }
+        if (!institutionCode && !accountName) {
+            return { missing: false, reason: null, missingFields: [] };
+        }
 
         // Check critical fields
         const criticalFields = {
-            instCode: this.customerMetadata.institutionCode,   
-            institutionCode: this.customerMetadata.institutionCode,
             custID: this.customerMetadata.customerId,
-            customerId: this.customerMetadata.customerId,
             instID: this.customerMetadata.institutionId,
-            institutionId: this.customerMetadata.institutionId,
-            server: this.customerMetadata.server,
-            timezone: this.customerMetadata.timezone
+            server: this.customerMetadata.server
         };
 
         const missingFields = [];
@@ -5364,44 +5359,29 @@ const PersistentBanner = {
         
         // Check UserCustomerDataManager first (user-added data takes priority)
         if (typeof UserCustomerDataManager !== 'undefined') {
-            const userCustomer = UserCustomerDataManager.lookupInDataset(criticalFields);
+            const userCustomer = UserCustomerDataManager.findByInstitutionCode(institutionCode, accountName);
             if (userCustomer) {
                 // Check if user customer has all critical fields
                 const userHasAllFields = userCustomer.custID && userCustomer.instID && userCustomer.server;
                 if (userHasAllFields) {
                     return { missing: false, reason: null, missingFields: [] };
-        }
+                }
                 customerFound = true;
             }
         }
 
-        // // Check CustomerMasterManager
-        // if (typeof CustomerMasterManager !== 'undefined') {
-        //     const masterCustomer = CustomerMasterManager.findByInstitutionCode(institutionCode, accountName);
-        //     if (masterCustomer) {
-        //         // Check if master customer has all critical fields
-        //         const masterHasAllFields = (masterCustomer.custID || masterCustomer.customerId) && 
-        //                                    (masterCustomer.instID || masterCustomer.institutionId) && 
-        //                                    masterCustomer.server;
-        //         if (masterHasAllFields) {
-        //             return { missing: false, reason: null, missingFields: [] };
-        //         }
-        //         customerFound = true;
-        //     }
-        // }
-
+        // Check CustomerMasterManager
         if (typeof CustomerMasterManager !== 'undefined') {
-            const masterCustomer = CustomerMasterManager.lookupInDataset(criticalFields);
+            const masterCustomer = CustomerMasterManager.findByInstitutionCode(institutionCode, accountName);
             if (masterCustomer) {
                 // Check if master customer has all critical fields
-                const masterHasAllFields = (masterCustomer.custID || masterCustomer.customerId) &&
-                    (masterCustomer.instID || masterCustomer.institutionId) &&
-                    masterCustomer.server && masterCustomer.timezone && (masterCustomer.instCode || masterCustomer.institutionCode);
+                const masterHasAllFields = (masterCustomer.custID || masterCustomer.customerId) && 
+                                           (masterCustomer.instID || masterCustomer.institutionId) && 
+                                           masterCustomer.server;
                 if (masterHasAllFields) {
                     return { missing: false, reason: null, missingFields: [] };
-                } else {
-                    customerFound = true;
                 }
+                customerFound = true;
             }
         }
 
@@ -5834,33 +5814,28 @@ const PersistentBanner = {
     /**
      * Start message rotation timer
      */
-    
     startMessageRotation() {
-
-    if (window.ExLibrisExtension.lastUrl !== null && window.ExLibrisExtension.lastUrl !== window.location.href) {
-            this.stopMessageRotation(); // Clear any existing timer
-
-            if (!this.messageSettings || !this.messageSettings.autoRotate) {
-                return;
-            }
-
-            if (this.activeMessages.length <= 1) {
-                return; // No need to rotate if only one or no messages
-            }
-
-            const interval = this.messageSettings.rotationInterval || 5000;
-
-            this.messageRotationInterval = this.registerTimer(
-                setInterval(() => {
-                    this.rotateToNextMessage();
-                }, interval),
-                'interval'
-            );
-
-            console.log(`[PersistentBanner] Started message rotation (${interval}ms interval)`);
+        this.stopMessageRotation(); // Clear any existing timer
+        
+        if (!this.messageSettings || !this.messageSettings.autoRotate) {
+            return;
         }
+        
+        if (this.activeMessages.length <= 1) {
+            return; // No need to rotate if only one or no messages
+        }
+        
+        const interval = this.messageSettings.rotationInterval || 5000;
+        
+        this.messageRotationInterval = this.registerTimer(
+            setInterval(() => {
+            this.rotateToNextMessage();
+            }, interval),
+            'interval'
+        );
+        
+        console.log(`[PersistentBanner] Started message rotation (${interval}ms interval)`);
     },
-
 
     /**
      * Stop message rotation timer

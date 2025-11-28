@@ -1,0 +1,44 @@
+# Build artifacts
+dist/
+releases/
+
+# Node modules
+node_modules/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Package lock (use npm ci in CI)
+# package-lock.json
+
+# Debug and test outputs
+coverage/
+.nyc_output/
+
+# Build info
+build-info.json
+

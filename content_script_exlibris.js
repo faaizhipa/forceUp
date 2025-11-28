@@ -30,6 +30,11 @@
     apiCaseData: null,           // Flattened field map from API response
     apiCaseDataTimestamp: null,  // Timestamp when data was captured
     apiCaseDataRaw: null,        // Full API response (optional, for debugging)
+
+    // interceptor.js data
+    interceptorData: null,
+    interceptorDataTimestamp: null,
+    interceptorDataRaw: null,
     
     caseToolkit: {
       metadata: null,
@@ -62,6 +67,28 @@
         Logger.info('Logger initialized');
       }
 
+      // Recover any pending API data that FetchInterceptor captured before this object existed
+      if (window._pendingApiCaseData) {
+        this.apiCaseData = window._pendingApiCaseData.data;
+        this.apiCaseDataTimestamp = window._pendingApiCaseData.timestamp;
+        delete window._pendingApiCaseData;
+        console.log('[ExLibris Extension] Recovered pending API case data:', {
+          caseNumber: this.apiCaseData?.CaseNumber,
+          age: Date.now() - this.apiCaseDataTimestamp + 'ms'
+        });
+      }
+
+      // Recover any pending API data thatinterceptor.js captured before this object existed
+      if (window._pendingFectchedCaseData) {
+        this.pendingFectchedCaseData = window._pendingFectchedCaseData.data;
+        this. pendingFectchedCaseDataTimestamp = window._pendingFectchedCaseData.timestamp;
+        delete window._pendingFectchedCaseData;
+        console.log('[ExLibris Extension] Recovered pending API case data:', {
+          caseNumber: this.pendingFectchedCaseData?.CaseNumber,
+          age: Date.now() - this.pendingFectchedCaseDataTimestamp + 'ms'
+        });
+      }
+
       // Initialize SettingsManager first
       if (typeof SettingsManager !== 'undefined') {
         await SettingsManager.init();
@@ -71,20 +98,12 @@
         console.warn('[ExLibris Extension] SettingsManager not loaded, using defaults');
       }
 
-      // Initialize CustomerDataManager
-      if (typeof CustomerDataManager !== 'undefined') {
-        await CustomerDataManager.init();
-        console.log('[ExLibris Extension] CustomerDataManager initialized');
+      // Initialize CustomerMasterManager (unified customer data and timezone resolution)
+      if (typeof CustomerMasterManager !== 'undefined') {
+        await CustomerMasterManager.init();
+        console.log('[ExLibris Extension] CustomerMasterManager initialized');
       } else {
-        console.warn('[ExLibris Extension] CustomerDataManager not loaded');
-      }
-
-      // Initialize CustomerTimezoneLookup
-      if (typeof CustomerTimezoneLookup !== 'undefined') {
-        await CustomerTimezoneLookup.init();
-        console.log('[ExLibris Extension] CustomerTimezoneLookup initialized');
-      } else {
-        console.warn('[ExLibris Extension] CustomerTimezoneLookup not loaded');
+        console.warn('[ExLibris Extension] CustomerMasterManager not loaded');
       }
 
       // Initialize NavigationObserver for SPA navigation
@@ -112,6 +131,32 @@
       } else {
         console.warn('[ExLibris Extension] CaseDataStore not loaded');
       }
+
+      // Listen for caseDataFromApi events from FetchInterceptor for real-time updates
+      document.addEventListener('caseDataFromApi', (event) => {
+        const { data, timestamp } = event.detail;
+        this.apiCaseData = data;
+        this.apiCaseDataTimestamp = timestamp;
+        console.log('[ExLibris Extension] Received API case data via event:', {
+          caseNumber: data?.CaseNumber,
+          fieldCount: Object.keys(data || {}).length
+        });
+      });
+
+      // Listen for caseDataFromApi events from FetchInterceptor for real-time updates
+      document.addEventListener('EXLIBRIS_DATA_UPDATED', function(event) {
+        // Note: 'event.detail' is available directly here because
+        // CustomEvents can pass simple objects across the boundary.
+        const newCaseData = event.detail;
+
+        console.log("Extension received new case:", newCaseData.CaseNumber);
+
+        // You can now send this to your popup or background script
+        chrome.runtime.sendMessage({
+          type: "CASE_DATA_CAPTURED",
+          payload: newCaseData
+        });
+      });
 
       // Listen for caseDataMismatch events to trigger re-extraction
       document.addEventListener('caseDataMismatch', async (event) => {
@@ -731,6 +776,12 @@
     async handleNavigationChange(url) {
       Logger?.info('Handling navigation to:', url);
       
+      // Clear stale API data from FetchInterceptor on navigation
+      // New API responses will repopulate this for the new case
+      this.apiCaseData = null;
+      this.apiCaseDataTimestamp = null;
+      console.log('[ExLibris Extension] Cleared API case data on navigation');
+      
       // Teardown existing features
       this.cleanup();
       
@@ -810,8 +861,8 @@
       this.cleanup();
 
       // Cleanup all modules
-      if (typeof CustomerDataManager !== 'undefined' && CustomerDataManager.cleanup) {
-        CustomerDataManager.cleanup();
+      if (typeof CustomerMasterManager !== 'undefined' && CustomerMasterManager.cleanup) {
+        CustomerMasterManager.cleanup();
       }
       if (typeof CaseCommentMemory !== 'undefined' && CaseCommentMemory.cleanup) {
         CaseCommentMemory.cleanup();

@@ -1,8 +1,8 @@
 # Architecture & Design
 
-**Document Version:** 1.0  
-**Last Updated:** January 23, 2025  
-**Reference:** See also [ARCHITECTURE.md](../ARCHITECTURE.md) for visual diagrams
+**Document Version:** 1.1  
+**Last Updated:** November 28, 2025  
+**Note:** This is the authoritative architecture documentation for the extension.
 
 ---
 
@@ -292,7 +292,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       // 1. Initialize core modules
       Logger.init({ debugMode: false });
       await SettingsManager.init();
-      await CustomerDataManager.init();
+      await CustomerMasterManager.init();
       
       // 2. Initialize watchers
       CaseContextWatcher.init();

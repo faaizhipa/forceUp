@@ -474,78 +474,108 @@ CaseDataStore.setCurrentData(newData);  // Notifies all subscribers
 
 ---
 
-### 3. CustomerDataManager
+### 3. CustomerMasterManager
 
-**File**: `modules/customerDataManager.js`  
-**Dependencies**: None  
-**Purpose**: Manage customer timezone database (chrome.storage.local)
+**File**: `modules/customerMasterManager.js`  
+**Dependencies**: `customerMasterList.json` (7,212 institution records)  
+**Purpose**: Unified customer data and timezone resolution. Single source of truth for customer lookups.
 
 #### Public API
 
 ```javascript
-CustomerDataManager.init()
-CustomerDataManager.getCustomer(identifiers)
-CustomerDataManager.addCustomer(data)
-CustomerDataManager.updateCustomer(id, updates)
-CustomerDataManager.getAllCustomers()
-CustomerDataManager.searchCustomers(query)
+// Initialization
+CustomerMasterManager.init()
+
+// Customer Lookup
+CustomerMasterManager.findByAccountName(accountName)
+CustomerMasterManager.findByInstitutionCode(institutionCode, accountName)
+CustomerMasterManager.findByServerIds(server, customerId, institutionId)
+CustomerMasterManager.findByServer(server)
+CustomerMasterManager.getAllCustomers()
+
+// Timezone Resolution
+CustomerMasterManager.resolveTimezone(identifiers)
+CustomerMasterManager.getCustomerTimezone(identifiers)  // Alias for backwards compatibility
+
+// User Overrides
+CustomerMasterManager.storeTimezone(params)
+CustomerMasterManager.updateTimezone(params)
+CustomerMasterManager.checkUnknownCustomers()
+CustomerMasterManager.addUnknownCustomer(customerData)
+CustomerMasterManager.promoteUnknownCustomer(customerData)
+
+// Utilities
+CustomerMasterManager.getStats()
+CustomerMasterManager.getIndexes()
+CustomerMasterManager.clearAllUserData()
+CustomerMasterManager.cleanup()
 ```
 
 #### Customer Record
 
 ```javascript
 {
-  id: 'unique-id',
-  accountName: 'Customer Name',
-  timezone: 'America/New_York',
-  address: {
-    city: 'New York',
-    state: 'NY',
-    country: 'USA'
-  },
-  metadata: {
-    addedAt: 1674567890123,
-    addedBy: 'user@example.com',
-    source: 'manual' // or 'auto-detected'
-  }
+  sqlName: "University Name (SQL)",
+  sfName: "University Name (Salesforce)",
+  accountName: "University Name",  // Derived: sfName || sqlName
+  customerId: "1234",
+  institutionId: "5678",
+  server: "ap02",
+  region: "ap",
+  institutionCode: "61USC",
+  accountCode: "61USC_INST",
+  city: "Sydney",
+  state: "NSW",
+  country: "Australia",
+  timezone: "Australia/Sydney",
+  source: "customerMasterList",  // or "override"
+  matchType: "accountName",  // How the record was matched
+  matchValue: "UNIVERSITY NAME"  // Key used for matching
 }
 ```
 
 #### Usage
 
 ```javascript
-// Check if customer exists
-const customer = await CustomerDataManager.getCustomer({
-  accountName: 'Customer Name'
+// Resolve timezone for a customer
+const timezoneInfo = await CustomerMasterManager.resolveTimezone({
+  accountName: 'University of Sydney',
+  institutionCode: '61UNSW_INST'
 });
 
-if (customer) {
-  // Use cached timezone
-  const timezone = customer.timezone;
-} else {
-  // Need to prompt user or auto-detect
+if (timezoneInfo && timezoneInfo.timezone) {
+  console.log('Timezone:', timezoneInfo.timezone);
+  console.log('Source:', timezoneInfo.source);
 }
 
-// Add new customer
-await CustomerDataManager.addCustomer({
-  accountName: 'Customer Name',
+// Find customer by institution code
+const customer = CustomerMasterManager.findByInstitutionCode('61USC');
+if (customer) {
+  console.log('Server:', customer.server);
+  console.log('Region:', customer.region);
+}
+
+// Store user override
+await CustomerMasterManager.storeTimezone({
+  accountName: 'Custom Customer',
   timezone: 'America/New_York',
   source: 'manual'
 });
 ```
 
 **Features**:
-- Persistent storage (chrome.storage.local)
-- Search by multiple identifiers
-- Metadata tracking
-- Bulk operations support
+- 7,212 institution records with pre-resolved timezones
+- Multiple lookup indexes: byAccountName, byInstitutionCode, byAccountCode, byServerIds
+- User overrides stored in chrome.storage.local
+- Server and region data for URL generation
+- Unknown customer tracking for review
 
 ---
 
 ### 4. TimezoneStorage
 
 **File**: `modules/timezoneStorage.js`  
-**Dependencies**: `CustomerDataManager`  
+**Dependencies**: `CustomerMasterManager`  
 **Purpose**: Simplified timezone storage and retrieval
 
 #### Public API
@@ -1441,7 +1471,7 @@ ConfigurationWarningBanner.dismiss()
 ### 7. UnknownCustomerManager
 
 **File**: `modules/unknownCustomerManager.js`  
-**Dependencies**: `TimezoneStorage`, `CustomerDataManager`, `AccountAddressExtractor`  
+**Dependencies**: `TimezoneStorage`, `CustomerMasterManager`, `AccountAddressExtractor`  
 **Purpose**: Manage unknown customer timezone prompts
 
 #### Public API
@@ -1582,7 +1612,7 @@ StickyNotes.deleteNote(caseId, noteId)
   // 1. Infrastructure
   Logger.init({ debugMode: false });
   await SettingsManager.init();
-  await CustomerDataManager.init();
+  await CustomerMasterManager.init();
 
   // 2. Watchers
   CaseContextWatcher.init();

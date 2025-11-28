@@ -1,8 +1,8 @@
 # Data Flow & Extraction
 
-**Document Version:** 1.0  
-**Last Updated:** January 23, 2025  
-**Reference:** See also [COMPLETE_FLOW_DOCUMENTATION.md](../COMPLETE_FLOW_DOCUMENTATION.md)
+**Document Version:** 1.1  
+**Last Updated:** November 28, 2025  
+**Note:** This is the authoritative data flow documentation for the extension.
 
 ---
 
@@ -205,7 +205,7 @@ Data Distribution
 └──────────────────────────────────────────────────────────┘
                          │
                          ▼
-      CustomerDataManager.findByInstitutionCode()
+      CustomerMasterManager.findByInstitutionCode()
                          │
                          ├─► Lookup by Ex Libris Account Number
                          │

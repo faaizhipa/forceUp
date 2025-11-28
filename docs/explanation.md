@@ -84,19 +84,29 @@ This documentation is organized into focused sections for easy navigation:
 
 ## 📖 Related Documentation
 
-### Project-Level Documents
+### Essential Reference (Root Level)
 
-- **[PROJECT_RULES.md](../PROJECT_RULES.md)** - Comprehensive coding rules and agent guidelines
-- **[BEST_PRACTICES.md](../BEST_PRACTICES.md)** - Patterns, do's/don'ts, and lessons learned
-- **[ARCHITECTURE.md](../ARCHITECTURE.md)** - Visual architecture diagrams
-- **[FUNCTIONS.md](../FUNCTIONS.md)** - Complete function catalog
-- **[SELECTORS.md](../SELECTORS.md)** - DOM selector registry
-- **[DEPENDENCIES.md](../DEPENDENCIES.md)** - Module dependency graph
-- **[CHANGES.md](../CHANGES.md)** - Change tracking and history
+These files provide quick access to critical development information:
 
-### GitHub-Specific
+| Document | Purpose |
+|----------|---------|
+| **[PROJECT_RULES.md](../PROJECT_RULES.md)** | Comprehensive coding rules and agent guidelines |
+| **[BEST_PRACTICES.md](../BEST_PRACTICES.md)** | Patterns, do's/don'ts, and lessons learned |
+| **[CHANGES.md](../CHANGES.md)** | Change tracking and history |
+| **[DEBUG_INSTRUCTIONS.md](../DEBUG_INSTRUCTIONS.md)** | Debugging guide and test scenarios |
+| **[FEATURE_SUMMARY.md](../FEATURE_SUMMARY.md)** | Quick feature reference guide |
+| **[FUNCTIONS.md](../FUNCTIONS.md)** | Complete function catalog |
+| **[SELECTORS.md](../SELECTORS.md)** | DOM selector registry with stability ratings |
+| **[DEPENDENCIES.md](../DEPENDENCIES.md)** | Module dependency graph |
 
-- **[.github/copilot-instructions.md](../.github/copilot-instructions.md)** - AI assistant instructions
+### AI/Developer Guidelines
+
+- **[.github/copilot-instructions.md](../.github/copilot-instructions.md)** - Comprehensive AI agent guidelines (primary reference)
+- **[.github/DEVELOPER_GUIDE_COPILOT.md](../.github/DEVELOPER_GUIDE_COPILOT.md)** - Quick development guidelines
+
+### Archived Documentation
+
+Historical implementation notes and superseded documentation are preserved in `archive/documentation/`. See `archive/README.md` for details.
 
 ---
 

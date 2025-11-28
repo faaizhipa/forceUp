@@ -14,11 +14,13 @@ const TimezoneDisplayUtils = {
         };
       }
 
-      if (typeof CustomerDataManager !== 'undefined' && typeof CustomerDataManager.getCustomerTimezone === 'function') {
-        const result = await CustomerDataManager.getCustomerTimezone({
+      if (typeof CustomerMasterManager !== 'undefined') {
+        const result = await CustomerMasterManager.resolveTimezone({
           institutionCode: caseData?.institutionCode || caseData?.exLibrisAccountNumber,
+          accountCode: caseData?.accountCode,
+          server: caseData?.server,
           customerId: caseData?.custID || caseData?.customerId,
-          instID: caseData?.instID || caseData?.institutionId,
+          institutionId: caseData?.instID || caseData?.institutionId,
           accountName: caseData?.accountName
         });
 

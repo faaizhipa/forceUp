@@ -30,6 +30,7 @@ const CaseDataExtractor = {
       lastModifiedDate: this.getLastModifiedDate(),
       // Derived fields (populated in processData)
       institutionCode: null,
+      instCode: null,
       customerCode: this.getExLibrisAccountNumber(),
       server: null,
       serverRegion: null,
@@ -65,6 +66,8 @@ const CaseDataExtractor = {
       status: this.getFieldValue(['Status']),
       subStatus: this.getFieldValue(['Sub Status', 'Sub-Status']),
       exLibrisAccountNumber: this.getExLibrisAccountNumber(),
+      instCode: null,
+      institutionCode: null,
       analysisNote: this.getFieldValue(['Analysis Note'])
     };
   },
@@ -456,7 +459,7 @@ const CaseDataExtractor = {
     // Step 1: Derive institutionCode from exLibrisAccountNumber if available
     if (rawData.exLibrisAccountNumber) {
       const originalCode = rawData.exLibrisAccountNumber.trim();
-      let formattedCode = originalCode;
+      let formattedCode = null;
 
       if (/FLVC/i.test(formattedCode)) {
         formattedCode = formattedCode.replace(/FLVC/gi, 'FALSC');
@@ -474,20 +477,20 @@ const CaseDataExtractor = {
       processed.customerCode = originalCode;
       
       // Try to find customer record by institution code, with account name as fallback
-      if (typeof CustomerDataManager !== 'undefined') {
+      if (typeof CustomerMasterManager !== 'undefined') {
         customerRecord = await this.getCustomerData(formattedCode, rawData.accountName);
         if (customerRecord) {
-          console.log(`[CaseDataExtractor] Found customer by institution code: ${customerRecord.name || formattedCode}`);
+          console.log(`[CaseDataExtractor] Found customer by institution code: ${customerRecord.accountName || formattedCode}`);
         }
       }
     }
     
     // Step 2: If no institutionCode but we have accountName, search by name
-    if (!customerRecord && rawData.accountName && typeof CustomerDataManager !== 'undefined') {
+    if (!customerRecord && rawData.accountName && typeof CustomerMasterManager !== 'undefined') {
       customerRecord = await this.findCustomerByAccountName(rawData.accountName);
       if (customerRecord) {
         processed.institutionCode = customerRecord.institutionCode;
-        console.log(`[CaseDataExtractor] Found customer by account name: ${customerRecord.name || 'unknown'}`);
+        console.log(`[CaseDataExtractor] Found customer by account name: ${customerRecord.accountName || 'unknown'}`);
       }
     }
 
@@ -498,6 +501,12 @@ const CaseDataExtractor = {
         processed.server = serverMatch[1].toLowerCase();
         processed.serverRegion = serverMatch[1].substring(0, 2).toUpperCase();
       }
+    }
+
+    if (rawData.exLibrisAccountNumber) {
+      processed.regionNumber = rawData.exLibrisAccountNumber.substring(1, 4).toUpperCase();
+      processed.accountCodePrefix = rawData.exLibrisAccountNumber.substring(0, rawData.exLibrisAccountNumber.indexOf("-"));
+      processed.accountCodeSuffix = rawData.exLibrisAccountNumber.substring(rawData.exLibrisAccountNumber.indexOf("-") + 1);
     }
 
     // Step 4: Apply customer record data as fallback for missing fields
@@ -537,31 +546,40 @@ const CaseDataExtractor = {
       console.warn(`[CaseDataExtractor] No customer record found for ${processed.institutionCode}`);
     }
 
-    // Step 5: Resolve timezone information (CaseDataExtractor's independent implementation)
-    // Uses ONLY CustomerDataManager.getCustomerTimezone() as the single source of truth
-    // This uses CustomerTimezoneLookup which reads from timezones_index.json and user overrides
-    // No fallbacks - if CustomerDataManager is unavailable or doesn't resolve, timezone remains null
-    if (typeof CustomerDataManager !== 'undefined' && typeof CustomerDataManager.getCustomerTimezone === 'function') {
+    // Step 5: Resolve timezone information using CustomerMasterManager as single source of truth
+    // CustomerMasterManager loads from customerMasterList.json and supports user overrides
+    // No fallbacks - if CustomerMasterManager is unavailable or doesn't resolve, timezone remains null
+    if (typeof CustomerMasterManager !== 'undefined') {
       try {
-        const timezoneInfo = await CustomerDataManager.getCustomerTimezone({
-          accountName: processed.accountName || processed.customerName, // Primary lookup key
-          institutionCode: processed.institutionCode || processed.customerCode, // Fallback lookup
-          customer: customerRecord
-          // customerId and instID no longer used for timezone lookup
+        const timezoneInfo = await CustomerMasterManager.resolveTimezone({
+          accountName: processed.accountName || processed.customerName,
+          institutionCode: processed.institutionCode || processed.customerCode,
+          accountCode: customerRecord?.accountCode || null,
+          server: processed.server || customerRecord?.server || null,
+          customerId: processed.custID || customerRecord?.customerId || null,
+          institutionId: processed.instID || customerRecord?.institutionId || null
         });
 
         if (timezoneInfo && timezoneInfo.timezone) {
           processed.customerTimezone = timezoneInfo.timezone;
-          processed.customerTimezoneSource = timezoneInfo.source || 'customerDataManager';
+          processed.customerTimezoneSource = timezoneInfo.source || 'customerMasterManager';
           processed.customerOrgCode = timezoneInfo.orgCode || timezoneInfo.accountName || processed.institutionCode || processed.customerCode || null;
           processed.customerOrgName = timezoneInfo.orgName || timezoneInfo.accountName || processed.customerName || null;
-          processed.customerDbServers = timezoneInfo.dbServers || []; // Empty array as dbServers no longer available in CSV
-          console.log('[CaseDataExtractor] Timezone resolved via CustomerDataManager:', {
+          processed.customerDbServers = []; // No longer available in master list
+          
+          // Enrich with additional data from master list if available
+          if (timezoneInfo.server && !processed.server) {
+            processed.server = timezoneInfo.server;
+            processed.serverRegion = timezoneInfo.region || timezoneInfo.server.substring(0, 2).toUpperCase();
+          }
+          
+          console.log('[CaseDataExtractor] Timezone resolved via CustomerMasterManager:', {
             timezone: timezoneInfo.timezone,
-            source: timezoneInfo.source
+            source: timezoneInfo.source,
+            matchType: timezoneInfo.matchType
           });
         } else {
-          console.log('[CaseDataExtractor] Timezone not found in CustomerDataManager for:', {
+          console.log('[CaseDataExtractor] Timezone not found in CustomerMasterManager for:', {
             institutionCode: processed.institutionCode || processed.customerCode,
             accountName: processed.accountName
           });
@@ -570,26 +588,26 @@ const CaseDataExtractor = {
         console.error('[CaseDataExtractor] Error resolving customer timezone:', error);
       }
     } else {
-      console.warn('[CaseDataExtractor] CustomerDataManager not available for timezone resolution');
+      console.warn('[CaseDataExtractor] CustomerMasterManager not available for timezone resolution');
     }
 
     return processed;
   },
 
   /**
-   * Gets customer data from CustomerDataManager with flexible matching
+   * Gets customer data from CustomerMasterManager with flexible matching
    * @param {string} institutionCode - Ex-Libris account number or institution code
    * @param {string} accountName - Optional account name for fallback matching
    * @returns {Promise<Object|null>}
    */
   async getCustomerData(institutionCode, accountName = null) {
-    if (typeof CustomerDataManager === 'undefined') {
-      console.warn('[CaseDataExtractor] CustomerDataManager not available');
+    if (typeof CustomerMasterManager === 'undefined') {
+      console.warn('[CaseDataExtractor] CustomerMasterManager not available');
       return null;
     }
 
     try {
-      return CustomerDataManager.findByInstitutionCode(institutionCode, accountName);
+      return CustomerMasterManager.findByInstitutionCode(institutionCode, accountName);
     } catch (error) {
       console.error('[CaseDataExtractor] Error getting customer data:', error);
       return null;
@@ -597,41 +615,20 @@ const CaseDataExtractor = {
   },
 
   /**
-   * Searches customer list by account name (fuzzy match)
+   * Searches customer list by account name
    * @param {string} accountName
    * @returns {Promise<Object|null>}
    */
   async findCustomerByAccountName(accountName) {
-    if (typeof CustomerDataManager === 'undefined') {
-      console.warn('[CaseDataExtractor] CustomerDataManager not available');
+    if (typeof CustomerMasterManager === 'undefined') {
+      console.warn('[CaseDataExtractor] CustomerMasterManager not available');
       return null;
     }
 
     try {
-      const allCustomers = CustomerDataManager.getAllCustomers();
-      if (!allCustomers || allCustomers.length === 0) {
-        return null;
-      }
-
-      const normalizedSearch = accountName.trim().toLowerCase();
-
-      const exactMatch = allCustomers.find((customer) => {
-        const customerName = (customer.name || '').trim().toLowerCase();
-        return customerName === normalizedSearch;
-      });
-
-      if (exactMatch) {
-        return exactMatch;
-      }
-
-      const partialMatch = allCustomers.find((customer) => {
-        const customerName = (customer.name || '').trim().toLowerCase();
-        return customerName.includes(normalizedSearch) || normalizedSearch.includes(customerName);
-      });
-
-      return partialMatch || null;
+      return CustomerMasterManager.findByAccountName(accountName);
     } catch (error) {
-      console.error('[CaseDataExtractor] Error searching customer by account name:', error);
+      console.error('[CaseDataExtractor] Error searching customer by account name:', error);'Sub Status'
       return null;
     }
   },

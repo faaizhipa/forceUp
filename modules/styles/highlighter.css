@@ -68,6 +68,33 @@ html {
 }
 
 /* ========== STICKY BANNER ========== */
+/* Sticky mode: Banner overlays content with transparency */
+.exl-hl-banner.sticky-mode {
+  opacity: 0.3;
+  transition: opacity 0.3s ease;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 999999;
+}
+
+.exl-hl-banner.sticky-mode:hover {
+  opacity: 1;
+}
+
+/* Ensure sticky banner does not cause layout shifts */
+body:has(.exl-hl-banner.sticky-mode),
+.exl-hl-banner.sticky-mode ~ * {
+  /* No padding adjustments needed - banner overlays */
+}
+
+/* Fallback for browsers without :has() */
+.exl-hl-banner.sticky-mode ~ body {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
+
 /* Matches persistentBanner design patterns for consistency */
 .exl-hl-banner {
   position: fixed !important;
@@ -879,28 +906,146 @@ html {
   color: #ffffff;
   border: 2px solid rgba(255, 255, 255, 0.3);
   border-radius: 50%;
-  cursor: pointer;
+  cursor: grab;
   font-size: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 999998;
+  z-index: 999997;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  transition: all 0.3s ease;
+  transition: opacity 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
   opacity: 0.7;
   padding: 0;
   line-height: 1;
+  user-select: none;
+  touch-action: none;
 }
 
 .exl-hl-floating-btn:hover {
   opacity: 1;
-  transform: translateY(-50%) scale(1.1);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
   border-color: rgba(255, 255, 255, 0.5);
 }
 
-.exl-hl-floating-btn:active {
+.exl-hl-floating-btn:active:not(.dragging) {
   transform: translateY(-50%) scale(0.95);
+}
+
+.exl-hl-floating-btn.dragging {
+  cursor: grabbing;
+  opacity: 0.8;
+  transition: none;
+}
+
+/* ========== FLOATING BANNER (SIDEBAR) ========== */
+.exl-hl-floating-banner {
+  position: fixed;
+  left: 0;
+  height: 48px;
+  min-width: fit-content;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: #ffffff;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.3);
+  font-family: 'Salesforce Sans', Arial, sans-serif;
+  font-size: 11px;
+  border-right: 1px solid #0070d2;
+  z-index: 999998;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  animation: exl-hl-floating-banner-expand 200ms ease-out;
+}
+
+@keyframes exl-hl-floating-banner-expand {
+  from {
+    width: 48px;
+    opacity: 0;
+  }
+  to {
+    width: auto;
+    opacity: 1;
+  }
+}
+
+.exl-hl-floating-banner .exl-banner-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  height: 100%;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-width: fit-content;
+}
+
+.exl-hl-floating-banner .exl-banner-section {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-shrink: 0;
+  height: 100%;
+  padding: 0 8px;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-hl-floating-banner .exl-banner-section:last-of-type {
+  border-right: none;
+}
+
+.exl-hl-floating-collapse-btn,
+.exl-hl-floating-pin-btn {
+  width: 32px;
+  height: 48px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+  flex-shrink: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-hl-floating-collapse-btn:hover,
+.exl-hl-floating-pin-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.exl-hl-floating-collapse-btn:active,
+.exl-hl-floating-pin-btn:active {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ========== STICKY TO FLOAT BUTTON ========== */
+.exl-hl-sticky-to-float-btn {
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 4px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.exl-hl-sticky-to-float-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.exl-hl-sticky-to-float-btn:active {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 /* ========== DISMISSAL MODAL ========== */

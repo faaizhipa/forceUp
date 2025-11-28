@@ -5,6 +5,7 @@
 
 const PageIdentifier = {
   pageTypes: {
+    CASE_PAGE_CHILD: 'case_page_child',
     CASE_PAGE: 'case_page',
     CASE_COMMENTS: 'case_comments',
     CASES_LIST: 'cases_list',
@@ -122,12 +123,48 @@ const PageIdentifier = {
       const context = this.getCurrentCaseContext();
       
       // Validate case ID matches context (if context available)
-      if (context && context.caseId !== caseId) {
+      if (context !== null && context.caseId !== caseId) {
         console.warn(`[PageIdentifier] Case ID mismatch: URL=${caseId}, Context=${context.caseId}`);
       }
       
       const view = this.detectCasePageView();
+
       
+      // Detect a "parent case" and "child case" scenario in the URL
+      // Example: 
+      // https://proquestllc.lightning.force.com/lightning/r/Case/500QO00000KaijmYAB/view?ws=%2Flightning%2Fr%2FCase%2F500QO00000kGONGYA4%2Fview
+      // The 'ws' param encodes the child case being viewed inside the workspace/tab (as a URL-encoded inner path)
+      let childCaseId = null;
+      try {
+        const parsedUrl = new URL(url);
+        const wsParam = parsedUrl.searchParams.get('ws');
+        if (wsParam && wsParam.includes('/lightning/r/Case/')) {
+          // In some cases, wsParam may be encoded twice; try both approaches
+          let decodedWs = decodeURIComponent(wsParam);
+          try {
+            // Try a second decode if there's still %2F in the string
+            if (decodedWs.includes('%2F')) {
+              decodedWs = decodeURIComponent(decodedWs);
+            }
+          } catch (_) { /* ignore */ }
+          const childCaseMatch = decodedWs.match(/\/lightning\/r\/Case\/([^\/]+)\/view/);
+          if (childCaseMatch) {
+            childCaseId = childCaseMatch[1];
+          }
+        }
+      } catch (e) {
+        // Malformed URL or decoding error: ignore
+      }
+
+      // If we found a child case ID in the workspace param, use it as primary caseId
+      // but keep the parent caseId as well for reference if needed in the future.
+      if (childCaseId) {
+        console.log(`[PageIdentifier] Child case ID detected in ws param: ${childCaseId} (parent caseId: ${caseId})`);
+        // Replace 'caseId' in this context with the child, since that's the page in focus
+        // Optionally, could add a field for parentId in result in future
+        parentCaseId = caseId;
+        caseId = childCaseId;
+      }
       // Extract case number from title if available
       // Try to extract case number from the active tab label in Salesforce, falling back to document title if not found
       let caseNumberFromTab = null;
@@ -144,12 +181,75 @@ const PageIdentifier = {
       } catch (err) {
         // fallback, ignore, we'll try other methods
       }
+
+      let caseNumberFromParentTab = null;
+      if (childCaseId) {
+        if (caseNumberFromTab) {
+          caseNumberFromParentTab = caseNumberFromTab;
+        }
+        // Try to extract the case number for the child case from a tab label
+        // Per instruction: extract the case number from the following selector
+        // We assume you meant this selector for the child case workspace tab
+        try {
+          // This selector targets tabs in the Lightning UI; prefer the child caseId if present
+          const tabList = Array.from(document.querySelectorAll('.slds-tabs_default__item'));
+          let childTab = null;
+          // Attempt to find a tab with the child caseId in its data attributes or label
+          for (const tab of tabList) {
+            // Prefer a data-label attribute that starts with 6-10 digits, or contains the child case id
+            const label = tab.dataset && tab.dataset.label ? tab.dataset.label : '';
+            if (label.match(/^(\d{6,10})/) && label.includes(childCaseId.slice(0, 6))) {
+              childTab = tab;
+              break;
+            }
+            // Or just try to match the caseId in data attributes (Robustness)
+            if (
+              (tab.dataset && tab.dataset.recordId && tab.dataset.recordId === childCaseId) ||
+              (tab.dataset && tab.dataset.tabValue && tab.dataset.tabValue.includes(childCaseId))
+            ) {
+              childTab = tab;
+              break;
+            }
+          }
+          // Fallback: pick the first tab with case number pattern (6-10 digits at start)
+          if (!childTab) {
+            childTab = tabList.find(tab => {
+              const label = tab.dataset && tab.dataset.label ? tab.dataset.label : '';
+              return label.match(/^(\d{6,10})/);
+            });
+          }
+          // Extract the case number from the found tab, if any
+          if (childTab && childTab.dataset && childTab.dataset.label) {
+            const match = childTab.dataset.label.match(/^(\d{6,10})/);
+            if (match) {
+              caseNumberFromTab = match[1];
+            }
+          }
+        } catch (e) {
+          // Ignore selector/parsing errors, fallback to defaults
+        }
+      }
       const titleMatch = caseNumberFromTab 
         ? [caseNumberFromTab] 
         : document.title.match(/^(\d{6,10})/);
       const caseNumberFromTitle = titleMatch ? titleMatch[1] : null;
       
-      const result = {
+      let result = null;
+
+      if (childCaseId) {
+        console.log(`[PageIdentifier] Child case ID detected in ws param: ${childCaseId} (parent caseId: ${caseId})`);
+        result = {
+          type: this.pageTypes.CASE_PAGE_CHILD,
+          caseId: childCaseId,
+          parentCaseId: caseId,
+          caseNumber: caseNumberFromTab || caseNumberFromTitle,
+          parentCaseNumber: parentCaseNumber,
+          reportId: null,
+          view: view,
+          url: url
+        }
+      } else {
+      result = {
         type: this.pageTypes.CASE_PAGE,
         caseId: context?.caseId || caseId, // Use validated case ID from context if available
         caseNumber: caseNumberFromTitle || context?.caseNumber || null,
@@ -157,11 +257,12 @@ const PageIdentifier = {
         view: view,
         url: url
       };
+    }
       
       // Validate page info before returning
       const validatedResult = this.validatePageInfo(result);
-      console.log('PageIdentifier: Detected CASE_PAGE:', validatedResult);
-      return validatedResult;
+      console.log(`[PageIdentifier] Detected ${result.type}: ${validatedResult.caseId} - ${validatedResult.caseNumber}`);
+      return result;
     }
 
     // Case Comments "View All" Page

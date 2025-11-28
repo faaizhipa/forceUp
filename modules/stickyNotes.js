@@ -36,6 +36,60 @@ const StickyNotes = (function() {
   let lazyLoadObserver = null;
   let virtualScrollEnabled = false;
   let visibleNoteIds = new Set();
+  let defaultNoteColor = 'yellow'; // Default color for new notes
+
+  /**
+   * Map highlighter color ID to sticky note color ID
+   * Highlighter colors (1-11) → Sticky note colors
+   */
+  function mapHighlighterColorToNoteColor(highlighterColorId) {
+    // Color mapping based on visual similarity
+    const colorMap = {
+      1: 'blue',   // Sky Blue → Light Blue
+      2: 'blue',   // Light Blue → Light Blue
+      3: 'green',  // Mint Green → Mint Green
+      4: 'yellow', // Light Yellow → Light Yellow
+      5: 'yellow', // Soft Yellow → Light Yellow
+      6: 'peach',  // Peach → Soft Peach
+      7: 'peach',  // Coral → Soft Peach
+      8: 'pink',   // Pink → Soft Pink
+      9: 'purple', // Lavender → Lavender
+      10: 'purple', // Periwinkle → Lavender
+      11: 'yellow'  // Light Gray → Light Yellow (fallback)
+    };
+    
+    return colorMap[highlighterColorId] || 'yellow';
+  }
+
+  /**
+   * Set default color for new sticky notes
+   * Maps highlighter color ID to sticky note color ID
+   * @param {number} highlighterColorId - Highlighter color ID (1-11)
+   */
+  function setDefaultColor(highlighterColorId) {
+    if (typeof highlighterColorId === 'number' && highlighterColorId >= 1 && highlighterColorId <= 11) {
+      defaultNoteColor = mapHighlighterColorToNoteColor(highlighterColorId);
+      console.log('[StickyNotes] Default color set to:', defaultNoteColor, '(from highlighter color', highlighterColorId + ')');
+    } else {
+      console.warn('[StickyNotes] Invalid highlighter color ID:', highlighterColorId);
+    }
+  }
+
+  /**
+   * Load default color from storage
+   */
+  async function loadDefaultColor() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['exl_hl_current_banner_color'], (result) => {
+        const colorId = result.exl_hl_current_banner_color;
+        if (typeof colorId === 'number' && colorId >= 1 && colorId <= 11) {
+          defaultNoteColor = mapHighlighterColorToNoteColor(colorId);
+          console.log('[StickyNotes] Loaded default color from storage:', defaultNoteColor);
+        }
+        resolve(defaultNoteColor);
+      });
+    });
+  }
 
   /**
    * Initialize sticky notes
@@ -61,6 +115,9 @@ const StickyNotes = (function() {
 
     // Initialize lazy-load observer
     initLazyLoadObserver();
+    
+    // Load default color from storage
+    await loadDefaultColor();
     
     await loadNotes();
     
@@ -619,7 +676,7 @@ const StickyNotes = (function() {
       title: '',
       content: '', // Backward compatibility with plain text
       html: '', // New rich text content
-      color: 'yellow',
+      color: defaultNoteColor || 'yellow',
       position: { x, y },
       size: { width: 300, height: 200 }, // Default size
       isCollapsed: false,
@@ -1438,7 +1495,8 @@ const StickyNotes = (function() {
     importNotes,
     cleanup,
     switchLayer,
-    reloadForNewUrl
+    reloadForNewUrl,
+    setDefaultColor
   };
 })();
 

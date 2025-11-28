@@ -239,12 +239,12 @@ const CaseDetailExtractor = (() => {
         details.server = caseData?.server || null;
         
         // FALLBACK: If we have accountCode or institutionCode but missing server/IDs, 
-        // look up customer data directly
+        // look up customer data directly via CustomerMasterManager
         let customerRecord = null;
-        if (typeof CustomerDataManager !== 'undefined') {
+        if (typeof CustomerMasterManager !== 'undefined') {
             // Try to find customer by institution code
             if (details.institutionCode) {
-                customerRecord = await CustomerDataManager.findByInstitutionCode(details.institutionCode);
+                customerRecord = CustomerMasterManager.findByInstitutionCode(details.institutionCode);
             }
             // If not found, try deriving from account code
             else if (details.accountCode) {
@@ -258,21 +258,14 @@ const CaseDetailExtractor = (() => {
                 if (!formattedCode.includes('_')) {
                     formattedCode = `${formattedCode}_INST`;
                 }
-                customerRecord = await CustomerDataManager.findByInstitutionCode(formattedCode);
+                customerRecord = CustomerMasterManager.findByInstitutionCode(formattedCode);
                 if (customerRecord) {
                     details.institutionCode = customerRecord.institutionCode;
                 }
             }
             // If still not found, try searching by account name
             else if (details.accountName) {
-                const allCustomers = CustomerDataManager.getAllCustomers();
-                const normalizedSearch = details.accountName.trim().toLowerCase();
-                customerRecord = allCustomers.find(c => {
-                    const customerName = (c.name || '').trim().toLowerCase();
-                    return customerName === normalizedSearch || 
-                           customerName.includes(normalizedSearch) || 
-                           normalizedSearch.includes(customerName);
-                });
+                customerRecord = CustomerMasterManager.findByAccountName(details.accountName);
                 if (customerRecord) {
                     details.institutionCode = customerRecord.institutionCode;
                 }
@@ -280,19 +273,16 @@ const CaseDetailExtractor = (() => {
             
             // Apply customer record data to fill in missing fields
             if (customerRecord) {
-                console.log(`[CaseDetailExtractor] Found customer record: ${customerRecord.name || 'unknown'}`);
+                console.log(`[CaseDetailExtractor] Found customer record: ${customerRecord.accountName || 'unknown'}`);
                 
-                if (!details.institutionId && customerRecord.instID) {
-                    details.institutionId = customerRecord.instID;
+                if (!details.institutionId && customerRecord.institutionId) {
+                    details.institutionId = customerRecord.institutionId;
                 }
-                if (!details.customerId && customerRecord.custID) {
-                    details.customerId = customerRecord.custID;
+                if (!details.customerId && customerRecord.customerId) {
+                    details.customerId = customerRecord.customerId;
                 }
-                if (!details.customerPrefix && customerRecord.name) {
-                    details.customerPrefix = customerRecord.name;
-                }
-                if (!details.esploroEdition && customerRecord.esploroEdition) {
-                    details.esploroEdition = customerRecord.esploroEdition;
+                if (!details.customerPrefix && customerRecord.accountName) {
+                    details.customerPrefix = customerRecord.accountName;
                 }
                 if (!details.server && customerRecord.server) {
                     details.server = customerRecord.server.toLowerCase();

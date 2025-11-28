@@ -27,9 +27,9 @@ PageIdentifier
 ### Data Management Layer
 
 ```
-CustomerDataManager
-├── No dependencies
-└── Used by: CaseDataExtractor, CasePageDataExtractor, CaseDetailExtractor, TimezoneStorage, UnknownCustomerManager
+CustomerMasterManager
+├── Depends on: customerMasterList.json (7,212 institution records)
+└── Used by: CaseDataExtractor, CasePageDataExtractor, CaseDetailExtractor, PersistentBanner
 
 CaseContextWatcher
 ├── Depends on: NavigationObserver, PageContextValidator
@@ -39,9 +39,9 @@ CaseDataStore
 ├── Depends on: CaseContextWatcher
 └── Used by: content_script_exlibris.js, CasePageDataExtractor, CaseDataExtractor, PersistentBanner
 
-TimezoneStorage
-├── Depends on: CustomerDataManager
-└── Used by: CaseTimezoneResolver, UnknownCustomerManager, TimezoneDetector
+UserCustomerDataManager
+├── Depends on: chrome.storage.local
+└── Used by: CustomerMasterManager (as override layer for user-added entries)
 
 UserPreferences
 ├── No dependencies
@@ -52,11 +52,11 @@ UserPreferences
 
 ```
 CaseDataExtractor
-├── Depends on: CustomerDataManager (optional)
+├── Depends on: CustomerMasterManager (optional)
 └── Used by: CasePageDataExtractor, PersistentBanner, FlexipagePanelInjector, CaseDetailExtractor
 
 CasePageDataExtractor
-├── Depends on: PageIdentifier, CustomerDataManager (optional)
+├── Depends on: PageIdentifier, CustomerMasterManager (optional)
 └── Used by: PersistentBanner, FlexipagePanelInjector
 
 CaseCommentExtractor
@@ -64,8 +64,8 @@ CaseCommentExtractor
 └── Used by: PersistentBanner, CaseCommentMemory
 
 CaseDetailExtractor
-├── Depends on: CaseDataExtractor, CustomerDataManager, URLBuilder (optional)
-└── Used by: FlexipagePanelInjector, UnknownCustomerManager
+├── Depends on: CaseDataExtractor, CustomerMasterManager, URLBuilder (optional)
+└── Used by: FlexipagePanelInjector
 
 AccountAddressExtractor
 ├── No dependencies
@@ -250,7 +250,7 @@ if (typeof DependencyModule !== 'undefined') {
 
 #### 1. Optional Dependencies
 Modules check for dependencies before use:
-- `CaseDataExtractor` → `CustomerDataManager` (optional)
+- `CaseDataExtractor` → `CustomerMasterManager` (optional)
 - `FlexipagePanelInjector` → `ScrollController`, `CaseDataExtractor` (optional)
 - `PersistentBanner` → Multiple optional dependencies
 
@@ -258,7 +258,7 @@ Modules check for dependencies before use:
 Some modules require dependencies:
 - `CasePageDataExtractor` → `PageIdentifier` (required)
 - `ContextMenuHandler` → `TextFormatter` (required)
-- `TimezoneStorage` → `CustomerDataManager` (required)
+- `CustomerMasterManager` → `customerMasterList.json` (required)
 
 #### 3. Circular Dependencies
 **None identified** - The codebase avoids circular dependencies through:
@@ -277,8 +277,7 @@ chrome.storage.sync
 └── PersistentBanner (feature flags)
 
 chrome.storage.local
-├── CustomerDataManager (customer list)
-├── TimezoneStorage (timezone data)
+├── UserCustomerDataManager (user-added customer entries)
 ├── CaseCommentMemory (comment history)
 └── UserPreferences (user settings)
 ```
@@ -409,7 +408,7 @@ The codebase prevents circular dependencies through:
 
 ```
 1. Core modules initialize (Logger, DebounceUtils, SettingsManager)
-2. Data/context managers initialize (CustomerDataManager, CaseContextWatcher)
+2. Data/context managers initialize (CustomerMasterManager, CaseContextWatcher)
 3. NavigationObserver starts
 4. PageIdentifier starts monitoring
 5. Feature modules initialize based on page type
@@ -465,7 +464,7 @@ DynamicMenu.injectMenu()
 ### Direct Function Calls
 ```javascript
 // When dependency is guaranteed
-CustomerDataManager.findByInstitutionCode(code);
+CustomerMasterManager.findByInstitutionCode(code);
 ```
 
 ### Optional Function Calls
@@ -497,7 +496,7 @@ PageIdentifier
   ↓ (detects case page)
 CasePageDataExtractor
   ↓ (extracts data)
-CustomerDataManager (enriches with customer data)
+CustomerMasterManager (enriches with customer data + timezone)
   ↓
 Dispatches 'casePageDataExtracted' event
   ↓
@@ -561,9 +560,10 @@ Each module can be tested independently because:
 
 For testing, dependencies can be mocked:
 ```javascript
-// Mock CustomerDataManager
-window.CustomerDataManager = {
-  findByInstitutionCode: jest.fn()
+// Mock CustomerMasterManager
+window.CustomerMasterManager = {
+  findByInstitutionCode: jest.fn(),
+  getTimezone: jest.fn()
 };
 ```
 

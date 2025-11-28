@@ -13,6 +13,16 @@
    },
    "content_scripts": [
       {
+         "matches": [
+            "https://proquestllc.lightning.force.com/*"
+         ],
+         "js": [
+            "interceptor.js"
+         ],
+         "world": "MAIN"
+
+      },
+      {
          "js": [ "content_script.js" ],
          "matches": [ 
             "https://clarivateanalytics.lightning.force.com/*", 
@@ -23,7 +33,6 @@
       },
       {
          "js": [
-            "modules/fetchInterceptor.js",
             "content_script.js",
             "modules/debounceUtils.js",
             "modules/logger.js",
@@ -34,8 +43,7 @@
             "modules/caseDataStore.js",
             "modules/settingsManager.js",
             "modules/siteActivationManager.js",
-            "modules/customerDataManager.js",
-            "modules/customerTimezoneLookup.js",
+            "modules/customerMasterManager.js",
             "modules/userCustomerDataManager.js",
             "modules/caseDataExtractor.js",
             "modules/caseCommentExtractor.js",
@@ -60,9 +68,10 @@
             "modules/configurationWarningBanner.js",
             "modules/colorHandlerConfig.js",
             "modules/colorPicker3D.js",
-            "modules/persistentBanner.js",
             "modules/implementationStatus.js",
-            "content_script_exlibris.js"
+            "modules/debugHelper.js",
+            "content_script_exlibris.js",
+            "modules/persistentBanner.js"
          ],
          "matches": [
             "https://proquestllc.lightning.force.com/*"
@@ -122,14 +131,12 @@
          "resources": [
             "modules/styles/injected-panel.css",
             "icons/*.png",
-            "timezones_index.json",
-            "timezones_index.js"
+            "customerMasterList.json"
          ],
          "matches": [
             "https://proquestllc.lightning.force.com/*",
             "https://clarivateanalytics.lightning.force.com/*",
-            "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*",
-            "https://scholarone.my.salesforce.com/*"
+            "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*"
          ]
       }
    ]
