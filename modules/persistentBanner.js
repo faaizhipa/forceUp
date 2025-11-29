@@ -42,6 +42,30 @@ const PersistentBanner = {
 
     // Environment menu state
     envMenuVisible: false,
+    
+    // Environment buttons readiness tracking
+    environmentButtonsReady: false,
+
+    // Banner state management (collapsed/expanded)
+    bannerState: 'collapsed', // 'collapsed' | 'expanded'
+    
+    // Message section state
+    messages: [], // Array of message objects with displayMode property
+    currentMessageIndex: 0,
+    messageSectionCollapsed: true,
+    
+    // Message hover popup state
+    hoverPopupTimeout: null,
+    activeHoverPopup: null,
+    
+    // Message edit popup state
+    editPopupVisible: false,
+    editSaveDebounceTimer: null,
+    
+    // Rotating sticky bar state
+    rotatingBarVisible: false,
+    rotatingMessageIndex: 0,
+    rotatingInterval: null,
 
     // Status color mapping (based on caseStatusHighlighter)
     STATUS_COLORS: {
@@ -95,8 +119,14 @@ const PersistentBanner = {
         // Load navigation history from sessionStorage
         this.loadNavigationHistory();
         
+        // Load messages from storage
+        this.loadMessages();
+        
         // Create and inject banner
         this.createBanner();
+        
+        // Create rotating sticky bar
+        this.createRotatingStickyBar();
         
         // Observe DOM for the right injection point
         this.observeForInjection();
@@ -106,6 +136,12 @@ const PersistentBanner = {
         
         // Listen for CasePageDataExtractor events
         this.setupCaseDataListener();
+        
+        // Setup banner hover handlers
+        this.setupBannerHoverHandlers();
+        
+        // Apply default collapsed state
+        this.updateBannerState('collapsed');
         
         this.isInitialized = true;
         console.log('[PersistentBanner] Initialized');
@@ -1043,15 +1079,18 @@ const PersistentBanner = {
                           this.customerMetadata.institutionId && 
                           this.customerMetadata.server;
         
-        // Show toggle button if we have environment data
-        if (this.elements.envToggleSection) {
-            this.elements.envToggleSection.style.display = hasEnvData ? 'flex' : 'none';
+        // Reset environment buttons ready state when data changes
+        if (!hasEnvData) {
+            this.environmentButtonsReady = false;
         }
         
         // Populate environment buttons if data is available
         if (hasEnvData) {
             this.populateEnvButtons();
         }
+        
+        // Update environment button visibility using new visibility function
+        this.updateEnvironmentButtonVisibility();
         
         // Keep environment section hidden by default (user must click toggle)
         if (this.elements.envSection) {
@@ -1088,6 +1127,9 @@ const PersistentBanner = {
         
         // Update banner background based on case status
         this.updateBannerBackground();
+        
+        // Update rotating sticky bar when status changes
+        this.updateRotatingStickyBar();
     },
 
     /**
@@ -1291,14 +1333,498 @@ const PersistentBanner = {
 
     /**
      * Populate environment buttons with Production and Sandbox links
+     * @deprecated Use populateEnvironmentButtons() instead
      */
     populateEnvButtons() {
+        // Delegate to the new function that tracks readiness
+        this.populateEnvironmentButtons();
+    },
+
+    /**
+     * Toggle environment menu visibility
+     */
+    toggleEnvMenu() {
+        if (!this.elements.envSection || !this.elements.envToggleBtn) return;
+        
+        this.envMenuVisible = !this.envMenuVisible;
+        
+        if (this.envMenuVisible) {
+            // Show environment buttons
+            this.elements.envSection.style.display = 'flex';
+            this.elements.envToggleBtn.textContent = '◀ Return to Menu';
+            console.log('[PersistentBanner] Environment menu opened');
+        } else {
+            // Hide environment buttons
+            this.elements.envSection.style.display = 'none';
+            this.elements.envToggleBtn.textContent = 'Go to Customer Env ▶';
+            console.log('[PersistentBanner] Environment menu closed');
+        }
+    },
+
+    // ========== BANNER STATE MANAGEMENT ==========
+
+    /**
+     * Setup hover handlers for banner expand/collapse
+     */
+    setupBannerHoverHandlers() {
+        if (!this.elements.banner) return;
+        
+        this.elements.banner.addEventListener('mouseenter', () => {
+            this.updateBannerState('expanded');
+        });
+        
+        this.elements.banner.addEventListener('mouseleave', () => {
+            this.updateBannerState('collapsed');
+        });
+    },
+
+    /**
+     * Update banner state (collapsed/expanded)
+     * @param {string} state - 'collapsed' | 'expanded'
+     */
+    updateBannerState(state) {
+        if (!this.elements.banner) return;
+        
+        this.bannerState = state;
+        
+        // Remove existing state classes
+        this.elements.banner.classList.remove('exl-banner-collapsed', 'exl-banner-expanded');
+        
+        // Add new state class
+        this.elements.banner.classList.add(`exl-banner-${state}`);
+        
+        console.log(`[PersistentBanner] Banner state updated to: ${state}`);
+    },
+
+    // ========== MESSAGE SECTION MANAGEMENT ==========
+
+    /**
+     * Load messages from storage
+     */
+    async loadMessages() {
+        try {
+            const stored = sessionStorage.getItem('exl-banner-messages');
+            if (stored) {
+                this.messages = JSON.parse(stored);
+                console.log('[PersistentBanner] Loaded messages:', this.messages.length);
+            }
+        } catch (error) {
+            console.warn('[PersistentBanner] Failed to load messages:', error);
+            this.messages = [];
+        }
+        
+        // Update rotating bar visibility based on messages
+        this.updateRotatingStickyBar();
+    },
+
+    /**
+     * Save messages to storage
+     */
+    saveMessages() {
+        try {
+            sessionStorage.setItem('exl-banner-messages', JSON.stringify(this.messages));
+        } catch (error) {
+            console.warn('[PersistentBanner] Failed to save messages:', error);
+        }
+    },
+
+    /**
+     * Add a new message
+     * @param {Object} message - Message object with subject, description, displayMode, hoverImage
+     */
+    addMessage(message) {
+        const newMessage = {
+            id: Date.now().toString(),
+            subject: message.subject || '',
+            description: message.description || '',
+            displayMode: message.displayMode || 'banner', // 'hidden' | 'banner' | 'rotating'
+            hoverImage: message.hoverImage || null,
+            createdAt: new Date().toISOString()
+        };
+        
+        this.messages.push(newMessage);
+        this.saveMessages();
+        this.updateRotatingStickyBar();
+        
+        console.log('[PersistentBanner] Added message:', newMessage.id);
+        return newMessage;
+    },
+
+    /**
+     * Update a message
+     * @param {string} messageId
+     * @param {Object} updates
+     */
+    updateMessage(messageId, updates) {
+        const index = this.messages.findIndex(m => m.id === messageId);
+        if (index === -1) return null;
+        
+        this.messages[index] = { ...this.messages[index], ...updates };
+        this.saveMessages();
+        this.updateRotatingStickyBar();
+        
+        console.log('[PersistentBanner] Updated message:', messageId);
+        return this.messages[index];
+    },
+
+    /**
+     * Delete a message
+     * @param {string} messageId
+     */
+    deleteMessage(messageId) {
+        this.messages = this.messages.filter(m => m.id !== messageId);
+        this.saveMessages();
+        this.updateRotatingStickyBar();
+        
+        console.log('[PersistentBanner] Deleted message:', messageId);
+    },
+
+    /**
+     * Get messages filtered by display mode
+     * @param {string} displayMode - 'hidden' | 'banner' | 'rotating'
+     * @returns {Array}
+     */
+    getMessagesByDisplayMode(displayMode) {
+        return this.messages.filter(m => m.displayMode === displayMode);
+    },
+
+    /**
+     * Check message section width and apply collapsed styles
+     */
+    checkMessageSectionWidth() {
+        const messageSection = this.elements.banner?.querySelector('.exl-banner-message-section');
+        if (!messageSection) return;
+        
+        // Always apply default collapsed styles
+        messageSection.style.maxWidth = '300px';
+        messageSection.style.overflow = 'hidden';
+        
+        this.messageSectionCollapsed = true;
+    },
+
+    // ========== MESSAGE HOVER POPUP ==========
+
+    /**
+     * Show hover popup for a message
+     * @param {Object} message - Message object
+     * @param {Event} event - Mouse event
+     */
+    showMessageHoverPopup(message, event) {
+        // Clear any existing timeout
+        if (this.hoverPopupTimeout) {
+            clearTimeout(this.hoverPopupTimeout);
+        }
+        
+        // Remove existing popup
+        this.hideMessageHoverPopup();
+        
+        // Create popup element
+        const popup = document.createElement('div');
+        popup.className = 'exl-message-hover-popup';
+        popup.innerHTML = `
+            ${message.subject ? `<div class="popup-subject">${this.escapeHtml(message.subject)}</div>` : ''}
+            ${message.description ? `<div class="popup-description">${this.escapeHtml(message.description)}</div>` : ''}
+            ${message.hoverImage ? `<img class="popup-image" src="${this.escapeHtml(message.hoverImage)}" alt="Message image">` : ''}
+        `;
+        
+        // Position popup near cursor
+        const x = event.clientX + 10;
+        const y = event.clientY + 10;
+        
+        popup.style.left = `${x}px`;
+        popup.style.top = `${y}px`;
+        
+        document.body.appendChild(popup);
+        this.activeHoverPopup = popup;
+        
+        // Adjust position if popup goes off screen
+        const rect = popup.getBoundingClientRect();
+        if (rect.right > window.innerWidth) {
+            popup.style.left = `${window.innerWidth - rect.width - 10}px`;
+        }
+        if (rect.bottom > window.innerHeight) {
+            popup.style.top = `${event.clientY - rect.height - 10}px`;
+        }
+        
+        // Setup mouse leave handler with delay
+        popup.addEventListener('mouseleave', () => {
+            this.hoverPopupTimeout = setTimeout(() => {
+                this.hideMessageHoverPopup();
+            }, 200);
+        });
+        
+        popup.addEventListener('mouseenter', () => {
+            if (this.hoverPopupTimeout) {
+                clearTimeout(this.hoverPopupTimeout);
+            }
+        });
+    },
+
+    /**
+     * Hide message hover popup
+     */
+    hideMessageHoverPopup() {
+        if (this.activeHoverPopup) {
+            this.activeHoverPopup.remove();
+            this.activeHoverPopup = null;
+        }
+    },
+
+    // ========== MESSAGE EDIT POPUP ==========
+
+    /**
+     * Show edit popup for a message
+     * @param {string} messageId
+     */
+    showMessageEditPopup(messageId) {
+        const message = this.messages.find(m => m.id === messageId);
+        if (!message) {
+            console.warn('[PersistentBanner] Message not found:', messageId);
+            return;
+        }
+        
+        // Remove existing popup
+        this.hideMessageEditPopup();
+        
+        // Create popup element
+        const popup = document.createElement('div');
+        popup.className = 'exl-message-edit-popup';
+        popup.innerHTML = `
+            <button class="exl-message-edit-close" title="Close">&times;</button>
+            
+            <div class="exl-message-edit-column left-column">
+                <div class="exl-message-edit-field">
+                    <label for="edit-subject">Subject</label>
+                    <input type="text" id="edit-subject" value="${this.escapeHtml(message.subject || '')}" placeholder="Enter message subject">
+                </div>
+                <div class="exl-message-edit-field">
+                    <label for="edit-description">Description</label>
+                    <textarea id="edit-description" placeholder="Enter message description">${this.escapeHtml(message.description || '')}</textarea>
+                </div>
+                <div class="exl-message-edit-field">
+                    <label for="edit-displayMode">Display Mode</label>
+                    <select id="edit-displayMode">
+                        <option value="hidden" ${message.displayMode === 'hidden' ? 'selected' : ''}>Hidden</option>
+                        <option value="banner" ${message.displayMode === 'banner' ? 'selected' : ''}>Banner</option>
+                        <option value="rotating" ${message.displayMode === 'rotating' ? 'selected' : ''}>Rotating Bar</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="exl-message-edit-column middle-column">
+                <div style="text-align: center; color: #54698d; font-size: 11px;">
+                    ↔
+                </div>
+            </div>
+            
+            <div class="exl-message-edit-column right-column">
+                <div class="exl-message-edit-field">
+                    <label>Hover Image</label>
+                    ${message.hoverImage ? `<img class="exl-message-image-preview" src="${this.escapeHtml(message.hoverImage)}" alt="Preview">` : '<div style="text-align: center; padding: 40px; background: #f4f6f9; border-radius: 4px; color: #54698d;">No image attached</div>'}
+                    <div class="exl-message-image-upload">
+                        <input type="file" id="edit-image" accept="image/*">
+                        <button class="exl-message-image-upload-btn" onclick="document.getElementById('edit-image').click()">
+                            📷 Upload Image
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Append to banner
+        this.elements.banner.appendChild(popup);
+        this.editPopupVisible = true;
+        
+        // Wire up close button
+        popup.querySelector('.exl-message-edit-close').addEventListener('click', () => {
+            this.hideMessageEditPopup();
+        });
+        
+        // Wire up auto-save with debounce
+        const subjectInput = popup.querySelector('#edit-subject');
+        const descriptionInput = popup.querySelector('#edit-description');
+        const displayModeSelect = popup.querySelector('#edit-displayMode');
+        const imageInput = popup.querySelector('#edit-image');
+        
+        const autoSave = () => {
+            if (this.editSaveDebounceTimer) {
+                clearTimeout(this.editSaveDebounceTimer);
+            }
+            this.editSaveDebounceTimer = setTimeout(() => {
+                this.saveMessageEdit(messageId, {
+                    subject: subjectInput.value,
+                    description: descriptionInput.value,
+                    displayMode: displayModeSelect.value
+                });
+            }, 500);
+        };
+        
+        subjectInput.addEventListener('input', autoSave);
+        descriptionInput.addEventListener('input', autoSave);
+        displayModeSelect.addEventListener('change', autoSave);
+        
+        // Handle image upload
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const imageData = event.target.result;
+                    this.saveMessageEdit(messageId, { hoverImage: imageData });
+                    
+                    // Update preview
+                    const previewContainer = popup.querySelector('.right-column .exl-message-edit-field');
+                    const existingPreview = previewContainer.querySelector('.exl-message-image-preview');
+                    if (existingPreview) {
+                        existingPreview.src = imageData;
+                    } else {
+                        const noImageDiv = previewContainer.querySelector('div[style*="No image"]');
+                        if (noImageDiv) {
+                            const img = document.createElement('img');
+                            img.className = 'exl-message-image-preview';
+                            img.src = imageData;
+                            img.alt = 'Preview';
+                            noImageDiv.replaceWith(img);
+                        }
+                    }
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        console.log('[PersistentBanner] Edit popup shown for message:', messageId);
+    },
+
+    /**
+     * Hide message edit popup
+     */
+    hideMessageEditPopup() {
+        const popup = this.elements.banner?.querySelector('.exl-message-edit-popup');
+        if (popup) {
+            popup.remove();
+        }
+        this.editPopupVisible = false;
+        
+        if (this.editSaveDebounceTimer) {
+            clearTimeout(this.editSaveDebounceTimer);
+        }
+    },
+
+    /**
+     * Save message edit (auto-save)
+     * @param {string} messageId
+     * @param {Object} data
+     */
+    saveMessageEdit(messageId, data) {
+        const updated = this.updateMessage(messageId, data);
+        if (updated) {
+            console.log('[PersistentBanner] Message auto-saved:', messageId);
+        }
+    },
+
+    // ========== ROTATING STICKY BAR ==========
+
+    /**
+     * Create rotating sticky bar element
+     */
+    createRotatingStickyBar() {
+        // Check if bar already exists
+        if (document.querySelector('.exl-rotating-sticky-bar')) {
+            return;
+        }
+        
+        const bar = document.createElement('div');
+        bar.className = 'exl-rotating-sticky-bar';
+        bar.innerHTML = `
+            <div class="exl-rotating-sticky-bar-content">
+                <span class="exl-rotating-sticky-bar-text"></span>
+            </div>
+        `;
+        
+        // Insert before banner or at body start
+        if (this.elements.banner) {
+            this.elements.banner.parentNode.insertBefore(bar, this.elements.banner);
+        } else {
+            document.body.insertBefore(bar, document.body.firstChild);
+        }
+        
+        this.elements.rotatingBar = bar;
+        console.log('[PersistentBanner] Rotating sticky bar created');
+    },
+
+    /**
+     * Update rotating sticky bar visibility and content
+     */
+    updateRotatingStickyBar() {
+        const rotatingMessages = this.getMessagesByDisplayMode('rotating');
+        const bar = this.elements.rotatingBar || document.querySelector('.exl-rotating-sticky-bar');
+        
+        if (!bar) return;
+        
+        if (rotatingMessages.length === 0) {
+            // Hide bar
+            bar.classList.remove('visible');
+            document.body.classList.remove('has-rotating-bar');
+            this.rotatingBarVisible = false;
+            
+            // Stop rotation interval
+            if (this.rotatingInterval) {
+                clearInterval(this.rotatingInterval);
+                this.rotatingInterval = null;
+            }
+            
+            return;
+        }
+        
+        // Show bar
+        bar.classList.add('visible');
+        document.body.classList.add('has-rotating-bar');
+        this.rotatingBarVisible = true;
+        
+        // Update color based on current case status
+        const statusConfig = this.STATUS_COLORS[this.currentPage.status];
+        if (statusConfig) {
+            bar.style.setProperty('--rotating-bar-color', statusConfig.base);
+        }
+        
+        // Update content with current message
+        this.updateRotatingBarContent(rotatingMessages);
+        
+        // Start rotation if multiple messages
+        if (rotatingMessages.length > 1 && !this.rotatingInterval) {
+            this.rotatingInterval = setInterval(() => {
+                this.rotatingMessageIndex = (this.rotatingMessageIndex + 1) % rotatingMessages.length;
+                this.updateRotatingBarContent(rotatingMessages);
+            }, 5000);
+        }
+    },
+
+    /**
+     * Update rotating bar content
+     * @param {Array} messages - Array of rotating messages
+     */
+    updateRotatingBarContent(messages) {
+        const bar = this.elements.rotatingBar || document.querySelector('.exl-rotating-sticky-bar');
+        if (!bar || messages.length === 0) return;
+        
+        const textElement = bar.querySelector('.exl-rotating-sticky-bar-text');
+        if (textElement) {
+            const message = messages[this.rotatingMessageIndex % messages.length];
+            textElement.textContent = message.subject || message.description || '';
+        }
+    },
+
+    // ========== ENVIRONMENT BUTTON VISIBILITY ==========
+
+    /**
+     * Track when all environment buttons are ready
+     */
+    async populateEnvironmentButtons() {
         if (!this.elements.envButtonsContainer) return;
         
         const { server, institutionId, productServiceName } = this.customerMetadata;
         
         // Build institution code - for now using institutionId as placeholder
-        // In production, you'd need proper institution code extraction
         const institutionCode = institutionId;
         
         const buttonsHtml = [];
@@ -1380,26 +1906,153 @@ const PersistentBanner = {
         }
         
         this.elements.envButtonsContainer.innerHTML = buttonsHtml.join('');
+        
+        // Mark buttons as ready
+        this.environmentButtonsReady = true;
+        this.updateEnvironmentButtonVisibility();
+        
+        console.log('[PersistentBanner] Environment buttons populated and ready');
     },
 
     /**
-     * Toggle environment menu visibility
+     * Update environment button visibility based on page type and readiness
      */
-    toggleEnvMenu() {
-        if (!this.elements.envSection || !this.elements.envToggleBtn) return;
+    updateEnvironmentButtonVisibility() {
+        const envToggleSection = this.elements.envToggleSection;
+        if (!envToggleSection) return;
         
-        this.envMenuVisible = !this.envMenuVisible;
+        // Check if we're on a case page or case comment view
+        const isCasePage = this.currentPage.type === 'Case' || 
+                          this.currentPage.type === 'case_page' ||
+                          this.currentPage.type === 'Case Comments' ||
+                          this.currentPage.type === 'case_comments';
         
-        if (this.envMenuVisible) {
-            // Show environment buttons
-            this.elements.envSection.style.display = 'flex';
-            this.elements.envToggleBtn.textContent = '◀ Return to Menu';
-            console.log('[PersistentBanner] Environment menu opened');
-        } else {
-            // Hide environment buttons
-            this.elements.envSection.style.display = 'none';
-            this.elements.envToggleBtn.textContent = 'Go to Customer Env ▶';
-            console.log('[PersistentBanner] Environment menu closed');
+        // Only show when on case page AND buttons are ready
+        const shouldShow = isCasePage && this.environmentButtonsReady;
+        
+        envToggleSection.style.display = shouldShow ? 'flex' : 'none';
+        
+        console.log(`[PersistentBanner] Environment button visibility: ${shouldShow} (isCasePage: ${isCasePage}, ready: ${this.environmentButtonsReady})`);
+    },
+
+    // ========== REFRESH WITH CACHED DATA ==========
+
+    /**
+     * Handle refresh - use cached data if available
+     */
+    async handleRefresh() {
+        console.log('[PersistentBanner] Handling refresh...');
+        
+        // Check for cached data first
+        const cachedData = this.getCachedCaseData();
+        
+        if (cachedData && this.isDataFresh(cachedData)) {
+            console.log('[PersistentBanner] Using cached data for refresh');
+            this.populateFromCachedData(cachedData);
+            this.showNotification('Banner refreshed from cache', 'success');
+            return;
         }
+        
+        // Fall back to full refresh if cache unavailable or stale
+        console.log('[PersistentBanner] Cache unavailable or stale, triggering full refresh...');
+        
+        // Dispatch event to request fresh data
+        document.dispatchEvent(new CustomEvent('persistentBannerRefreshRequest'));
+        
+        this.showNotification('Refreshing banner data...', 'info');
+    },
+
+    /**
+     * Get cached case data from multiple sources
+     * @returns {Object|null}
+     */
+    getCachedCaseData() {
+        // Check ExLibrisExtension global
+        if (window.ExLibrisExtension?.caseData) {
+            return window.ExLibrisExtension.caseData;
+        }
+        
+        // Check caseToolkit
+        if (window.ExLibrisExtension?.caseToolkit?.caseData) {
+            return window.ExLibrisExtension.caseToolkit.caseData;
+        }
+        
+        // Check CaseDataStore if available
+        if (typeof CaseDataStore !== 'undefined' && CaseDataStore.getCurrentData) {
+            return CaseDataStore.getCurrentData();
+        }
+        
+        return null;
+    },
+
+    /**
+     * Check if cached data is fresh (within threshold)
+     * @param {Object} data - Cached data object
+     * @returns {boolean}
+     */
+    isDataFresh(data) {
+        if (!data) return false;
+        
+        // Check if data has a timestamp
+        const timestamp = data.extractedAt || data.timestamp || data.cachedAt;
+        if (!timestamp) {
+            // No timestamp, consider it stale
+            return false;
+        }
+        
+        const dataTime = new Date(timestamp).getTime();
+        const now = Date.now();
+        const maxAge = 5 * 60 * 1000; // 5 minutes
+        
+        return (now - dataTime) < maxAge;
+    },
+
+    /**
+     * Populate banner from cached data
+     * @param {Object} data - Cached case data
+     */
+    populateFromCachedData(data) {
+        if (!data) return;
+        
+        console.log('[PersistentBanner] Populating from cached data:', data.caseNumber);
+        
+        // Update current page info
+        this.currentPage = {
+            type: 'Case',
+            caseNumber: data.caseNumber || null,
+            subject: data.subject || null,
+            status: data.status || null,
+            subStatus: data.subStatus || null,
+            url: window.location.href,
+            timestamp: new Date().toISOString()
+        };
+        
+        // Update customer metadata
+        this.customerMetadata = {
+            customerId: data.custID || data.customerId || null,
+            institutionId: data.instID || data.institutionId || null,
+            server: data.server || null,
+            productServiceName: data.platformService || data.productServiceName || null,
+            institutionCode: data.exLibrisAccountNumber || data.institutionCode || null
+        };
+        
+        // Update UI
+        this.updateBannerUI();
+        
+        console.log('[PersistentBanner] Banner populated from cached data');
+    },
+
+    // ========== UTILITY FUNCTIONS ==========
+
+    /**
+     * Escape HTML special characters
+     * @param {string} text
+     * @returns {string}
+     */
+    escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     },
 };

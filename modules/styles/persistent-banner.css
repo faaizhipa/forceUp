@@ -28,7 +28,7 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     left: 0;
     right: 0;
     width: 100%;
-    z-index: 9999;
+    z-index: 999999; /* Increased from 9999 to match other popups */
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
     color: #ffffff;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
@@ -37,6 +37,28 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     border-bottom: 1px solid #0070d2;
     height: 3rem;
     overflow: hidden;
+    pointer-events: auto; /* Ensure banner is interactive */
+    transition: max-height 0.3s ease, height 0.3s ease;
+}
+
+/* Banner collapsed state (default) */
+#exl-persistent-banner.exl-banner-collapsed {
+    max-height: 48px;
+}
+
+/* Banner expanded state (on hover) */
+#exl-persistent-banner.exl-banner-expanded {
+    min-height: 48px;
+    max-height: 86px;
+    height: auto;
+}
+
+/* Ensure all text elements are interactive */
+#exl-persistent-banner .exl-banner-label,
+#exl-persistent-banner .exl-banner-page-type,
+#exl-persistent-banner .exl-banner-message-content,
+#exl-persistent-banner .message-line {
+    pointer-events: auto;
 }
 
 .exl-banner-container {
@@ -431,4 +453,357 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     background-color: rgba(255, 255, 255, 0.2);
     padding: 2px 6px;
     border-radius: 2px;
+}
+
+/* ========== MESSAGE SECTION STYLES ========== */
+
+/* Message section container */
+.exl-banner-message-section {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-width: auto;
+    max-width: 300px;
+    overflow: hidden;
+}
+
+/* Message content wrapper */
+.exl-banner-message-content {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #d0d0d0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.exl-banner-message-content:hover {
+    color: #ffffff;
+}
+
+/* Message line styling */
+.message-line {
+    display: inline;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: auto;
+}
+
+/* Message navigation buttons */
+.exl-banner-message-nav {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 20px; /* Fixed gap, not responsive */
+    min-width: auto;
+}
+
+.exl-banner-nav-btn {
+    min-width: 20px;
+    max-width: 23px;
+    width: auto;
+    height: 20px;
+    padding: 2px 4px;
+    font-size: 10px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    color: #ffffff;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.exl-banner-nav-btn:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.exl-banner-nav-btn:active {
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
+/* ========== MESSAGE HOVER POPUP STYLES ========== */
+
+.exl-message-hover-popup {
+    position: fixed;
+    z-index: 1000000;
+    background: #ffffff;
+    border: 1px solid #d8dde6;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    padding: 12px 16px;
+    max-width: 400px;
+    min-width: 200px;
+    font-family: 'Salesforce Sans', Arial, sans-serif;
+    font-size: 12px;
+    color: #333;
+    pointer-events: auto;
+}
+
+.exl-message-hover-popup .popup-subject {
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 8px;
+    color: #16325c;
+    border-bottom: 1px solid #e0e5ee;
+    padding-bottom: 6px;
+}
+
+.exl-message-hover-popup .popup-description {
+    font-size: 12px;
+    color: #54698d;
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
+
+.exl-message-hover-popup .popup-image {
+    max-width: 100%;
+    max-height: 200px;
+    border-radius: 4px;
+    margin-top: 8px;
+}
+
+/* ========== MESSAGE EDIT POPUP STYLES ========== */
+
+.exl-message-edit-popup {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    width: 100vw;
+    height: 282px;
+    z-index: 1000000;
+    background: #ffffff;
+    border-bottom: 1px solid #d8dde6;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    font-family: 'Salesforce Sans', Arial, sans-serif;
+    display: grid;
+    grid-template-columns: 1fr 70px 1fr;
+    gap: 0;
+}
+
+.exl-message-edit-column {
+    padding: 16px;
+    overflow-y: auto;
+    max-height: 282px;
+}
+
+.exl-message-edit-column::-webkit-scrollbar {
+    width: 6px;
+}
+
+.exl-message-edit-column::-webkit-scrollbar-track {
+    background: #f4f6f9;
+}
+
+.exl-message-edit-column::-webkit-scrollbar-thumb {
+    background: #c9c9c9;
+    border-radius: 3px;
+}
+
+.exl-message-edit-column::-webkit-scrollbar-thumb:hover {
+    background: #a0a0a0;
+}
+
+.exl-message-edit-column.left-column {
+    border-right: 1px solid #e0e5ee;
+}
+
+.exl-message-edit-column.middle-column {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f4f6f9;
+    padding: 8px;
+}
+
+.exl-message-edit-column.right-column {
+    border-left: 1px solid #e0e5ee;
+}
+
+.exl-message-edit-field {
+    margin-bottom: 16px;
+}
+
+.exl-message-edit-field label {
+    display: block;
+    font-weight: 600;
+    font-size: 12px;
+    color: #16325c;
+    margin-bottom: 6px;
+}
+
+.exl-message-edit-field input,
+.exl-message-edit-field textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #d8dde6;
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: inherit;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.exl-message-edit-field input:focus,
+.exl-message-edit-field textarea:focus {
+    outline: none;
+    border-color: #0070d2;
+    box-shadow: 0 0 0 3px rgba(0, 112, 210, 0.15);
+}
+
+.exl-message-edit-field textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.exl-message-edit-close {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    width: 28px;
+    height: 28px;
+    background: #f4f6f9;
+    border: 1px solid #d8dde6;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    color: #54698d;
+    transition: all 0.15s ease;
+}
+
+.exl-message-edit-close:hover {
+    background: #e0e5ee;
+    color: #16325c;
+}
+
+.exl-message-image-preview {
+    width: 100%;
+    max-height: 180px;
+    object-fit: contain;
+    border-radius: 4px;
+    border: 1px solid #e0e5ee;
+    background: #f4f6f9;
+}
+
+.exl-message-image-upload {
+    margin-top: 12px;
+}
+
+.exl-message-image-upload input[type="file"] {
+    display: none;
+}
+
+.exl-message-image-upload-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: #0070d2;
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: background 0.15s ease;
+}
+
+.exl-message-image-upload-btn:hover {
+    background: #005fb2;
+}
+
+/* ========== ROTATING STICKY BAR STYLES ========== */
+
+.exl-rotating-sticky-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 17px;
+    z-index: 1000000; /* Above banner */
+    background: var(--rotating-bar-color, #0070d2);
+    color: #ffffff;
+    font-family: 'Salesforce Sans', Arial, sans-serif;
+    font-size: 15px;
+    line-height: 17px;
+    overflow: hidden;
+    display: none; /* Hidden by default, shown when messages have rotating mode */
+}
+
+.exl-rotating-sticky-bar.visible {
+    display: block;
+}
+
+.exl-rotating-sticky-bar-content {
+    display: inline-block;
+    white-space: nowrap;
+    padding-left: 100%;
+    animation: rotatingScrollText 20s linear infinite;
+}
+
+@keyframes rotatingScrollText {
+    0% {
+        transform: translateX(0);
+    }
+    100% {
+        transform: translateX(-100%);
+    }
+}
+
+.exl-rotating-sticky-bar-text {
+    display: inline-block;
+    padding: 0 50px;
+}
+
+/* When rotating bar is visible, push banner down */
+.exl-rotating-sticky-bar.visible + #exl-persistent-banner,
+body.has-rotating-bar #exl-persistent-banner {
+    top: 17px !important;
+}
+
+/* Adjust Salesforce header when rotating bar is visible */
+body.has-rotating-bar #oneHeader > div.slds-global-header.slds-grid.slds-grid_align-spread {
+    margin-top: 62px; /* 45px + 17px */
+}
+
+/* ========== DISPLAY MODE INDICATORS ========== */
+
+.exl-message-display-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    font-size: 8px;
+    margin-left: 4px;
+}
+
+.exl-message-display-indicator.hidden {
+    background: #706e6b;
+    color: #ffffff;
+}
+
+.exl-message-display-indicator.banner {
+    background: #0070d2;
+    color: #ffffff;
+}
+
+.exl-message-display-indicator.rotating {
+    background: #e07d10;
+    color: #ffffff;
 }
