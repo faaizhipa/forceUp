@@ -408,6 +408,9 @@ const BookmarkManager = (function() {
     const header = document.createElement('div');
     header.className = 'exl-hl-panel-header';
 
+    const titleRow = document.createElement('div');
+    titleRow.className = 'exl-hl-panel-title-row';
+
     const title = document.createElement('h2');
     title.className = 'exl-hl-panel-title';
     title.textContent = '📚 Collections';
@@ -417,8 +420,30 @@ const BookmarkManager = (function() {
     closeBtn.innerHTML = '×';
     closeBtn.addEventListener('click', closePanel);
 
-    header.appendChild(title);
-    header.appendChild(closeBtn);
+    titleRow.appendChild(title);
+    titleRow.appendChild(closeBtn);
+
+    // Export/Import toolbar
+    const toolbar = document.createElement('div');
+    toolbar.className = 'exl-hl-panel-toolbar';
+
+    const exportBtn = document.createElement('button');
+    exportBtn.className = 'exl-hl-toolbar-btn';
+    exportBtn.innerHTML = '📤 Export';
+    exportBtn.title = 'Export bookmarks';
+    exportBtn.addEventListener('click', showExportDialog);
+
+    const importBtn = document.createElement('button');
+    importBtn.className = 'exl-hl-toolbar-btn';
+    importBtn.innerHTML = '📥 Import';
+    importBtn.title = 'Import bookmarks';
+    importBtn.addEventListener('click', showImportDialog);
+
+    toolbar.appendChild(exportBtn);
+    toolbar.appendChild(importBtn);
+
+    header.appendChild(titleRow);
+    header.appendChild(toolbar);
 
     const content = document.createElement('div');
     content.className = 'exl-hl-panel-content';
@@ -1036,6 +1061,531 @@ const BookmarkManager = (function() {
       await saveBookmarks();
     }
     console.log('[BookmarkManager] Imported data');
+  }
+
+  // ========== EXPORT/IMPORT FUNCTIONALITY ==========
+
+  /**
+   * Show export dialog with scope options
+   */
+  function showExportDialog() {
+    const existingDialog = document.querySelector('.exl-hl-export-dialog');
+    if (existingDialog) existingDialog.remove();
+
+    const dialog = document.createElement('div');
+    dialog.className = 'exl-hl-export-dialog exl-hl-dialog';
+    
+    const collectionList = Object.values(collections);
+    const hasCollections = collectionList.length > 0;
+    
+    dialog.innerHTML = `
+      <div class="exl-hl-dialog-content">
+        <h3 class="exl-hl-dialog-title">📤 Export Bookmarks</h3>
+        
+        <div class="exl-hl-dialog-section">
+          <label class="exl-hl-dialog-label">Export Scope:</label>
+          <div class="exl-hl-radio-group">
+            <label class="exl-hl-radio">
+              <input type="radio" name="export-scope" value="all" checked />
+              <span>All Collections & Bookmarks</span>
+            </label>
+            <label class="exl-hl-radio">
+              <input type="radio" name="export-scope" value="collection" ${!hasCollections ? 'disabled' : ''} />
+              <span>Specific Collection</span>
+            </label>
+          </div>
+        </div>
+        
+        <div class="exl-hl-dialog-section exl-hl-collection-select" style="display: none;">
+          <label class="exl-hl-dialog-label">Select Collection:</label>
+          <select class="exl-hl-select" id="export-collection-select">
+            ${collectionList.map(c => `<option value="${c.id}">${c.name} (${c.bookmarkIds.length} bookmarks)</option>`).join('')}
+          </select>
+        </div>
+        
+        <div class="exl-hl-dialog-section">
+          <label class="exl-hl-dialog-label">Format:</label>
+          <div class="exl-hl-radio-group">
+            <label class="exl-hl-radio">
+              <input type="radio" name="export-format" value="json" checked />
+              <span>JSON (Full data, for reimport)</span>
+            </label>
+            <label class="exl-hl-radio">
+              <input type="radio" name="export-format" value="html" />
+              <span>HTML (Browser bookmarks compatible)</span>
+            </label>
+          </div>
+        </div>
+        
+        <div class="exl-hl-dialog-actions">
+          <button class="exl-hl-btn exl-hl-btn-secondary" data-action="cancel">Cancel</button>
+          <button class="exl-hl-btn exl-hl-btn-primary" data-action="export">Export</button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(dialog);
+    
+    // Show/hide collection select based on scope
+    const scopeRadios = dialog.querySelectorAll('input[name="export-scope"]');
+    const collectionSelectSection = dialog.querySelector('.exl-hl-collection-select');
+    
+    scopeRadios.forEach(radio => {
+      radio.addEventListener('change', () => {
+        collectionSelectSection.style.display = radio.value === 'collection' ? 'block' : 'none';
+      });
+    });
+    
+    // Handle actions
+    dialog.addEventListener('click', async (e) => {
+      const action = e.target.dataset.action;
+      if (action === 'cancel') {
+        dialog.remove();
+      } else if (action === 'export') {
+        const scope = dialog.querySelector('input[name="export-scope"]:checked').value;
+        const format = dialog.querySelector('input[name="export-format"]:checked').value;
+        const collectionId = dialog.querySelector('#export-collection-select')?.value;
+        
+        await performExport(scope, format, collectionId);
+        dialog.remove();
+      }
+    });
+    
+    // Close on click outside
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) {
+        dialog.remove();
+      }
+    });
+  }
+
+  /**
+   * Perform the export based on options
+   */
+  async function performExport(scope, format, collectionId) {
+    let exportData;
+    let filename;
+    const timestamp = new Date().toISOString().split('T')[0];
+    
+    if (scope === 'all') {
+      exportData = {
+        version: STORAGE_VERSION,
+        exportedAt: new Date().toISOString(),
+        type: 'full',
+        collections: collections,
+        bookmarks: bookmarks
+      };
+      filename = `bookmarks-all-${timestamp}`;
+    } else if (scope === 'collection' && collectionId) {
+      const collection = collections[collectionId];
+      if (!collection) {
+        showToast('Collection not found', 'error');
+        return;
+      }
+      
+      const collectionBookmarks = {};
+      collection.bookmarkIds.forEach(id => {
+        if (bookmarks[id]) {
+          collectionBookmarks[id] = bookmarks[id];
+        }
+      });
+      
+      exportData = {
+        version: STORAGE_VERSION,
+        exportedAt: new Date().toISOString(),
+        type: 'collection',
+        collections: { [collectionId]: collection },
+        bookmarks: collectionBookmarks
+      };
+      filename = `bookmarks-${collection.name.replace(/[^a-z0-9]/gi, '-')}-${timestamp}`;
+    }
+    
+    if (format === 'json') {
+      downloadFile(
+        JSON.stringify(exportData, null, 2),
+        `${filename}.json`,
+        'application/json'
+      );
+    } else if (format === 'html') {
+      const html = generateBookmarksHtml(exportData);
+      downloadFile(html, `${filename}.html`, 'text/html');
+    }
+    
+    const count = Object.keys(exportData.bookmarks).length;
+    showToast(`Exported ${count} bookmark(s)`);
+    console.log('[BookmarkManager] Export completed:', { scope, format, count });
+  }
+
+  /**
+   * Generate HTML bookmarks file (browser compatible)
+   */
+  function generateBookmarksHtml(data) {
+    let html = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<!-- This is an automatically generated file.
+     It will be read and overwritten.
+     DO NOT EDIT! -->
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<TITLE>Bookmarks</TITLE>
+<H1>Bookmarks</H1>
+<DL><p>
+`;
+    
+    Object.values(data.collections).forEach(collection => {
+      html += `    <DT><H3>${escapeHtml(collection.name)}</H3>\n`;
+      html += `    <DL><p>\n`;
+      
+      collection.bookmarkIds.forEach(id => {
+        const bookmark = data.bookmarks[id];
+        if (bookmark) {
+          const addDate = Math.floor(new Date(bookmark.createdAt || Date.now()).getTime() / 1000);
+          html += `        <DT><A HREF="${escapeHtml(bookmark.url)}" ADD_DATE="${addDate}">${escapeHtml(bookmark.title)}</A>\n`;
+          if (bookmark.description) {
+            html += `        <DD>${escapeHtml(bookmark.description)}\n`;
+          }
+        }
+      });
+      
+      html += `    </DL><p>\n`;
+    });
+    
+    html += `</DL><p>`;
+    return html;
+  }
+
+  /**
+   * Download a file
+   */
+  function downloadFile(content, filename, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Escape HTML special characters
+   */
+  function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  /**
+   * Show import dialog
+   */
+  function showImportDialog() {
+    const existingDialog = document.querySelector('.exl-hl-import-dialog');
+    if (existingDialog) existingDialog.remove();
+
+    const dialog = document.createElement('div');
+    dialog.className = 'exl-hl-import-dialog exl-hl-dialog';
+    
+    dialog.innerHTML = `
+      <div class="exl-hl-dialog-content">
+        <h3 class="exl-hl-dialog-title">📥 Import Bookmarks</h3>
+        
+        <div class="exl-hl-dialog-section">
+          <label class="exl-hl-dialog-label">Select File:</label>
+          <div class="exl-hl-file-input-wrapper">
+            <input type="file" id="import-file-input" accept=".json,.html" class="exl-hl-file-input" />
+            <label for="import-file-input" class="exl-hl-file-label">
+              📁 Choose file...
+            </label>
+            <span class="exl-hl-file-name">No file selected</span>
+          </div>
+          <p class="exl-hl-dialog-hint">Supports JSON (exported from this extension) or HTML (browser bookmarks)</p>
+        </div>
+        
+        <div class="exl-hl-dialog-section">
+          <label class="exl-hl-dialog-label">Conflict Resolution:</label>
+          <div class="exl-hl-radio-group">
+            <label class="exl-hl-radio">
+              <input type="radio" name="import-conflict" value="skip" checked />
+              <span>Skip duplicates (keep existing)</span>
+            </label>
+            <label class="exl-hl-radio">
+              <input type="radio" name="import-conflict" value="replace" />
+              <span>Replace duplicates (use imported)</span>
+            </label>
+            <label class="exl-hl-radio">
+              <input type="radio" name="import-conflict" value="rename" />
+              <span>Rename duplicates (add suffix)</span>
+            </label>
+          </div>
+        </div>
+        
+        <div class="exl-hl-import-preview" style="display: none;">
+          <h4>Preview:</h4>
+          <div class="exl-hl-preview-content"></div>
+        </div>
+        
+        <div class="exl-hl-dialog-actions">
+          <button class="exl-hl-btn exl-hl-btn-secondary" data-action="cancel">Cancel</button>
+          <button class="exl-hl-btn exl-hl-btn-primary" data-action="import" disabled>Import</button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(dialog);
+    
+    let parsedData = null;
+    
+    // File input handler
+    const fileInput = dialog.querySelector('#import-file-input');
+    const fileNameSpan = dialog.querySelector('.exl-hl-file-name');
+    const importBtn = dialog.querySelector('[data-action="import"]');
+    const previewSection = dialog.querySelector('.exl-hl-import-preview');
+    const previewContent = dialog.querySelector('.exl-hl-preview-content');
+    
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) {
+        fileNameSpan.textContent = 'No file selected';
+        importBtn.disabled = true;
+        previewSection.style.display = 'none';
+        parsedData = null;
+        return;
+      }
+      
+      fileNameSpan.textContent = file.name;
+      
+      try {
+        const content = await file.text();
+        
+        if (file.name.endsWith('.json')) {
+          parsedData = JSON.parse(content);
+          
+          // Validate JSON structure
+          if (!parsedData.collections && !parsedData.bookmarks) {
+            throw new Error('Invalid bookmark file: missing collections or bookmarks');
+          }
+        } else if (file.name.endsWith('.html')) {
+          parsedData = parseHtmlBookmarks(content);
+        } else {
+          throw new Error('Unsupported file format');
+        }
+        
+        // Show preview
+        const collectionCount = Object.keys(parsedData.collections || {}).length;
+        const bookmarkCount = Object.keys(parsedData.bookmarks || {}).length;
+        
+        previewContent.innerHTML = `
+          <p>📚 <strong>${collectionCount}</strong> collection(s)</p>
+          <p>🔖 <strong>${bookmarkCount}</strong> bookmark(s)</p>
+          ${parsedData.exportedAt ? `<p>📅 Exported: ${new Date(parsedData.exportedAt).toLocaleString()}</p>` : ''}
+        `;
+        previewSection.style.display = 'block';
+        importBtn.disabled = false;
+        
+      } catch (error) {
+        console.error('[BookmarkManager] Import parse error:', error);
+        previewContent.innerHTML = `<p class="exl-hl-error">❌ ${error.message}</p>`;
+        previewSection.style.display = 'block';
+        importBtn.disabled = true;
+        parsedData = null;
+      }
+    });
+    
+    // Handle actions
+    dialog.addEventListener('click', async (e) => {
+      const action = e.target.dataset.action;
+      if (action === 'cancel') {
+        dialog.remove();
+      } else if (action === 'import' && parsedData) {
+        const conflictStrategy = dialog.querySelector('input[name="import-conflict"]:checked').value;
+        await performImport(parsedData, conflictStrategy);
+        dialog.remove();
+        refreshPanel();
+      }
+    });
+    
+    // Close on click outside
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) {
+        dialog.remove();
+      }
+    });
+  }
+
+  /**
+   * Parse HTML bookmarks file
+   */
+  function parseHtmlBookmarks(html) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    
+    const result = {
+      collections: {},
+      bookmarks: {},
+      type: 'html-import'
+    };
+    
+    // Find all H3 (folders) and their following DL (bookmark lists)
+    const folders = doc.querySelectorAll('DT > H3');
+    
+    if (folders.length === 0) {
+      // No folders, create a default collection for all bookmarks
+      const defaultCollId = 'imported_' + Date.now();
+      result.collections[defaultCollId] = {
+        id: defaultCollId,
+        name: 'Imported Bookmarks',
+        bookmarkIds: [],
+        createdAt: Date.now()
+      };
+      
+      // Get all links
+      doc.querySelectorAll('A').forEach((a, index) => {
+        const bookmarkId = `bm_${Date.now()}_${index}`;
+        result.bookmarks[bookmarkId] = {
+          id: bookmarkId,
+          title: a.textContent || 'Untitled',
+          url: a.href,
+          collectionId: defaultCollId,
+          createdAt: parseInt(a.getAttribute('ADD_DATE') || Date.now()) * 1000
+        };
+        result.collections[defaultCollId].bookmarkIds.push(bookmarkId);
+      });
+    } else {
+      folders.forEach((h3, folderIndex) => {
+        const collId = 'coll_' + Date.now() + '_' + folderIndex;
+        const folderName = h3.textContent || 'Untitled Folder';
+        
+        result.collections[collId] = {
+          id: collId,
+          name: folderName,
+          bookmarkIds: [],
+          createdAt: Date.now()
+        };
+        
+        // Find the DL that follows this H3
+        let nextSibling = h3.parentElement?.nextElementSibling;
+        while (nextSibling && nextSibling.tagName !== 'DL') {
+          nextSibling = nextSibling.nextElementSibling;
+        }
+        
+        if (nextSibling && nextSibling.tagName === 'DL') {
+          nextSibling.querySelectorAll(':scope > DT > A').forEach((a, index) => {
+            const bookmarkId = `bm_${Date.now()}_${folderIndex}_${index}`;
+            result.bookmarks[bookmarkId] = {
+              id: bookmarkId,
+              title: a.textContent || 'Untitled',
+              url: a.href,
+              collectionId: collId,
+              createdAt: parseInt(a.getAttribute('ADD_DATE') || Date.now()) * 1000
+            };
+            result.collections[collId].bookmarkIds.push(bookmarkId);
+          });
+        }
+      });
+    }
+    
+    return result;
+  }
+
+  /**
+   * Perform import with conflict resolution
+   */
+  async function performImport(data, conflictStrategy) {
+    let importedCollections = 0;
+    let importedBookmarks = 0;
+    let skippedDuplicates = 0;
+    
+    // Import collections
+    for (const [id, collection] of Object.entries(data.collections || {})) {
+      const existingCollection = Object.values(collections).find(c => c.name === collection.name);
+      
+      if (existingCollection) {
+        if (conflictStrategy === 'skip') {
+          // Map imported bookmarks to existing collection
+          collection.id = existingCollection.id;
+          skippedDuplicates++;
+        } else if (conflictStrategy === 'replace') {
+          // Replace existing
+          collections[existingCollection.id] = {
+            ...collection,
+            id: existingCollection.id
+          };
+          importedCollections++;
+        } else if (conflictStrategy === 'rename') {
+          // Create new with suffix
+          const newId = 'coll_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+          collections[newId] = {
+            ...collection,
+            id: newId,
+            name: collection.name + ' (imported)',
+            bookmarkIds: []
+          };
+          collection.id = newId;
+          importedCollections++;
+        }
+      } else {
+        // New collection
+        const newId = 'coll_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        collections[newId] = {
+          ...collection,
+          id: newId,
+          bookmarkIds: []
+        };
+        collection.id = newId;
+        importedCollections++;
+      }
+    }
+    
+    // Import bookmarks
+    for (const [id, bookmark] of Object.entries(data.bookmarks || {})) {
+      const existingBookmark = Object.values(bookmarks).find(b => b.url === bookmark.url);
+      const targetCollectionId = data.collections?.[bookmark.collectionId]?.id || bookmark.collectionId;
+      
+      if (existingBookmark) {
+        if (conflictStrategy === 'skip') {
+          skippedDuplicates++;
+          continue;
+        } else if (conflictStrategy === 'replace') {
+          bookmarks[existingBookmark.id] = {
+            ...bookmark,
+            id: existingBookmark.id,
+            collectionId: targetCollectionId
+          };
+          importedBookmarks++;
+        } else if (conflictStrategy === 'rename') {
+          const newId = 'bm_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+          bookmarks[newId] = {
+            ...bookmark,
+            id: newId,
+            title: bookmark.title + ' (imported)',
+            collectionId: targetCollectionId
+          };
+          if (collections[targetCollectionId]) {
+            collections[targetCollectionId].bookmarkIds.push(newId);
+          }
+          importedBookmarks++;
+        }
+      } else {
+        // New bookmark
+        const newId = 'bm_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        bookmarks[newId] = {
+          ...bookmark,
+          id: newId,
+          collectionId: targetCollectionId
+        };
+        if (collections[targetCollectionId]) {
+          collections[targetCollectionId].bookmarkIds.push(newId);
+        }
+        importedBookmarks++;
+      }
+    }
+    
+    // Save to storage
+    await saveCollections();
+    await saveBookmarks();
+    
+    showToast(`Imported: ${importedCollections} collection(s), ${importedBookmarks} bookmark(s)${skippedDuplicates > 0 ? `, ${skippedDuplicates} skipped` : ''}`);
+    console.log('[BookmarkManager] Import completed:', { importedCollections, importedBookmarks, skippedDuplicates, conflictStrategy });
   }
 
   /**

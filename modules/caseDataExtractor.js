@@ -68,6 +68,9 @@ const CaseDataExtractor = {
       exLibrisAccountNumber: this.getExLibrisAccountNumber(),
       instCode: null,
       institutionCode: null,
+      timezone: null,
+      institutionId: null,
+      customerId: null,
       analysisNote: this.getFieldValue(['Analysis Note'])
     };
   },
@@ -516,6 +519,18 @@ const CaseDataExtractor = {
         processed.custID = customerRecord.custID;
         processed.customerid = customerRecord.custID;
       }
+      if (customerRecord.customerId) {
+        processed.customerId = customerRecord.customerId;
+      }
+      if (customerRecord.institutionId) {
+        processed.institutionId = customerRecord.institutionId;
+      }
+      if (customerRecord.institutionCode) {
+        processed.institutionCode = customerRecord.institutionCode;
+      }
+      if (customerRecord.timezone) {
+        processed.timezone = customerRecord.timezone;
+      }
       if (customerRecord.instID) {
         processed.instID = customerRecord.instID;
         processed.institutionid = customerRecord.instID;
@@ -529,7 +544,7 @@ const CaseDataExtractor = {
       if (customerRecord.portalCustomDomain) {
         processed.portalCustomDomain = customerRecord.portalCustomDomain;
       }
-
+      
       // Use customer server as fallback if not already set from affectedEnvironment
       if (!processed.server && customerRecord.server) {
         processed.server = customerRecord.server.toLowerCase();
@@ -562,10 +577,28 @@ const CaseDataExtractor = {
 
         if (timezoneInfo && timezoneInfo.timezone) {
           processed.customerTimezone = timezoneInfo.timezone;
+          processed.customerTimezoneRaw = timezoneInfo.timezoneRaw || timezoneInfo.timezone;
           processed.customerTimezoneSource = timezoneInfo.source || 'customerMasterManager';
           processed.customerOrgCode = timezoneInfo.orgCode || timezoneInfo.accountName || processed.institutionCode || processed.customerCode || null;
           processed.customerOrgName = timezoneInfo.orgName || timezoneInfo.accountName || processed.customerName || null;
           processed.customerDbServers = []; // No longer available in master list
+          
+          // Use TimezoneNormalizer for enhanced display if available
+          if (typeof TimezoneNormalizer !== 'undefined') {
+            processed.customerTimezoneDisplayName = TimezoneNormalizer.getDisplayName(timezoneInfo.timezone, 'long');
+            const offset = TimezoneNormalizer.getOffset(timezoneInfo.timezone);
+            if (offset) {
+              processed.customerTimezoneOffset = offset.formatted;
+              processed.customerTimezoneOffsetMinutes = offset.offsetMinutes;
+            }
+            // Get current time in customer timezone
+            const currentTime = TimezoneNormalizer.getCurrentTime(timezoneInfo.timezone);
+            if (currentTime) {
+              processed.customerCurrentTime = currentTime.time24h;
+            }
+          } else {
+            processed.customerTimezoneDisplayName = timezoneInfo.timezone.replace(/_/g, ' ');
+          }
           
           // Enrich with additional data from master list if available
           if (timezoneInfo.server && !processed.server) {
@@ -575,8 +608,10 @@ const CaseDataExtractor = {
           
           console.log('[CaseDataExtractor] Timezone resolved via CustomerMasterManager:', {
             timezone: timezoneInfo.timezone,
+            raw: timezoneInfo.timezoneRaw,
             source: timezoneInfo.source,
-            matchType: timezoneInfo.matchType
+            matchType: timezoneInfo.matchType,
+            offset: processed.customerTimezoneOffset
           });
         } else {
           console.log('[CaseDataExtractor] Timezone not found in CustomerMasterManager for:', {
@@ -635,11 +670,28 @@ const CaseDataExtractor = {
 
   /**
    * Gets complete processed case data
+   * Priority: InterceptorCacheManager > CaseDataStore > DOM extraction
    * @returns {Promise<Object>}
    */
   async getData(options = {}) {
     const { force = false } = options;
 
+    // Get current case number for cache lookup
+    const caseNumber = this.getCaseNumber();
+
+    // PRIORITY 1: Check InterceptorCacheManager first (from interceptor.js)
+    if (!force && caseNumber && typeof InterceptorCacheManager !== 'undefined') {
+      const cachedData = InterceptorCacheManager.get(caseNumber);
+      if (cachedData) {
+        console.log(`[CaseDataExtractor] Using cached interceptor data for case ${caseNumber}`);
+        const mappedData = InterceptorCacheManager.mapToExpectedFields(cachedData);
+        // Ensure caseId is set
+        mappedData.caseId = this.getCaseIdFromUrl();
+        return mappedData;
+      }
+    }
+
+    // PRIORITY 2: Check CaseDataStore
     if (!force && typeof CaseDataStore !== 'undefined') {
       const stored = CaseDataStore.getCurrentData();
       if (stored) {
@@ -647,10 +699,12 @@ const CaseDataExtractor = {
       }
     }
 
+    // Wait for stable context
     if (typeof CaseContextWatcher !== 'undefined') {
       await CaseContextWatcher.getStableContext?.({ requireCase: true, timeout: 4000 });
     }
 
+    // PRIORITY 3: Extract from DOM
     const rawData = this.extractCaseData();
     const processed = await this.processData(rawData);
 

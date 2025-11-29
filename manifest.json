@@ -43,7 +43,9 @@
             "modules/caseDataStore.js",
             "modules/settingsManager.js",
             "modules/siteActivationManager.js",
+            "modules/timezoneNormalizer.js",
             "modules/customerMasterManager.js",
+            "modules/interceptorCacheManager.js",
             "modules/userCustomerDataManager.js",
             "modules/caseDataExtractor.js",
             "modules/caseCommentExtractor.js",
@@ -93,10 +95,13 @@
             "modules/dataMigration.js",
             "modules/storageQuotaManager.js",
             "modules/screenshotManager.js",
+            "modules/oneDriveAuth.js",
+            "modules/hybridStorageManager.js",
             "modules/highlighter.js",
             "modules/noteKeyboardBlocker.js",
             "modules/stickyNotes.js",
             "modules/bookmarkManager.js",
+            "modules/highlightsSidepanel.js",
             "content_script_highlighter.js"
          ],
          "matches": [
@@ -111,7 +116,10 @@
             "*://*.lightning.force.com/*"
          ],
          "run_at": "document_idle",
-         "css": [ "modules/styles/highlighter.css" ]
+         "css": [ 
+            "modules/styles/highlighter.css",
+            "modules/styles/highlights-sidepanel.css"
+         ]
       }
    ],
    "description": "Productivity Tools for Clarivate and Ex Libris",

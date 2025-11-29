@@ -21,20 +21,16 @@
   const ExLibrisExtension = {
     currentPage: null,
     currentCaseId: null,
-    lastUrl: null, // Track last URL for navigation detection
+    lastUrl: window.location.href, // Track last URL for navigation detection
     isInitialized: false,
     initializationDebounceTimer: null,
     isInitializing: false,
     
-    // API-sourced case data (from FetchInterceptor)
-    apiCaseData: null,           // Flattened field map from API response
-    apiCaseDataTimestamp: null,  // Timestamp when data was captured
-    apiCaseDataRaw: null,        // Full API response (optional, for debugging)
-
-    // interceptor.js data
-    interceptorData: null,
-    interceptorDataTimestamp: null,
-    interceptorDataRaw: null,
+    // Legacy API data (deprecated - kept for backwards compatibility)
+    // New data flow uses InterceptorCacheManager via EXLIBRIS_DATA_UPDATED event
+    apiCaseData: null,
+    apiCaseDataTimestamp: null,
+    apiCaseDataRaw: null,
     
     caseToolkit: {
       metadata: null,
@@ -67,27 +63,12 @@
         Logger.info('Logger initialized');
       }
 
-      // Recover any pending API data that FetchInterceptor captured before this object existed
-      if (window._pendingApiCaseData) {
-        this.apiCaseData = window._pendingApiCaseData.data;
-        this.apiCaseDataTimestamp = window._pendingApiCaseData.timestamp;
-        delete window._pendingApiCaseData;
-        console.log('[ExLibris Extension] Recovered pending API case data:', {
-          caseNumber: this.apiCaseData?.CaseNumber,
-          age: Date.now() - this.apiCaseDataTimestamp + 'ms'
-        });
-      }
+      // NOTE: Legacy _pendingApiCaseData pattern removed
+      // New data flow uses InterceptorCacheManager via EXLIBRIS_DATA_UPDATED event
 
-      // Recover any pending API data thatinterceptor.js captured before this object existed
-      if (window._pendingFectchedCaseData) {
-        this.pendingFectchedCaseData = window._pendingFectchedCaseData.data;
-        this. pendingFectchedCaseDataTimestamp = window._pendingFectchedCaseData.timestamp;
-        delete window._pendingFectchedCaseData;
-        console.log('[ExLibris Extension] Recovered pending API case data:', {
-          caseNumber: this.pendingFectchedCaseData?.CaseNumber,
-          age: Date.now() - this.pendingFectchedCaseDataTimestamp + 'ms'
-        });
-      }
+      // NOTE: window._pendingFectchedCaseData pattern removed
+      // interceptor.js runs in MAIN world, content scripts in ISOLATED world
+      // Cross-world window access doesn't work - use event-based communication instead
 
       // Initialize SettingsManager first
       if (typeof SettingsManager !== 'undefined') {
@@ -132,30 +113,42 @@
         console.warn('[ExLibris Extension] CaseDataStore not loaded');
       }
 
-      // Listen for caseDataFromApi events from FetchInterceptor for real-time updates
+      // Legacy caseDataFromApi listener (deprecated - kept for backwards compatibility)
       document.addEventListener('caseDataFromApi', (event) => {
         const { data, timestamp } = event.detail;
         this.apiCaseData = data;
         this.apiCaseDataTimestamp = timestamp;
-        console.log('[ExLibris Extension] Received API case data via event:', {
+        console.log('[ExLibris Extension] Received legacy API case data via event:', {
           caseNumber: data?.CaseNumber,
           fieldCount: Object.keys(data || {}).length
         });
       });
 
-      // Listen for caseDataFromApi events from FetchInterceptor for real-time updates
-      document.addEventListener('EXLIBRIS_DATA_UPDATED', function(event) {
-        // Note: 'event.detail' is available directly here because
-        // CustomEvents can pass simple objects across the boundary.
-        const newCaseData = event.detail;
+      // Listen for EXLIBRIS_DATA_UPDATED events from interceptor.js (MAIN world)
+      // IMPORTANT: interceptor.js dispatches on window, so we must listen on window
+      window.addEventListener('EXLIBRIS_DATA_UPDATED', async (event) => {
+        const rawCaseData = event.detail;
+        console.log('[ExLibris Extension] Received interceptor data:', rawCaseData?.CaseNumber);
 
-        console.log("Extension received new case:", newCaseData.CaseNumber);
+        // Store and enrich via InterceptorCacheManager
+        if (rawCaseData?.CaseNumber && typeof InterceptorCacheManager !== 'undefined') {
+          try {
+            const enrichedData = await InterceptorCacheManager.store(rawCaseData.CaseNumber, rawCaseData);
+            console.log('[ExLibris Extension] Cached enriched interceptor data for case:', rawCaseData.CaseNumber);
+          } catch (error) {
+            console.error('[ExLibris Extension] Failed to cache interceptor data:', error);
+          }
+        }
 
-        // You can now send this to your popup or background script
-        chrome.runtime.sendMessage({
-          type: "CASE_DATA_CAPTURED",
-          payload: newCaseData
-        });
+        // Send to popup/background script
+        try {
+          chrome.runtime.sendMessage({
+            type: "CASE_DATA_CAPTURED",
+            payload: rawCaseData
+          });
+        } catch (error) {
+          // Ignore if popup is not open
+        }
       });
 
       // Listen for caseDataMismatch events to trigger re-extraction
@@ -349,6 +342,10 @@
       this.isInitializing = true;
       
       try {
+        if (pageInfo.url === this.lastUrl) {
+          console.log('[ExLibris Extension] Page same as last URL, skipping initialization');
+          return;
+        }
         console.log('[ExLibris Extension] Page changed:', pageInfo);
 
         // Track URL to detect actual navigation
@@ -376,18 +373,18 @@
             status: null,
             subStatus: null
           });
-        }
+          if (urlChanged) {
+            console.log('[ExLibris Extension] URL changed, waiting for page to settle...');
+            // Clear any existing features (but NOT PersistentBanner - it persists)
+            console.log('[ExLibris Extension] Cleaning up previous page features (URL changed: ' + urlChanged + ')');
+            this.cleanup();
+            await new Promise(resolve => setTimeout(resolve, 800));
+          }
 
-        // Clear any existing features (but NOT PersistentBanner - it persists)
-        console.log('[ExLibris Extension] Cleaning up previous page features (URL changed: ' + urlChanged + ')');
-        this.cleanup();
+        }
 
         // If URL changed, add a delay to allow DOM to settle
-        if (urlChanged) {
-          console.log('[ExLibris Extension] URL changed, waiting for page to settle...');
-          await new Promise(resolve => setTimeout(resolve, 800));
-        }
-
+      
         // Initialize features based on page type
         console.log('[ExLibris Extension] Checking page type:', pageInfo.type);
         console.log('[ExLibris Extension] CASES_LIST constant:', PageIdentifier.pageTypes.CASES_LIST);
@@ -776,11 +773,11 @@
     async handleNavigationChange(url) {
       Logger?.info('Handling navigation to:', url);
       
-      // Clear stale API data from FetchInterceptor on navigation
-      // New API responses will repopulate this for the new case
+      // Clear legacy API data on navigation (for backwards compatibility)
+      // New data flow uses InterceptorCacheManager which handles its own cache
       this.apiCaseData = null;
       this.apiCaseDataTimestamp = null;
-      console.log('[ExLibris Extension] Cleared API case data on navigation');
+      console.log('[ExLibris Extension] Cleared legacy API case data on navigation');
       
       // Teardown existing features
       this.cleanup();

@@ -16,21 +16,29 @@ const ColorHandlerConfig = {
             handleStatus: {
                 // Status-to-group mapping
                 statusGroups: {
-                    'URGENT': ['New Email Received', 'New', 'Open', 'Re-opened', 'Reopened', 'Update Received', 'Completed by Resolver Group'],
-                    'IMMEDIATE': ['Pending Action', 'Initial Response Sent', 'In Progress'],
+                    'URGENT': ['New Email Received', 'New', 'Open', 'Under Review','Re-opened', 'Reopened', 'Update Received', 'Completed by Resolver Group'],
+                    'IMMEDIATE': ['Pending Action', 'Internal Input', 'In Progress'],
                     'ONGOING': ['Assigned to Resolver Group', 'Pending Internal Response', 'Pending AM Response', 'Pending QA Review'],
-                    'IDLE': ['Pending Customer Response'],
-                    'MONITOR': ['Pending System Update - Defect', 'Pending System Update - Enhancement', 'Pending System Update - Other', 'Awaiting Customer Confirmation', 'Pending'],
+                    'IDLE': ['Pending Customer Response', 'Initial Response Sent'],
+                    'MONITOR': ['Pending', 'Pending System Update - Defect', 'Pending System Update - Enhancement', 'Pending System Update - Other', 'Awaiting Customer Confirmation', 'Development'],
                     'COMPLETED': ['Solution Delivered to Customer', 'Closed']
                 },
                 // Group colors (background and text)
                 groupColors: {
-                    'URGENT': { bg: 'rgb(191, 39, 75)', text: 'rgb(255, 255, 255)' },
-                    'IMMEDIATE': { bg: 'rgb(210, 72, 3)', text: 'rgb(255, 255, 255)' },
-                    'ONGOING': { bg: 'rgb(140, 77, 253)', text: 'rgb(255, 255, 255)' },
-                    'IDLE': { bg: 'rgb(103, 103, 103)', text: 'rgb(255, 255, 255)' },
-                    'MONITOR': { bg: 'rgb(251, 178, 22)', text: 'rgb(255, 255, 255)' },
+                    'URGENT':    { bg: 'rgb(206, 58, 85)', text: 'rgb(255, 255, 255)' },
+                    'IMMEDIATE': { bg: 'rgb(234, 118, 62)', text: 'rgb(255, 255, 255)' },
+                    'ONGOING':   { bg: 'rgb(213, 72, 181)', text: 'rgb(255, 255, 255)' },
+                    'IDLE':      { bg: 'rgb(115, 67, 233)', text: 'rgb(255, 255, 255)' },
+                    'MONITOR':   { bg: 'rgb(251, 178, 22)', text: 'rgb(255, 255, 255)' },
                     'COMPLETED': { bg: 'rgb(45, 200, 64)', text: 'rgb(255, 255, 255)' }
+                },
+                groupColorsLight: {
+                    'URGENT':    { bg: 'rgb(99, 104, 104)',     text: 'rgb(255, 255, 255)' }, // mapped from prompt order
+                    'IMMEDIATE': { bg: 'rgb(234, 118, 62)',     text: 'rgb(255, 255, 255)' }, // (same as IMMEDIATE in prompt list)
+                    'ONGOING':   { bg: 'rgb(236, 77, 191)',     text: 'rgb(255, 255, 255)' }, // picked lighter purple
+                    'IDLE':      { bg: 'rgb(127, 80, 246)',     text: 'rgb(255, 255, 255)' }, // lighter purple
+                    'MONITOR':   { bg: 'rgb(127, 80, 246)',     text: 'rgb(255, 255, 255)' }, // lighter purple (duplicated in prompt)
+                    'COMPLETED': { bg: 'rgb(90, 199, 78)',      text: 'rgb(255, 255, 255)' }
                 },
                 // Individual status overrides (if status differs from group)
                 statusOverrides: {}

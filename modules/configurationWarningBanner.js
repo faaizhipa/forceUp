@@ -7,6 +7,95 @@
  * @module configurationWarningBanner
  * @version 1.0.0
  */
+/**
+ * Sets configuration warning banner height and updates layout for 48px height.
+ */
+const CONFIG_BANNER_HEIGHT = 48;
+
+const BANNER_ID = 'cforce-config-warning-banner';
+const BANNER_STYLES = `
+  #${BANNER_ID} {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 999999;
+    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+    color: white;
+    height: ${CONFIG_BANNER_HEIGHT}px;
+    min-height: ${CONFIG_BANNER_HEIGHT}px;
+    max-height: ${CONFIG_BANNER_HEIGHT}px;
+    padding: 0 24px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: slideDown 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    box-sizing: border-box;
+  }
+
+  @keyframes slideDown {
+    from {
+      transform: translateY(-100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  #${BANNER_ID}-icon {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    font-size: 18px;
+    margin-right: 12px;
+  }
+
+  #${BANNER_ID}-content {
+    flex: 1;
+    min-width: 0;
+    font-size: 16px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    height: 100%;
+  }
+
+  #${BANNER_ID}-close {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    margin-left: 4px;
+    border: none;
+    background: transparent;
+    color: white;
+    font-size: 21px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    border-radius: 50%;
+    transition: background 0.15s;
+  }
+  #${BANNER_ID}-close:hover, #${BANNER_ID}-close:focus {
+    background: rgba(255,255,255,0.25);
+  }
+`;
 
 const ConfigurationWarningBanner = (function() {
   'use strict';

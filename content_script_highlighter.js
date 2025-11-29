@@ -134,6 +134,18 @@
     isDragging: false,
     dragStartPos: { x: 0, y: 0 },
     buttonPosition: { x: null, y: null },
+    
+    // Radial menu state
+    radialMenuState: {
+      isExpanded: false,
+      menuElement: null,
+      items: [],
+      arcAngle: 180,      // Degrees of arc (semi-circle)
+      startAngle: -90,    // Start from top (pointing left when button on right)
+      radius: 70,         // Distance from center
+      innerRadius: 45,    // Inner radius for color palette
+      animationDelay: 30  // Stagger delay between items (ms)
+    },
 
     /**
      * Initialize controller
@@ -182,6 +194,16 @@
         await Highlighter.init();
         await StickyNotes.init();
         await BookmarkManager.init();
+        
+        // Initialize highlights sidepanel
+        if (typeof HighlightsSidepanel !== 'undefined') {
+          await HighlightsSidepanel.init();
+        }
+
+        // Initialize cloud storage (if available)
+        if (typeof HybridStorageManager !== 'undefined') {
+          await HybridStorageManager.init();
+        }
 
         // Load banner mode from storage
         await this.loadBannerMode();
@@ -1426,8 +1448,8 @@
             const rect = button.getBoundingClientRect();
             this.saveFloatingButtonPosition(rect.left, rect.top);
           } else if (!hasMoved) {
-            // It was a click, not a drag - toggle floating banner
-            this.toggleFloatingBanner();
+            // It was a click, not a drag - toggle radial menu
+            this.toggleRadialMenu();
           }
           
           document.removeEventListener('mousemove', onMouseMove);
@@ -1510,8 +1532,494 @@
       }
     },
 
+    // ========== RADIAL MENU IMPLEMENTATION ==========
+
+    /**
+     * Toggle radial menu visibility
+     */
+    toggleRadialMenu() {
+      if (this.radialMenuState.isExpanded) {
+        this.hideRadialMenu();
+      } else {
+        this.showRadialMenu();
+      }
+    },
+
+    /**
+     * Show radial menu with fan-out animation
+     */
+    showRadialMenu() {
+      if (this.radialMenuState.isExpanded || !this.floatingButtonElement) return;
+
+      // Remove existing menu if any
+      this.hideRadialMenu();
+
+      const buttonRect = this.floatingButtonElement.getBoundingClientRect();
+      const centerX = buttonRect.left + buttonRect.width / 2;
+      const centerY = buttonRect.top + buttonRect.height / 2;
+
+      // Determine which side the button is on to adjust menu direction
+      const isOnRightSide = centerX > window.innerWidth / 2;
+      const isOnBottomHalf = centerY > window.innerHeight / 2;
+
+      // Create menu container
+      const menu = document.createElement('div');
+      menu.className = 'exl-hl-radial-menu';
+      menu.id = 'exl-hl-radial-menu';
+      menu.style.left = `${centerX}px`;
+      menu.style.top = `${centerY}px`;
+
+      // Add overlay to capture clicks outside
+      const overlay = document.createElement('div');
+      overlay.className = 'exl-hl-radial-overlay';
+      overlay.addEventListener('click', () => this.hideRadialMenu());
+      document.body.appendChild(overlay);
+
+      // Define menu items with their actions
+      const menuItems = this.getRadialMenuItems();
+
+      // Calculate positions for radial layout
+      // Adjust start angle based on button position
+      let startAngle = isOnRightSide ? 90 : -90; // Point away from edge
+      if (isOnBottomHalf) {
+        startAngle = isOnRightSide ? 135 : -135;
+      }
+
+      const arcAngle = 180;
+      const angleStep = arcAngle / (menuItems.length - 1 || 1);
+      const radius = this.radialMenuState.radius;
+
+      // Create menu items
+      menuItems.forEach((item, index) => {
+        const angle = startAngle + (index * angleStep);
+        const radian = (angle * Math.PI) / 180;
+        const x = Math.cos(radian) * radius;
+        const y = Math.sin(radian) * radius;
+
+        const menuItem = document.createElement('button');
+        menuItem.className = 'exl-hl-radial-item';
+        menuItem.innerHTML = item.icon;
+        menuItem.title = item.label;
+        menuItem.setAttribute('aria-label', item.label);
+        menuItem.setAttribute('tabindex', '0');
+        
+        // Set initial position (at center, scale 0)
+        menuItem.style.setProperty('--final-x', `${x}px`);
+        menuItem.style.setProperty('--final-y', `${y}px`);
+        menuItem.style.animationDelay = `${index * this.radialMenuState.animationDelay}ms`;
+
+        // Handle special items
+        if (item.type === 'colorPalette') {
+          menuItem.classList.add('exl-hl-radial-color');
+          menuItem.style.backgroundColor = item.color;
+          menuItem.dataset.colorId = item.colorId;
+          if (item.isSelected) {
+            menuItem.classList.add('selected');
+          }
+        }
+
+        // Add click handler
+        menuItem.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (item.action) {
+            item.action();
+          }
+          // Don't close menu for color selection
+          if (item.type !== 'colorPalette') {
+            this.hideRadialMenu();
+          }
+        });
+
+        menu.appendChild(menuItem);
+        this.radialMenuState.items.push(menuItem);
+      });
+
+      // Add color palette as inner arc
+      const colors = Highlighter.getColors ? Highlighter.getColors() : [];
+      const currentColor = Highlighter.getCurrentColor ? Highlighter.getCurrentColor() : null;
+      const colorArcAngle = 160;
+      const colorStartAngle = startAngle + 10;
+      const colorAngleStep = colorArcAngle / (colors.length - 1 || 1);
+      const colorRadius = this.radialMenuState.innerRadius;
+
+      colors.forEach((color, index) => {
+        const angle = colorStartAngle + (index * colorAngleStep);
+        const radian = (angle * Math.PI) / 180;
+        const x = Math.cos(radian) * colorRadius;
+        const y = Math.sin(radian) * colorRadius;
+
+        const colorItem = document.createElement('button');
+        colorItem.className = 'exl-hl-radial-color-chip';
+        colorItem.style.backgroundColor = color.rgb;
+        colorItem.title = color.name;
+        colorItem.setAttribute('aria-label', `Color: ${color.name}`);
+        colorItem.dataset.colorId = color.id;
+        
+        colorItem.style.setProperty('--final-x', `${x}px`);
+        colorItem.style.setProperty('--final-y', `${y}px`);
+        colorItem.style.animationDelay = `${(menuItems.length + index) * this.radialMenuState.animationDelay}ms`;
+
+        if (currentColor && currentColor.id === color.id) {
+          colorItem.classList.add('selected');
+        }
+
+        colorItem.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.selectRadialColor(color.id, colorItem);
+        });
+
+        menu.appendChild(colorItem);
+        this.radialMenuState.items.push(colorItem);
+      });
+
+      document.body.appendChild(menu);
+      this.radialMenuState.menuElement = menu;
+      this.radialMenuState.isExpanded = true;
+
+      // Add expanded class to button
+      this.floatingButtonElement.classList.add('expanded');
+      this.floatingButtonElement.setAttribute('aria-expanded', 'true');
+
+      // Setup keyboard handler
+      this.setupRadialMenuKeyboard(menu);
+
+      console.log('[HighlighterController] Radial menu shown');
+    },
+
+    /**
+     * Get radial menu items configuration
+     */
+    getRadialMenuItems() {
+      return [
+        {
+          icon: '🖍️',
+          label: 'Highlight Selection',
+          action: () => {
+            Highlighter.createHighlight();
+          }
+        },
+        {
+          icon: '📝',
+          label: 'Add Note',
+          action: () => {
+            StickyNotes.createNote();
+          }
+        },
+        {
+          icon: '📋',
+          label: 'Manage Highlights & Notes',
+          action: () => {
+            if (typeof HighlightsSidepanel !== 'undefined') {
+              HighlightsSidepanel.openPanel();
+            }
+          }
+        },
+        {
+          icon: '📚',
+          label: 'Collections',
+          action: () => {
+            BookmarkManager.openPanel();
+          }
+        },
+        {
+          icon: '🔖',
+          label: 'Bookmark Page',
+          action: () => {
+            this.showBookmarkDialog();
+          }
+        },
+        {
+          icon: '📌',
+          label: 'Pin Banner',
+          action: () => {
+            this.switchToStickyMode();
+          }
+        },
+        {
+          icon: '🗑️',
+          label: 'Clear Page Highlights',
+          action: () => {
+            if (confirm('Clear all highlights on this page?')) {
+              Highlighter.clearCurrentPageHighlights && Highlighter.clearCurrentPageHighlights();
+            }
+          }
+        },
+        {
+          icon: '☁️',
+          label: 'Cloud Sync Settings',
+          action: () => {
+            this.showCloudSyncDialog();
+          }
+        }
+      ];
+    },
+
+    /**
+     * Show cloud sync settings dialog
+     */
+    showCloudSyncDialog() {
+      const existingDialog = document.querySelector('.exl-hl-cloud-dialog');
+      if (existingDialog) existingDialog.remove();
+
+      const isAuthenticated = typeof OneDriveAuth !== 'undefined' && OneDriveAuth.isAuthenticated();
+      const userInfo = isAuthenticated ? OneDriveAuth.getUserInfo() : null;
+      const syncStatus = typeof HybridStorageManager !== 'undefined' 
+        ? HybridStorageManager.getSyncStatus() 
+        : { mode: 'local' };
+
+      const dialog = document.createElement('div');
+      dialog.className = 'exl-hl-cloud-dialog exl-hl-dialog';
+      
+      dialog.innerHTML = `
+        <div class="exl-hl-dialog-content">
+          <h3 class="exl-hl-dialog-title">☁️ Cloud Sync Settings</h3>
+          
+          <div class="exl-hl-dialog-section">
+            <div class="exl-hl-cloud-status">
+              <span class="exl-hl-status-indicator ${isAuthenticated ? 'connected' : 'disconnected'}"></span>
+              <span>${isAuthenticated ? 'Connected to OneDrive' : 'Not connected'}</span>
+            </div>
+            ${userInfo ? `<p class="exl-hl-user-email">${userInfo.mail || userInfo.userPrincipalName || ''}</p>` : ''}
+          </div>
+
+          ${isAuthenticated ? `
+            <div class="exl-hl-dialog-section">
+              <label class="exl-hl-dialog-label">Storage Mode:</label>
+              <div class="exl-hl-radio-group">
+                <label class="exl-hl-radio">
+                  <input type="radio" name="storage-mode" value="local" ${syncStatus.mode === 'local' ? 'checked' : ''} />
+                  <span>Local Only (no sync)</span>
+                </label>
+                <label class="exl-hl-radio">
+                  <input type="radio" name="storage-mode" value="hybrid" ${syncStatus.mode === 'hybrid' ? 'checked' : ''} />
+                  <span>Hybrid (local + cloud backup)</span>
+                </label>
+                <label class="exl-hl-radio">
+                  <input type="radio" name="storage-mode" value="cloud" ${syncStatus.mode === 'cloud' ? 'checked' : ''} />
+                  <span>Cloud Primary</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="exl-hl-dialog-section exl-hl-sync-info">
+              <p>Last sync: ${syncStatus.lastSync ? new Date(syncStatus.lastSync).toLocaleString() : 'Never'}</p>
+              <p>Pending: ${syncStatus.queueLength} items</p>
+            </div>
+
+            <div class="exl-hl-dialog-actions">
+              <button class="exl-hl-btn exl-hl-btn-secondary" data-action="sync">Sync Now</button>
+              <button class="exl-hl-btn exl-hl-btn-secondary" data-action="migrate">Migrate to Cloud</button>
+              <button class="exl-hl-btn exl-hl-btn-secondary" data-action="logout">Disconnect</button>
+            </div>
+          ` : `
+            <div class="exl-hl-dialog-section">
+              <p>Connect to OneDrive to sync your highlights, notes, and bookmarks across devices.</p>
+              <button class="exl-hl-btn exl-hl-btn-primary" data-action="login" style="width: 100%;">
+                Connect to OneDrive
+              </button>
+            </div>
+          `}
+          
+          <div class="exl-hl-dialog-footer">
+            <button class="exl-hl-btn exl-hl-btn-secondary" data-action="close">Close</button>
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(dialog);
+      
+      // Handle actions
+      dialog.addEventListener('click', async (e) => {
+        const action = e.target.dataset.action;
+        
+        switch (action) {
+          case 'close':
+            dialog.remove();
+            break;
+            
+          case 'login':
+            try {
+              e.target.textContent = 'Connecting...';
+              e.target.disabled = true;
+              await OneDriveAuth.login();
+              dialog.remove();
+              this.showCloudSyncDialog(); // Refresh dialog
+            } catch (error) {
+              alert('Login failed: ' + error.message);
+              e.target.textContent = 'Connect to OneDrive';
+              e.target.disabled = false;
+            }
+            break;
+            
+          case 'logout':
+            if (confirm('Disconnect from OneDrive? Your local data will be preserved.')) {
+              await OneDriveAuth.logout();
+              dialog.remove();
+              this.showCloudSyncDialog(); // Refresh dialog
+            }
+            break;
+            
+          case 'sync':
+            try {
+              e.target.textContent = 'Syncing...';
+              e.target.disabled = true;
+              await HybridStorageManager.sync();
+              dialog.remove();
+              this.showCloudSyncDialog(); // Refresh dialog
+            } catch (error) {
+              alert('Sync failed: ' + error.message);
+              e.target.textContent = 'Sync Now';
+              e.target.disabled = false;
+            }
+            break;
+            
+          case 'migrate':
+            if (confirm('Upload all local data to OneDrive? This may take a moment.')) {
+              try {
+                e.target.textContent = 'Migrating...';
+                e.target.disabled = true;
+                const result = await HybridStorageManager.migrateToCloud((progress) => {
+                  e.target.textContent = `Migrating... ${progress}%`;
+                });
+                alert(`Migration complete! Uploaded ${result.migrated} items.`);
+                dialog.remove();
+                this.showCloudSyncDialog();
+              } catch (error) {
+                alert('Migration failed: ' + error.message);
+                e.target.textContent = 'Migrate to Cloud';
+                e.target.disabled = false;
+              }
+            }
+            break;
+        }
+      });
+      
+      // Handle storage mode changes
+      const modeRadios = dialog.querySelectorAll('input[name="storage-mode"]');
+      modeRadios.forEach(radio => {
+        radio.addEventListener('change', async (e) => {
+          await HybridStorageManager.setStorageMode(e.target.value);
+        });
+      });
+      
+      // Close on click outside
+      dialog.addEventListener('click', (e) => {
+        if (e.target === dialog) {
+          dialog.remove();
+        }
+      });
+    },
+
+    /**
+     * Select color from radial menu
+     */
+    selectRadialColor(colorId, element) {
+      // Update highlighter color
+      if (Highlighter.setColor) {
+        Highlighter.setColor(colorId);
+      }
+
+      // Update sticky notes default color
+      if (typeof StickyNotes !== 'undefined' && StickyNotes.setDefaultColor) {
+        StickyNotes.setDefaultColor(colorId);
+      }
+
+      // Save to storage
+      chrome.storage.local.set({ exl_hl_current_banner_color: colorId });
+
+      // Update UI - remove selected class from all, add to clicked
+      const allColorChips = document.querySelectorAll('.exl-hl-radial-color-chip');
+      allColorChips.forEach(chip => chip.classList.remove('selected'));
+      if (element) {
+        element.classList.add('selected');
+      }
+
+      console.log('[HighlighterController] Color selected:', colorId);
+    },
+
+    /**
+     * Setup keyboard navigation for radial menu
+     */
+    setupRadialMenuKeyboard(menu) {
+      const handleKeydown = (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          this.hideRadialMenu();
+        } else if (e.key === 'Tab') {
+          // Keep focus within menu
+          const focusable = menu.querySelectorAll('button');
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      };
+
+      document.addEventListener('keydown', handleKeydown);
+      this.radialMenuState.keyboardHandler = handleKeydown;
+
+      // Focus first item
+      const firstItem = menu.querySelector('button');
+      if (firstItem) {
+        setTimeout(() => firstItem.focus(), 100);
+      }
+    },
+
+    /**
+     * Hide radial menu with collapse animation
+     */
+    hideRadialMenu() {
+      if (!this.radialMenuState.isExpanded) return;
+
+      const menu = this.radialMenuState.menuElement;
+      const overlay = document.querySelector('.exl-hl-radial-overlay');
+
+      // Add collapse animation class
+      if (menu) {
+        menu.classList.add('collapsing');
+        
+        // Remove after animation
+        setTimeout(() => {
+          menu.remove();
+        }, 200);
+      }
+
+      if (overlay) {
+        overlay.remove();
+      }
+
+      // Remove keyboard handler
+      if (this.radialMenuState.keyboardHandler) {
+        document.removeEventListener('keydown', this.radialMenuState.keyboardHandler);
+        this.radialMenuState.keyboardHandler = null;
+      }
+
+      // Update button state
+      if (this.floatingButtonElement) {
+        this.floatingButtonElement.classList.remove('expanded');
+        this.floatingButtonElement.setAttribute('aria-expanded', 'false');
+        this.floatingButtonElement.focus();
+      }
+
+      // Reset state
+      this.radialMenuState.menuElement = null;
+      this.radialMenuState.items = [];
+      this.radialMenuState.isExpanded = false;
+
+      console.log('[HighlighterController] Radial menu hidden');
+    },
+
+    // ========== END RADIAL MENU IMPLEMENTATION ==========
+
     /**
      * Create floating sidebar banner that expands from button
+     * @deprecated Use radial menu instead. Kept for sticky mode transition.
      */
     showFloatingBanner() {
       // Don't create if already exists

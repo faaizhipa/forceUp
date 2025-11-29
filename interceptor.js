@@ -11,7 +11,7 @@
                 return this.cache[identifier] || null;
             }
         };
-        console.log("Global storage 'exLibrisFetchedCaseData' initialized.");
+        console.log("FETCH INTERCEPTOR: Global storage 'exLibrisFetchedCaseData' initialized.");
     }
 
     // 2. Monkey Patch the XHR
@@ -37,6 +37,8 @@
         });
         return originalSend.apply(this, arguments);
     };
+
+    console.log('FETCH INTERCEPTOR: LISTENING');
 
     // 3. Process the Response and Update State
     function processAuraResponse(json) {
@@ -87,6 +89,7 @@
     // 5. Logic: Handle Current, Previous, and Cache
     const store = window.exLibrisFetchedCaseData;
     function updateGlobalState(newCaseData) {
+        console.log('FETCH INTERCEPTOR: GOT YOUR CASE ', newCaseData.CaseNumber);
 
         // Validation: Ensure valid ID exists
         if (!newCaseData.Id) return;
@@ -126,5 +129,5 @@
         window.dispatchEvent(new CustomEvent('EXLIBRIS_DATA_UPDATED', { detail: newCaseData }));
     }
 
-    console.log("Salesforce Interceptor & Global Cache Ready.");
+    console.log("FETCH INTERCEPTOR: Salesforce Interceptor & Global Cache Ready.");
 })();

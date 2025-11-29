@@ -444,6 +444,12 @@ const CasePageDataExtractor = {
         data.instID = customerInfo.institutionId;
         data.server = customerInfo.server;
         data.region = customerInfo.region;
+        data.instCode = customerInfo.institutionCode;
+        data.institutionCode = customerInfo.institutionCode;
+        data.accountCode = customerInfo.accountCode;;
+        data.customerName = customerInfo.accountName;
+        data.customerTimezone = customerInfo.timezone;
+
         console.log('[CasePageDataExtractor] API data enriched with customer info:', customerInfo.accountName);
       }
     }
@@ -459,7 +465,7 @@ const CasePageDataExtractor = {
 
   /**
    * Extract all case data fields
-   * Primary method that checks API data first, then falls back to DOM extraction
+   * Priority: InterceptorCacheManager > Legacy API data > DOM extraction
    * @param {Object} contextSnapshot - Optional context snapshot
    * @returns {Object} - Extracted case data
    */
@@ -468,9 +474,23 @@ const CasePageDataExtractor = {
       ? CaseContextWatcher.getCurrentContext?.()
       : null);
     const contextCaseId = snapshot?.caseId || this.currentCaseId;
-    const contextCaseNumber = snapshot?.caseNumber || null;
+    const contextCaseNumber = snapshot?.caseNumber || this.getCaseNumberFromContext();
 
-    // PRIORITY 1: Try API data first (from FetchInterceptor)
+    // PRIORITY 1: Check InterceptorCacheManager first (from interceptor.js)
+    if (contextCaseNumber && typeof InterceptorCacheManager !== 'undefined') {
+      const cachedData = InterceptorCacheManager.get(contextCaseNumber);
+      if (cachedData) {
+        console.log(`[CasePageDataExtractor] Using cached interceptor data for case ${contextCaseNumber}`);
+        const mappedData = InterceptorCacheManager.mapToExpectedFields(cachedData);
+        // Ensure caseId is set from context
+        mappedData.caseId = contextCaseId;
+        // Broadcast to banner
+        this.broadcastToBanner(mappedData);
+        return mappedData;
+      }
+    }
+
+    // PRIORITY 2: Try legacy API data (from FetchInterceptor - deprecated)
     if (window.ExLibrisExtension?.apiCaseData) {
       const apiData = window.ExLibrisExtension.apiCaseData;
       const apiTimestamp = window.ExLibrisExtension.apiCaseDataTimestamp;
@@ -480,22 +500,61 @@ const CasePageDataExtractor = {
       if (age < 30000) {
         // Verify API data matches current case
         if (apiData.CaseNumber === contextCaseNumber || !contextCaseNumber) {
-          console.log(`[CasePageDataExtractor] Using fresh API data (age: ${age}ms)`);
-          return this.normalizeApiData(apiData, contextCaseId);
+          console.log(`[CasePageDataExtractor] Using fresh legacy API data (age: ${age}ms)`);
+          const normalized = this.normalizeApiData(apiData, contextCaseId);
+          this.broadcastToBanner(normalized);
+          return normalized;
         } else {
-          console.warn('[CasePageDataExtractor] API data case number mismatch, falling back to DOM', {
+          console.warn('[CasePageDataExtractor] Legacy API data case number mismatch, falling back to DOM', {
             apiCaseNumber: apiData.CaseNumber,
             contextCaseNumber
           });
         }
       } else {
-        console.log(`[CasePageDataExtractor] API data too old (age: ${age}ms), falling back to DOM`);
+        console.log(`[CasePageDataExtractor] Legacy API data too old (age: ${age}ms), falling back to DOM`);
       }
     }
 
-    // PRIORITY 2: Fallback to DOM extraction
+    // PRIORITY 3: Fallback to DOM extraction
     console.log('[CasePageDataExtractor] Extracting data from DOM');
-    return await this.extractAllCaseDataFromDOM(contextSnapshot);
+    const domData = await this.extractAllCaseDataFromDOM(contextSnapshot);
+    this.broadcastToBanner(domData);
+    return domData;
+  },
+
+  /**
+   * Get case number from current context or URL
+   * @returns {string|null}
+   */
+  getCaseNumberFromContext() {
+    // Try CaseContextWatcher first
+    if (typeof CaseContextWatcher !== 'undefined') {
+      const context = CaseContextWatcher.getCurrentContext?.();
+      if (context?.caseNumber) {
+        return context.caseNumber;
+      }
+    }
+    
+    // Try visible header
+    const headerData = this.extractCaseNumberAndSubjectFromVisibleHeader();
+    if (headerData?.caseNumber) {
+      return headerData.caseNumber;
+    }
+    
+    return null;
+  },
+
+  /**
+   * Broadcast case data to PersistentBanner via event
+   * @param {Object} caseData - Extracted/mapped case data
+   */
+  broadcastToBanner(caseData) {
+    if (!caseData) return;
+    
+    window.dispatchEvent(new CustomEvent('CASE_DATA_READY', { 
+      detail: caseData 
+    }));
+    console.log('[CasePageDataExtractor] Broadcasted CASE_DATA_READY event for case:', caseData.caseNumber);
   },
 
   /**
@@ -652,12 +711,32 @@ const CasePageDataExtractor = {
 
           if (timezoneInfo && timezoneInfo.timezone) {
             data.timezone = timezoneInfo.timezone;
-            data.timezoneDisplayName = timezoneInfo.timezone.replace(/_/g, ' ');
+            data.timezoneRaw = timezoneInfo.timezoneRaw || timezoneInfo.timezone;
             data.timezoneSource = timezoneInfo.source || 'customerMasterManager';
+            
+            // Use TimezoneNormalizer for enhanced display if available
+            if (typeof TimezoneNormalizer !== 'undefined') {
+              data.timezoneDisplayName = TimezoneNormalizer.getDisplayName(timezoneInfo.timezone, 'long');
+              const offset = TimezoneNormalizer.getOffset(timezoneInfo.timezone);
+              if (offset) {
+                data.timezoneOffset = offset.formatted;
+                data.timezoneOffsetMinutes = offset.offsetMinutes;
+              }
+              // Get current time in customer timezone
+              const currentTime = TimezoneNormalizer.getCurrentTime(timezoneInfo.timezone);
+              if (currentTime) {
+                data.customerCurrentTime = currentTime.time24h;
+              }
+            } else {
+              data.timezoneDisplayName = timezoneInfo.timezone.replace(/_/g, ' ');
+            }
+            
             console.log('[CasePageDataExtractor] Timezone resolved via CustomerMasterManager:', {
               timezone: timezoneInfo.timezone,
+              raw: timezoneInfo.timezoneRaw,
               source: timezoneInfo.source,
-              matchType: timezoneInfo.matchType
+              matchType: timezoneInfo.matchType,
+              offset: data.timezoneOffset
             });
           } else {
             console.log('[CasePageDataExtractor] Timezone not found in CustomerMasterManager for:', {

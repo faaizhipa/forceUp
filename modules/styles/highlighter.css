@@ -231,6 +231,227 @@ body:has(.exl-hl-banner.sticky-mode),
 .exl-hl-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.exl-hl-btn-secondary {
+  background-color: oklch(0.95 0.005 240);
+  color: oklch(0.35 0.01 240);
+  border: 1px solid oklch(0.85 0.01 240);
+}
+
+.exl-hl-btn-secondary:hover {
+  background-color: oklch(0.90 0.01 240);
+}
+
+.exl-hl-btn-primary {
+  background-color: #0070d2;
+  color: #ffffff;
+}
+
+/* ========== DIALOGS (Export/Import) ========== */
+.exl-hl-dialog {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000000;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.exl-hl-dialog-content {
+  background: oklch(0.99 0 0);
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  max-width: 28rem;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.exl-hl-dialog-title {
+  margin: 0 0 1.25rem 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: oklch(0.25 0.01 240);
+}
+
+.exl-hl-dialog-section {
+  margin-bottom: 1.25rem;
+}
+
+.exl-hl-dialog-label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: oklch(0.35 0.01 240);
+  margin-bottom: 0.5rem;
+}
+
+.exl-hl-dialog-hint {
+  font-size: 0.75rem;
+  color: oklch(0.55 0.01 240);
+  margin-top: 0.5rem;
+}
+
+.exl-hl-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.exl-hl-radio {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: oklch(0.25 0.01 240);
+}
+
+.exl-hl-radio input[type="radio"] {
+  accent-color: #0070d2;
+  margin: 0;
+}
+
+.exl-hl-radio input[type="radio"]:disabled + span {
+  opacity: 0.5;
+}
+
+.exl-hl-select {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid oklch(0.85 0.01 240);
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  background: oklch(0.99 0 0);
+  color: oklch(0.25 0.01 240);
+  cursor: pointer;
+}
+
+.exl-hl-select:focus {
+  outline: none;
+  border-color: #0070d2;
+  box-shadow: 0 0 0 2px rgba(0, 112, 210, 0.2);
+}
+
+.exl-hl-file-input-wrapper {
+  position: relative;
+}
+
+.exl-hl-file-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.exl-hl-file-label {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  background: oklch(0.95 0.005 240);
+  border: 1px solid oklch(0.85 0.01 240);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: oklch(0.35 0.01 240);
+  transition: background 100ms ease-out;
+}
+
+.exl-hl-file-label:hover {
+  background: oklch(0.90 0.01 240);
+}
+
+.exl-hl-file-name {
+  margin-left: 0.75rem;
+  font-size: 0.8125rem;
+  color: oklch(0.55 0.01 240);
+}
+
+.exl-hl-import-preview {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: oklch(0.97 0.005 240);
+  border-radius: 0.25rem;
+  border: 1px solid oklch(0.90 0.01 240);
+}
+
+.exl-hl-import-preview h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: oklch(0.35 0.01 240);
+}
+
+.exl-hl-preview-content p {
+  margin: 0.25rem 0;
+  font-size: 0.8125rem;
+  color: oklch(0.35 0.01 240);
+}
+
+.exl-hl-error {
+  color: #dc3545 !important;
+}
+
+.exl-hl-dialog-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid oklch(0.90 0.01 240);
+}
+
+.exl-hl-dialog-footer {
+  margin-top: 1rem;
+  text-align: center;
+}
+
+/* Cloud sync dialog specific styles */
+.exl-hl-cloud-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.exl-hl-status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.exl-hl-status-indicator.connected {
+  background: #2e844a;
+  box-shadow: 0 0 8px rgba(46, 132, 74, 0.5);
+}
+
+.exl-hl-status-indicator.disconnected {
+  background: #999;
+}
+
+.exl-hl-user-email {
+  font-size: 0.8125rem;
+  color: oklch(0.55 0.01 240);
+  margin: 0.5rem 0 0 0;
+}
+
+.exl-hl-sync-info {
+  padding: 0.75rem;
+  background: oklch(0.97 0.005 240);
+  border-radius: 0.25rem;
+  font-size: 0.8125rem;
+}
+
+.exl-hl-sync-info p {
+  margin: 0.25rem 0;
+  color: oklch(0.45 0.01 240);
   transform: none;
 }
 
@@ -651,8 +872,15 @@ body:has(.exl-hl-banner.sticky-mode),
   padding: 1rem 1.5rem;
   border-bottom: 1px solid oklch(0.85 0.01 240);
   display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.exl-hl-panel-title-row {
+  display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
 }
 
 .exl-hl-panel-title {
@@ -660,6 +888,27 @@ body:has(.exl-hl-banner.sticky-mode),
   font-weight: 600;
   color: oklch(0.25 0.01 240);
   margin: 0;
+}
+
+.exl-hl-panel-toolbar {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.exl-hl-toolbar-btn {
+  padding: 0.375rem 0.75rem;
+  border: 1px solid oklch(0.85 0.01 240);
+  border-radius: 0.25rem;
+  background: oklch(0.97 0.005 240);
+  color: oklch(0.35 0.01 240);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 100ms ease-out, border-color 100ms ease-out;
+}
+
+.exl-hl-toolbar-btn:hover {
+  background: oklch(0.93 0.01 240);
+  border-color: oklch(0.75 0.01 240);
 }
 
 .exl-hl-panel-close {
@@ -935,6 +1184,193 @@ body:has(.exl-hl-banner.sticky-mode),
   cursor: grabbing;
   opacity: 0.8;
   transition: none;
+}
+
+/* Expanded state for button when radial menu is open */
+.exl-hl-floating-btn.expanded {
+  opacity: 1;
+  border-color: #0070d2;
+  box-shadow: 0 0 20px rgba(0, 112, 210, 0.5);
+  animation: exl-hl-button-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes exl-hl-button-pulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(0, 112, 210, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(0, 112, 210, 0.8);
+  }
+}
+
+/* ========== RADIAL MENU ========== */
+.exl-hl-radial-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999996;
+  background: transparent;
+}
+
+.exl-hl-radial-menu {
+  position: fixed;
+  z-index: 999998;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.exl-hl-radial-menu.collapsing .exl-hl-radial-item,
+.exl-hl-radial-menu.collapsing .exl-hl-radial-color-chip {
+  animation: exl-hl-radial-collapse 150ms ease-in forwards;
+}
+
+/* Radial menu items (action buttons) */
+.exl-hl-radial-item {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  
+  /* Position at center initially */
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  
+  /* Animation */
+  animation: exl-hl-radial-expand 200ms ease-out forwards;
+  animation-delay: var(--animation-delay, 0ms);
+}
+
+.exl-hl-radial-item:hover {
+  transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1.15);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  border-color: #0070d2;
+  z-index: 10;
+}
+
+.exl-hl-radial-item:focus {
+  outline: none;
+  border-color: #0070d2;
+  box-shadow: 0 0 0 3px rgba(0, 112, 210, 0.4);
+}
+
+.exl-hl-radial-item:active {
+  transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(0.95);
+}
+
+/* Color palette chips in radial menu */
+.exl-hl-radial-color-chip {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  
+  /* Position at center initially */
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  
+  /* Animation */
+  animation: exl-hl-radial-expand 200ms ease-out forwards;
+}
+
+.exl-hl-radial-color-chip:hover {
+  transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 10;
+}
+
+.exl-hl-radial-color-chip:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.6);
+}
+
+.exl-hl-radial-color-chip.selected {
+  border-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(0, 112, 210, 0.8), 0 4px 12px rgba(0, 0, 0, 0.4);
+  transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1.1);
+}
+
+.exl-hl-radial-color-chip.selected::after {
+  content: '✓';
+  position: absolute;
+  font-size: 14px;
+  color: #1a1a2e;
+  font-weight: bold;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.8);
+}
+
+/* Radial expand animation */
+@keyframes exl-hl-radial-expand {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1);
+    opacity: 1;
+  }
+}
+
+/* Radial collapse animation */
+@keyframes exl-hl-radial-collapse {
+  0% {
+    transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+  }
+}
+
+/* Tooltip for radial items */
+.exl-hl-radial-item::before {
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.9);
+  color: #ffffff;
+  font-size: 11px;
+  font-family: 'Salesforce Sans', Arial, sans-serif;
+  white-space: nowrap;
+  border-radius: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.exl-hl-radial-item:hover::before {
+  opacity: 1;
+}
+
+/* Adjust tooltip position for items at bottom of arc */
+.exl-hl-radial-item[style*="--final-y: "][style*="px"]:hover::before {
+  /* Tooltip goes above by default, which works for most positions */
 }
 
 /* ========== FLOATING BANNER (SIDEBAR) ========== */

@@ -33,6 +33,128 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2025-11-29] - Features - Timezone Normalization Module
+
+**Description**: Created a new TimezoneNormalizer module to convert non-standard timezone values in customerMasterList.json to valid IANA timezone identifiers. The module integrates with CustomerMasterManager to ensure all consuming modules receive normalized timezone data automatically.
+
+**Problem Solved**:
+The `customerMasterList.json` contained non-IANA timezone values like "US", "UK" instead of proper identifiers like "America/New_York", "Europe/London". This caused issues with:
+- JavaScript's `Intl.DateTimeFormat` API
+- Timezone offset calculations
+- Customer time display
+
+**Files Created**:
+- `modules/timezoneNormalizer.js` - Comprehensive timezone normalization module
+
+**Files Modified**:
+- `modules/customerMasterManager.js` - Added `normalizeTimezone()` integration
+- `modules/casePageDataExtractor.js` - Added enhanced timezone display fields
+- `modules/caseDataExtractor.js` - Added enhanced timezone display fields
+- `manifest.json` - Added timezoneNormalizer.js to content scripts
+
+**Key Features**:
+
+*TimezoneNormalizer Module:*
+- 60+ country code to IANA mappings (US → America/New_York, UK → Europe/London, etc.)
+- 30+ country name mappings
+- US state-specific timezone resolution
+- Common abbreviation support (EST, PST, GMT, etc.)
+- Geographic context-based inference (uses country/state/city for resolution)
+- Caching for performance
+
+*New Data Fields (added to extractors):*
+- `timezoneRaw` - Original value from JSON for debugging
+- `timezoneDisplayName` - Human-readable name via `getDisplayName()`
+- `timezoneOffset` - Formatted offset (e.g., "+05:30", "-08:00")
+- `timezoneOffsetMinutes` - Numeric offset in minutes
+- `customerCurrentTime` - Current time in customer's timezone
+
+*API Methods:*
+- `normalize(timezone, context)` - Normalize to IANA
+- `getOffset(timezone, date)` - Get UTC offset
+- `getDisplayName(timezone, style)` - Get readable name
+- `convert(dateTime, fromTz, toTz)` - Convert between timezones
+- `isValidIANA(timezone)` - Validation check
+- `getCurrentTime(timezone)` - Current time info
+
+**Lessons Learned**:
+- Non-IANA timezone values are common in legacy data - always normalize at the source
+- Geographic context (country, state) enables accurate resolution when timezone is ambiguous
+- US states have complex timezone boundaries - state-level mapping improves accuracy
+- Caching normalized results improves performance for repeated lookups
+- Providing both raw and normalized values aids debugging
+
+**Related Issues/PRs**: Timezone normalization for customerMasterList.json
+
+---
+
+### [2025-11-29] - Features - Highlighter Panel Enhancement
+
+**Description**: Comprehensive enhancement to the highlighter system with four major features:
+1. **Radial Menu** - Replaced the floating banner with a radial fan-out menu that expands from the floating button
+2. **Highlights/Notes Sidepanel** - New management panel for viewing, editing, and organizing highlights and notes across URLs/domains
+3. **Bookmark Export/Import** - Added export/import functionality to BookmarkManager with scope selection and conflict resolution
+4. **Cloud Storage (OneDrive)** - Added OneDrive integration for cross-device sync with OAuth 2.0 + PKCE authentication
+
+**Files Created**:
+- `modules/highlightsSidepanel.js` - Highlights/notes management panel with CRUD operations
+- `modules/styles/highlights-sidepanel.css` - Sidepanel styling
+- `modules/oneDriveAuth.js` - OAuth 2.0 + PKCE authentication for OneDrive
+- `modules/hybridStorageManager.js` - Unified storage API with local/cloud sync
+
+**Files Modified**:
+- `content_script_highlighter.js` - Added radial menu, cloud sync dialog, initialization for new modules
+- `modules/styles/highlighter.css` - Added radial menu CSS, dialog styles, cloud sync UI styles
+- `modules/bookmarkManager.js` - Added export/import functionality with HTML and JSON formats
+- `manifest.json` - Added new module registrations and CSS files
+
+**Key Features**:
+
+*Radial Menu:*
+- 7 action items (Highlight, Note, Manage, Collections, Bookmark, Pin, Clear, Cloud)
+- 11 color chips in inner arc
+- Staggered fan-out animation
+- Keyboard accessible (Escape to close)
+- Position-aware direction (adjusts based on button location)
+
+*Highlights Sidepanel:*
+- Scope filtering: Current URL, Current Domain, All Data
+- Search functionality
+- Bulk selection and operations
+- Copy metadata to clipboard
+- Real-time updates via storage listener
+
+*Bookmark Export/Import:*
+- Export scope: All, Specific Collection
+- Export formats: JSON (full data) and HTML (browser compatible)
+- Import with conflict resolution: Skip, Replace, Rename duplicates
+- Preview before import
+
+*Cloud Storage:*
+- OneDrive OAuth 2.0 with PKCE (no client secret needed)
+- Token encryption at rest
+- Automatic token refresh
+- Sync modes: Local, Hybrid, Cloud Primary
+- Offline queue for pending sync operations
+- Migration UI with progress indicator
+
+**Lessons Learned**:
+- Radial menus require position-aware angle calculations to avoid going off-screen
+- PKCE flow is essential for Chrome extensions (no secure client secret storage)
+- Hybrid storage approach allows graceful degradation when offline
+- Staggered animations (30ms delay) create a polished fan-out effect
+- Always provide scope options for data operations (URL, domain, all)
+
+**Security Considerations**:
+- Refresh tokens encrypted using Web Crypto API before storage
+- HTTPS only for all OAuth and API calls
+- App-specific OneDrive folder (Files.ReadWrite.AppFolder scope)
+- User data stays in their OneDrive, not shared
+
+**Related Issues/PRs**: Highlighter panel enhancement plan
+
+---
+
 ### [2025-11-28] - Bug Fix - FetchInterceptor Data Recovery and TTL
 
 **Description**: Fixed multiple issues preventing FetchInterceptor from being effectively used as the primary case data source. The FetchInterceptor intercepts Salesforce API calls to extract case data before DOM parsing, providing faster and more reliable data.

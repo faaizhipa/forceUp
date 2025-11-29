@@ -11,46 +11,46 @@ const PersistentBanner = {
     isInitialized: false,
     bannerId: 'exl-persistent-banner',
     elements: {},
-    
+
     // Navigation history queue (max 3 items)
     navigationHistory: [],
     maxHistoryItems: 3,
-    
+
     // Current case tracking (to detect navigation to different case)
     currentCaseId: null,
-    
+
     // Displayed case tracking (for stale data prevention)
     displayedCaseId: null,
     displayedCaseNumber: null,
     validationInterval: null,
-    
+
     // Polling state for incremental data updates
     dataPollingInterval: null,
     pollingStartTime: null,
     maxPollingDuration: 10000, // Stop polling after 10 seconds
     pollingIntervalMs: 500, // Poll every 500ms
-    
+
     // Retry state for exponential backoff
     retryTimeoutId: null,
     retryAttempt: 0,
     retryDelayMs: 5000, // Initial 5 seconds
     maxRetryDelayMs: 60000, // Max 60 seconds
-    
+
     // Complete metadata storage - stores all fields from CasePageDataExtractor
     fullCaseMetadata: null,
-    
+
     // Message rotation state
     messageRotationInterval: null,
     currentMessageIndex: 0,
     activeMessages: [],
     messageSettings: null,
     wasAutoRotating: false,
-    
+
     // Cleanup tracking arrays
     trackedTimers: [],
     trackedListeners: [],
     trackedObservers: [],
-    
+
     // UI state for modals and overlays
     hoverImagePopup: null,
     hoverImageTimeout: null,
@@ -62,7 +62,7 @@ const PersistentBanner = {
     imagePreviewOverlay: null,
     messageDropdown: null,
     currentDisplayedMessage: null,
-    
+
     // Current page info
     currentPage: {
         type: 'Unknown',
@@ -81,7 +81,7 @@ const PersistentBanner = {
         institutionCode: null,
         timezone: null
     },
-    
+
     // Customer time refresh interval
     customerTimeInterval: null,
 
@@ -118,25 +118,25 @@ const PersistentBanner = {
         'Completed by Resolver Group': { base: 'rgb(107, 9, 40)', category: 'red' },
         'New': { base: 'rgb(107, 9, 40)', category: 'red' },
         'Update Received': { base: 'rgb(107, 9, 40)', category: 'red' },
-        
+
         // Orange statuses - 2 shades darker from rgb(171, 46, 1)
         'Pending Action': { base: 'rgb(103, 28, 1)', category: 'orange' },
         'Initial Response Sent': { base: 'rgb(103, 28, 1)', category: 'orange' },
         'In Progress': { base: 'rgb(103, 28, 1)', category: 'orange' },
-        
+
         // Purple statuses - 2 shades darker from rgb(100, 49, 179)
         'Assigned to Resolver Group': { base: 'rgb(60, 29, 107)', category: 'purple' },
         'Pending Internal Response': { base: 'rgb(60, 29, 107)', category: 'purple' },
         'Pending AM Response': { base: 'rgb(60, 29, 107)', category: 'purple' },
         'Pending QA Review': { base: 'rgb(60, 29, 107)', category: 'purple' },
-        
+
         // Green statuses - 2 shades darker from rgb(0, 100, 0)
         'Solution Delivered to Customer': { base: 'rgb(0, 60, 0)', category: 'green' },
-        
+
         // Blue statuses - 2 shades darker from rgb(13, 83, 173)
         'Closed': { base: 'rgb(8, 50, 104)', category: 'blue' },
         'Pending Customer Response': { base: 'rgb(8, 50, 104)', category: 'blue' },
-        
+
         // Yellow statuses - 2 shades darker from rgb(175, 96, 5)
         'Pending System Update - Defect': { base: 'rgb(105, 58, 3)', category: 'yellow' },
         'Pending System Update - Enhancement': { base: 'rgb(105, 58, 3)', category: 'yellow' },
@@ -161,41 +161,41 @@ const PersistentBanner = {
         return new Promise((resolve, reject) => {
             try {
                 const img = new Image();
-                
+
                 img.onload = () => {
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
-                    
+
                     // Calculate new dimensions maintaining aspect ratio
                     let width = img.width;
                     let height = img.height;
-                    
+
                     if (width > maxWidth) {
                         height = (height * maxWidth) / width;
                         width = maxWidth;
                     }
-                    
+
                     canvas.width = width;
                     canvas.height = height;
-                    
+
                     // Draw scaled image
                     ctx.drawImage(img, 0, 0, width, height);
-                    
+
                     // Export as JPEG base64
                     const compressedBase64 = canvas.toDataURL('image/jpeg', quality);
-                    
+
                     console.log(`[PersistentBanner] Image compressed: ${img.width}x${img.height} → ${width}x${height}, Quality: ${quality}`);
-                    
+
                     resolve(compressedBase64);
                 };
-                
+
                 img.onerror = () => {
                     reject(new Error('Failed to load image for compression'));
                 };
-                
+
                 // Handle both with and without data URI prefix
                 img.src = base64String.startsWith('data:') ? base64String : `data:image/png;base64,${base64String}`;
-                
+
             } catch (error) {
                 reject(error);
             }
@@ -209,20 +209,20 @@ const PersistentBanner = {
      */
     async validateAndCompressImage(base64String) {
         try {
-            const originalSize = typeof StorageQuotaManager !== 'undefined' 
-                ? StorageQuotaManager.estimateSize(base64String) 
+            const originalSize = typeof StorageQuotaManager !== 'undefined'
+                ? StorageQuotaManager.estimateSize(base64String)
                 : base64String.length * 2;
-            
+
             // Compress image
             const compressed = await this.compressBase64Image(base64String, 700, 0.85);
-            
+
             const compressedSize = typeof StorageQuotaManager !== 'undefined'
                 ? StorageQuotaManager.estimateSize(compressed)
                 : compressed.length * 2;
-            
+
             // Check 200KB limit for compressed image
             const MAX_IMAGE_SIZE = 200 * 1024; // 200KB
-            
+
             if (compressedSize > MAX_IMAGE_SIZE) {
                 return {
                     valid: false,
@@ -232,9 +232,9 @@ const PersistentBanner = {
                     compressedSize
                 };
             }
-            
+
             console.log(`[PersistentBanner] Image validation passed: ${(originalSize / 1024).toFixed(1)}KB → ${(compressedSize / 1024).toFixed(1)}KB`);
-            
+
             return {
                 valid: true,
                 compressed,
@@ -242,7 +242,7 @@ const PersistentBanner = {
                 originalSize,
                 compressedSize
             };
-            
+
         } catch (error) {
             console.error('[PersistentBanner] Image validation failed:', error);
             return {
@@ -265,7 +265,7 @@ const PersistentBanner = {
             try {
                 const img = new Image();
                 img.crossOrigin = 'Anonymous'; // Attempt to handle CORS
-                
+
                 img.onload = () => {
                     const canvas = document.createElement('canvas');
                     canvas.width = img.width;
@@ -274,13 +274,13 @@ const PersistentBanner = {
                     ctx.drawImage(img, 0, 0);
                     resolve(canvas.toDataURL('image/jpeg', 0.9));
                 };
-                
+
                 img.onerror = () => {
                     reject(new Error('Failed to load image from URL. Check CORS or URL validity.'));
                 };
-                
+
                 img.src = imageUrl;
-                
+
             } catch (error) {
                 reject(error);
             }
@@ -296,7 +296,7 @@ const PersistentBanner = {
         try {
             const items = event.clipboardData?.items;
             if (!items) return null;
-            
+
             for (let i = 0; i < items.length; i++) {
                 if (items[i].type.indexOf('image') !== -1) {
                     const blob = items[i].getAsFile();
@@ -308,7 +308,7 @@ const PersistentBanner = {
                     });
                 }
             }
-            
+
             return null;
         } catch (error) {
             console.error('[PersistentBanner] Clipboard extraction failed:', error);
@@ -325,11 +325,11 @@ const PersistentBanner = {
         if (!text || !text.trim()) {
             return { valid: false, error: 'Message cannot be empty' };
         }
-        
+
         if (text.length > 4000) {
             return { valid: false, error: 'Message cannot exceed 4000 characters' };
         }
-        
+
         return { valid: true, error: null };
     },
 
@@ -351,11 +351,11 @@ const PersistentBanner = {
                     resolve(false);
                     return;
                 }
-                
+
                 // Read legacy data from sync storage
                 chrome.storage.sync.get(['exlibris'], (syncResult) => {
                     const legacyMessages = syncResult.exlibris?.persistentBanner?.messages;
-                    
+
                     if (!legacyMessages) {
                         console.log('[PersistentBanner] No legacy messages found to migrate');
                         // Mark migration complete even if no data
@@ -363,7 +363,7 @@ const PersistentBanner = {
                         resolve(false);
                         return;
                     }
-                    
+
                     // Convert to new local storage format
                     const newFormat = {
                         enabled: legacyMessages.enabled !== false,
@@ -375,7 +375,7 @@ const PersistentBanner = {
                         lastSyncTime: null,
                         migrated: true
                     };
-                    
+
                     // Save to local storage
                     chrome.storage.local.set({
                         exl_bannerMessages: newFormat,
@@ -398,7 +398,7 @@ const PersistentBanner = {
         return new Promise((resolve) => {
             chrome.storage.local.get(['exl_bannerMessages'], (result) => {
                 const messagesConfig = result.exl_bannerMessages;
-                
+
                 if (!messagesConfig) {
                     this.activeMessages = [];
                     this.messageSettings = null;
@@ -406,13 +406,13 @@ const PersistentBanner = {
                     resolve();
                     return;
                 }
-                
+
                 this.messageSettings = messagesConfig;
                 this.activeMessages = this.getActiveMessages(messagesConfig);
-                
+
                 // Check for pinned message matching current case
                 this.prioritizePinnedMessage();
-                
+
                 console.log(`[PersistentBanner] Loaded ${this.activeMessages.length} active messages from local storage`);
                 resolve();
             });
@@ -431,7 +431,7 @@ const PersistentBanner = {
                 ...messagesConfig,
                 lastModified: Date.now()
             };
-            
+
             // Check quota before saving
             if (typeof StorageQuotaManager !== 'undefined') {
                 StorageQuotaManager.canStoreBannerMessage(configWithTimestamp).then((canStore) => {
@@ -440,7 +440,7 @@ const PersistentBanner = {
                         resolve(false);
                         return;
                     }
-                    
+
                     chrome.storage.local.set({ exl_bannerMessages: configWithTimestamp }, () => {
                         console.log('[PersistentBanner] Messages saved to local storage with timestamp:', configWithTimestamp.lastModified);
                         resolve(true);
@@ -504,19 +504,19 @@ const PersistentBanner = {
             }
         });
         this.trackedTimers = [];
-        
+
         // Remove all listeners
         this.trackedListeners.forEach(({ element, event, handler, options }) => {
             element.removeEventListener(event, handler, options);
         });
         this.trackedListeners = [];
-        
+
         // Disconnect all observers
         this.trackedObservers.forEach(observer => {
             observer.disconnect();
         });
         this.trackedObservers = [];
-        
+
         console.log('[PersistentBanner] Cleaned up all tracked resources');
     },
 
@@ -555,7 +555,7 @@ const PersistentBanner = {
                 clearTimeout(this.hoverImageTimeout);
                 this.hoverImageTimeout = null;
             }
-            
+
             this.cleanupHoverImagePopup();
         };
 
@@ -661,7 +661,7 @@ const PersistentBanner = {
         // Remove popup with fade out
         if (this.hoverImagePopup) {
             this.hoverImagePopup.style.opacity = '0';
-            
+
             // Remove after fade animation completes
             setTimeout(() => {
                 if (this.hoverImagePopup && this.hoverImagePopup.parentNode) {
@@ -784,7 +784,7 @@ const PersistentBanner = {
         // Adjust if menu would overflow viewport
         document.body.appendChild(menu);
         const rect = menu.getBoundingClientRect();
-        
+
         if (rect.right > window.innerWidth) {
             menu.style.left = `${window.innerWidth - rect.width - 10}px`;
         }
@@ -861,10 +861,10 @@ const PersistentBanner = {
     async removeMessageImage(messageId) {
         const messagesConfig = await this.loadMessagesFromLocal();
         const message = messagesConfig.customMessages.find(m => m.id === messageId);
-        
+
         if (message) {
             message.hoverImage = null;
-            
+
             const saved = await this.saveMessagesToLocal(messagesConfig);
             if (saved) {
                 this.showNotification('Hover image removed', 'success');
@@ -881,7 +881,7 @@ const PersistentBanner = {
     async removeMessage(messageId) {
         const messagesConfig = await this.loadMessagesFromLocal();
         messagesConfig.customMessages = messagesConfig.customMessages.filter(m => m.id !== messageId);
-        
+
         const saved = await this.saveMessagesToLocal(messagesConfig);
         if (saved) {
             this.showNotification('Message removed', 'success');
@@ -914,12 +914,12 @@ const PersistentBanner = {
 
         // Load messages
         const messagesConfig = await this.loadMessagesFromLocal();
-        
+
         // Check if case already has a pinned message (one-per-case rule)
         const existingPinned = messagesConfig.customMessages.find(
             m => m.pinnedCaseNumber === context.caseNumber && m.id !== messageId
         );
-        
+
         if (existingPinned) {
             this.showNotification(`Case ${context.caseNumber} already has a pinned message`, 'error');
             return;
@@ -953,7 +953,7 @@ const PersistentBanner = {
     async unpinMessageFromCase(messageId) {
         const messagesConfig = await this.loadMessagesFromLocal();
         const message = messagesConfig.customMessages.find(m => m.id === messageId);
-        
+
         if (!message) {
             this.showNotification('Message not found', 'error');
             return;
@@ -992,15 +992,15 @@ const PersistentBanner = {
 
         // Search for pinned message matching this case
         const pinnedIndex = this.activeMessages.findIndex(m => m.pinnedCaseNumber === context.caseNumber);
-        
+
         if (pinnedIndex !== -1) {
             // Move pinned message to front
             const [pinnedMessage] = this.activeMessages.splice(pinnedIndex, 1);
             this.activeMessages.unshift(pinnedMessage);
-            
+
             // Set current index to 0 to display pinned message
             this.currentMessageIndex = 0;
-            
+
             console.log(`[PersistentBanner] Prioritized pinned message for case ${context.caseNumber}`);
         }
     },
@@ -1020,7 +1020,7 @@ const PersistentBanner = {
     async showEditModal(messageId) {
         const messagesConfig = await this.loadMessagesFromLocal();
         const message = messagesConfig.customMessages.find(m => m.id === messageId);
-        
+
         if (!message) {
             this.showNotification('Message not found', 'error');
             return;
@@ -1132,7 +1132,7 @@ const PersistentBanner = {
         // Save handler
         saveBtn.addEventListener('click', async () => {
             const newText = textArea.value.trim();
-            
+
             if (!newText) {
                 this.showNotification('Message text cannot be empty', 'error');
                 return;
@@ -1169,7 +1169,7 @@ const PersistentBanner = {
     async showAddImageModal(messageId) {
         const messagesConfig = await this.loadMessagesFromLocal();
         const message = messagesConfig.customMessages.find(m => m.id === messageId);
-        
+
         if (!message) {
             this.showNotification('Message not found', 'error');
             return;
@@ -1289,7 +1289,7 @@ const PersistentBanner = {
         tabBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 const targetTab = btn.dataset.tab;
-                
+
                 // Update tab buttons
                 tabBtns.forEach(b => {
                     b.classList.remove('active');
@@ -1299,12 +1299,12 @@ const PersistentBanner = {
                 btn.classList.add('active');
                 btn.style.color = '#0070d2';
                 btn.style.borderBottomColor = '#0070d2';
-                
+
                 // Update panels
                 tabPanels.forEach(p => {
                     p.style.display = p.dataset.panel === targetTab ? 'block' : 'none';
                 });
-                
+
                 // Focus paste area if paste tab
                 if (targetTab === 'paste') {
                     pasteArea.focus();
@@ -1316,27 +1316,27 @@ const PersistentBanner = {
         const processImage = async (base64Data) => {
             try {
                 compressionInfo.textContent = 'Compressing...';
-                
+
                 const result = await this.validateAndCompressImage(base64Data);
-                
+
                 if (!result.valid) {
                     this.showNotification(result.error, 'error');
                     compressionInfo.textContent = '';
                     return;
                 }
-                
+
                 currentImageData = result.compressed;
                 previewImg.src = result.compressed;
                 previewArea.style.display = 'block';
-                
+
                 const originalKB = Math.round(result.sizes.original / 1024);
                 const compressedKB = Math.round(result.sizes.compressed / 1024);
                 const reduction = Math.round((1 - result.sizes.compressed / result.sizes.original) * 100);
-                
+
                 imageInfo.textContent = `Image ready (${compressedKB} KB)`;
                 compressionInfo.textContent = `Compressed from ${originalKB} KB (${reduction}% reduction)`;
                 saveBtn.disabled = false;
-                
+
             } catch (error) {
                 console.error('[PersistentBanner] Image processing error:', error);
                 this.showNotification('Failed to process image', 'error');
@@ -1347,7 +1347,7 @@ const PersistentBanner = {
         uploadInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
-            
+
             const reader = new FileReader();
             reader.onload = (event) => {
                 processImage(event.target.result);
@@ -1362,14 +1362,14 @@ const PersistentBanner = {
                 this.showNotification('Please enter an image URL', 'error');
                 return;
             }
-            
+
             try {
                 loadUrlBtn.textContent = 'Loading...';
                 loadUrlBtn.disabled = true;
-                
+
                 const base64 = await this.imageUrlToBase64(url);
                 await processImage(base64);
-                
+
             } catch (error) {
                 this.showNotification('Failed to load image from URL', 'error');
             } finally {
@@ -1448,7 +1448,7 @@ const PersistentBanner = {
     async showViewImageModal(messageId) {
         const messagesConfig = await this.loadMessagesFromLocal();
         const message = messagesConfig.customMessages.find(m => m.id === messageId);
-        
+
         if (!message || !message.hoverImage) {
             this.showNotification('No image to display', 'error');
             return;
@@ -1712,8 +1712,8 @@ const PersistentBanner = {
                 text-overflow: ellipsis;
                 margin-bottom: 4px;
             `;
-            const previewText = message.text.length > 50 
-                ? message.text.substring(0, 50) + '...' 
+            const previewText = message.text.length > 50
+                ? message.text.substring(0, 50) + '...'
                 : message.text;
             preview.textContent = previewText;
             content.appendChild(preview);
@@ -1803,25 +1803,25 @@ const PersistentBanner = {
         }
 
         console.log('[PersistentBanner] Initializing...');
-        
+
         // Inject CSS animations for modals
         this.injectModalStyles();
-        
+
         // Load navigation history from sessionStorage
         this.loadNavigationHistory();
-        
+
         // Create and inject banner
         this.createBanner();
-        
+
         // Observe DOM for the right injection point
         this.observeForInjection();
-        
+
         // Start URL monitoring to detect navigation changes
         this.startUrlMonitoring();
-        
+
         // Subscribe to case context + data store updates
         this.setupContextSubscriptions();
-        
+
         // Listen for CasePageDataExtractor events
         // Initialize UserCustomerDataManager
         if (typeof UserCustomerDataManager !== 'undefined') {
@@ -1830,32 +1830,32 @@ const PersistentBanner = {
         }
 
         this.setupCaseDataListener();
-        
+
         // Listen for settings changes
         this.setupSettingsListener();
-        
+
         // Start periodic validation for stale data prevention
         this.startPeriodicValidation();
-        
+
         // Migrate legacy messages from sync storage if needed
         await this.migrateLegacyMessagesFromSync();
-        
+
         // Load messages for rotation from local storage
         await this.loadMessagesFromLocal();
-        
+
         // Setup storage change listener for cross-tab synchronization
         this.setupStorageChangeListener();
-        
+
         // Setup message listener for popup toggle commands
         this.setupPopupMessageListener();
-        
+
         // Check initial state - if on case page, check extraction status
         this.checkInitialState();
-        
+
         this.isInitialized = true;
         console.log('[PersistentBanner] Initialized');
     },
-    
+
     /**
      * Setup message listener for popup toggle commands
      * Banner cannot be disabled via messages - only supports restoring if dismissed
@@ -1864,7 +1864,7 @@ const PersistentBanner = {
         chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (message.action === 'toggleBanner') {
                 console.log('[PersistentBanner] Received toggleBanner message:', message);
-                
+
                 // Only allow restoring banner if dismissed - cannot disable
                 if (message.enabled === true) {
                     // Restore banner
@@ -1875,11 +1875,11 @@ const PersistentBanner = {
                     console.log('[PersistentBanner] Ignoring banner disable request - banner is always enabled');
                     sendResponse({ success: false, message: 'Banner cannot be disabled' });
                 }
-                
+
                 return true; // Async response
             }
         });
-        
+
         console.log('[PersistentBanner] Popup message listener registered');
     },
 
@@ -1890,7 +1890,7 @@ const PersistentBanner = {
     checkInitialState() {
         const pageType = this.currentPage.type;
         const isCasePage = pageType === 'case_page';
-        
+
         if (isCasePage) {
             const extractionState = this.isCaseDataExtractionComplete();
             let urlCasePage = window.location.href;
@@ -1898,7 +1898,7 @@ const PersistentBanner = {
             this.currentPage.caseNumber = document.head.querySelector('title').textContent.split(' | ')[0];
             this.displayedCaseId = this.currentPage.caseId;
             console.log('[PersistentBanner] Initial state check - extraction state:', extractionState);
-            
+
             // If extraction is complete, update UI immediately
             if (extractionState.complete && extractionState.hasData) {
                 // Get the extracted data and update banner
@@ -1920,11 +1920,11 @@ const PersistentBanner = {
         const handleStorageChange = async (changes, areaName) => {
             // Only listen for local storage changes (where banner messages are stored)
             if (areaName !== 'local') return;
-            
+
             // Check if banner messages were changed
             if (changes.exl_bannerMessages) {
                 console.log('[PersistentBanner] Banner messages changed in another tab, reloading...');
-                
+
                 // Debounced reload to prevent rapid-fire updates
                 if (this.debouncedReloadMessages) {
                     this.debouncedReloadMessages();
@@ -1942,14 +1942,14 @@ const PersistentBanner = {
                 }
             }
         };
-        
+
         // Register listener for cleanup tracking
         this.storageChangeListener = handleStorageChange;
         chrome.storage.onChanged.addListener(this.storageChangeListener);
         // Note: Chrome API listeners are tracked in this.storageChangeListener 
         // and cleaned up in cleanup() method - they don't use registerListener()
         // which is for DOM element listeners only
-        
+
         console.log('[PersistentBanner] Storage change listener registered for cross-tab sync');
     },
 
@@ -1959,18 +1959,18 @@ const PersistentBanner = {
      */
     async reloadMessagesFromStorage() {
         console.log('[PersistentBanner] Reloading messages from storage...');
-        
+
         // Remember currently displayed message ID
         const currentMessageId = this.currentDisplayedMessage?.id || null;
-        
+
         // Load messages from storage
         await this.loadMessagesFromLocal();
-        
+
         // Smart message preservation by ID
         if (currentMessageId) {
             // Check if current message still exists
             const stillExists = this.activeMessages.some(msg => msg.id === currentMessageId);
-            
+
             if (stillExists) {
                 // Find index and update currentMessageIndex
                 const newIndex = this.activeMessages.findIndex(msg => msg.id === currentMessageId);
@@ -1990,10 +1990,10 @@ const PersistentBanner = {
             // No message was being displayed, start from beginning
             this.currentMessageIndex = 0;
         }
-        
+
         // Update display with new/preserved message
         this.updateMessageDisplay();
-        
+
         console.log('[PersistentBanner] Messages reloaded successfully');
     },
 
@@ -2006,7 +2006,7 @@ const PersistentBanner = {
         if (this.validationInterval) {
             clearInterval(this.validationInterval);
         }
-        
+
         // Check every 2 seconds if displayed data is still valid
         // Only clear if case ID mismatches (case number mismatch might be timing issue)
         this.validationInterval = this.registerTimer(setInterval(async () => {
@@ -2017,19 +2017,19 @@ const PersistentBanner = {
                         this.displayedCaseNumber,
                         false // Don't wait for title update in periodic validation
                     );
-                    
+
                     // Handle async validation (shouldn't happen with waitForTitle=false, but just in case)
                     if (validation instanceof Promise) {
                         validation = await validation;
                     }
-                    
+
                     if (!validation.valid) {
                         // Case number mismatch is authoritative - always clear stale data
                         if (validation.currentContext) {
                             const caseIdMismatch = this.displayedCaseId && this.displayedCaseId !== validation.currentContext.caseId;
-                            const caseNumberMismatch = this.displayedCaseNumber && validation.currentContext.caseNumber && 
-                                                       this.displayedCaseNumber !== validation.currentContext.caseNumber;
-                            
+                            const caseNumberMismatch = this.displayedCaseNumber && validation.currentContext.caseNumber &&
+                                this.displayedCaseNumber !== validation.currentContext.caseNumber;
+
                             if (caseIdMismatch || caseNumberMismatch) {
                                 console.warn('[PersistentBanner] Periodic validation failed - stale data detected', {
                                     caseIdMismatch,
@@ -2039,9 +2039,9 @@ const PersistentBanner = {
                                     currentCaseId: validation.currentContext.caseId,
                                     currentCaseNumber: validation.currentContext.caseNumber
                                 });
-                            this.clearCaseData();
-                            // Update UI to show cleared state
-                            this.updateBannerUI();
+                                this.clearCaseData();
+                                // Update UI to show cleared state
+                                this.updateBannerUI();
                             }
                         } else {
                             // No current context - clear stale data
@@ -2053,7 +2053,7 @@ const PersistentBanner = {
                 }
             }
         }, 2000), 'interval');
-        
+
         console.log('[PersistentBanner] Periodic validation started');
     },
 
@@ -2093,13 +2093,13 @@ const PersistentBanner = {
             const elapsed = Date.now() - this.pollingStartTime;
             if (elapsed >= this.maxPollingDuration) {
                 console.log('[PersistentBanner] Polling timeout reached, checking completeness...');
-                
+
                 // Check if metadata is complete before stopping
                 const isComplete = this.fullCaseMetadata && this.isMetadataComplete(this.fullCaseMetadata);
-                
+
                 if (isComplete) {
                     console.log('[PersistentBanner] Metadata is complete, stopping polling');
-                this.stopDataPolling();
+                    this.stopDataPolling();
                     this.cancelMetadataRetry(); // Cancel any pending retries
                 } else {
                     console.log('[PersistentBanner] Metadata incomplete after timeout, scheduling retry');
@@ -2124,11 +2124,11 @@ const PersistentBanner = {
                 const latestData = CaseDataStore.getCurrentData();
                 if (latestData) {
                     // Validate data matches current context
-                    if (latestData.caseId === this.currentCaseId && 
+                    if (latestData.caseId === this.currentCaseId &&
                         (!context.caseNumber || latestData.caseNumber === context.caseNumber)) {
                         // Update with latest data (will store in fullCaseMetadata and update UI progressively)
                         this.applyDataUpdate(latestData, 'polling');
-                        
+
                         // Check if metadata is now complete
                         if (this.fullCaseMetadata && this.isMetadataComplete(this.fullCaseMetadata)) {
                             console.log('[PersistentBanner] All metadata fields captured, stopping polling');
@@ -2241,21 +2241,21 @@ const PersistentBanner = {
             'caseNumber',
             'subject',
             'description',
-            
+
             // Contact and Account
             'accountName',
             'contactName',
-            
+
             // Product/Service Information
             'platformService',
             'productServiceName',
-            
+
             // Case categorization
             'category',
             'subCategory',
             'status',
             'subStatus',
-            
+
             // Customer data
             'exLibrisAccountNumber',
             'analysisNote',
@@ -2266,25 +2266,25 @@ const PersistentBanner = {
             'instID',
             'instId',
             'server',
-            
+
             // Flexipage fields (anchored data)
             'asset',
             'affectedEnvironment',
             'caseOwner',
             'parentCase',
             'parentCaseOwner',
-            
+
             // Flexipage fields (non-anchored data)
             'escalation',
             'caseCreatedDate',
             'caseClosedOn',
             'customerExLibrisAccountNumber',
             'pageStatus',
-            
+
             // Timestamps
             'extractedAt',
             'lastModifiedDate',
-            
+
             // Timezone (resolved during polling)
             'timezone',
             'timezoneDisplayName',
@@ -2337,8 +2337,8 @@ const PersistentBanner = {
         }
 
         // Check if timezone is already resolved and cached in fullCaseMetadata
-        if (this.fullCaseMetadata && 
-            this.fullCaseMetadata.timezone && 
+        if (this.fullCaseMetadata &&
+            this.fullCaseMetadata.timezone &&
             this.fullCaseMetadata.exLibrisAccountNumber === caseData.exLibrisAccountNumber &&
             this.fullCaseMetadata.accountName === caseData.accountName) {
             console.log('[PersistentBanner] Timezone already resolved for this case');
@@ -2352,17 +2352,17 @@ const PersistentBanner = {
             if (!this.fullCaseMetadata) {
                 this.fullCaseMetadata = {};
             }
-            
+
             this.fullCaseMetadata.timezone = caseData.timezone;
             this.fullCaseMetadata.timezoneDisplayName = caseData.timezoneDisplayName || caseData.timezone;
             this.fullCaseMetadata.timezoneSource = caseData.timezoneSource || 'casePageDataExtractor';
-            
+
             console.log('[PersistentBanner] Timezone copied from CasePageDataExtractor:', {
                 timezone: caseData.timezone,
                 displayName: caseData.timezoneDisplayName,
                 source: caseData.timezoneSource
             });
-            
+
             // Update UI to reflect timezone if banner is visible
             this.updateBannerUI();
             return;
@@ -2374,16 +2374,16 @@ const PersistentBanner = {
             if (!this.fullCaseMetadata) {
                 this.fullCaseMetadata = {};
             }
-            
+
             this.fullCaseMetadata.timezone = caseData.customerTimezone;
             this.fullCaseMetadata.timezoneDisplayName = caseData.customerTimezone || caseData.customerTimezone.replace(/_/g, ' ');
             this.fullCaseMetadata.timezoneSource = caseData.customerTimezoneSource || 'caseDataExtractor';
-            
+
             console.log('[PersistentBanner] Timezone copied from CaseDataExtractor:', {
                 timezone: caseData.customerTimezone,
                 source: caseData.customerTimezoneSource
             });
-            
+
             // Update UI to reflect timezone if banner is visible
             this.updateBannerUI();
             return;
@@ -2417,21 +2417,21 @@ const PersistentBanner = {
             'exLibrisAccountNumber',
             'extractedAt'
         ];
-        
+
         // Check critical required fields
         for (const field of criticalRequiredFields) {
             const value = data[field];
-            
+
             if (value === null || value === undefined) {
                 return false;
             }
-            
+
             // Empty strings are considered incomplete for required fields
             if (typeof value === 'string' && value.trim() === '') {
                 return false;
             }
         }
-        
+
         // Check timezone - required if we have account information
         // Timezone may take time to resolve, so we check if account info exists first
         if (data.exLibrisAccountNumber && (!data.timezone || data.timezone === null || data.timezone === undefined)) {
@@ -2440,7 +2440,7 @@ const PersistentBanner = {
             // The retry mechanism will continue trying to resolve timezone
             // For now, we'll only require timezone if we've had time to resolve it (e.g., after retries)
         }
-        
+
         return true;
     },
 
@@ -2467,9 +2467,12 @@ const PersistentBanner = {
         }
 
         // Check if case ID changed - if so, clear all fields first
+        const titleMatch = document.title.match(/^(\d{6,10})/);
+        const caseNumberFromTitle = titleMatch ? titleMatch[1] : null;
+        this.currentPage.caseNumber = this.currentPage.caseNumber === null ? caseNumberFromTitle : this.currentPage.caseNumber;
         const caseIdChanged = this.displayedCaseId && data.caseId && this.displayedCaseId !== data.caseId;
         const caseNumberChanged = data.caseNumber && data.caseNumber !== this.currentPage.caseNumber;
-        
+
         // If case ID or case number changed, clear all metadata to prevent stale data
         if (caseIdChanged || caseNumberChanged) {
             console.log('[PersistentBanner] Case identifier changed, clearing all metadata:', {
@@ -2480,7 +2483,7 @@ const PersistentBanner = {
                 oldCaseNumber: this.currentPage.caseNumber,
                 newCaseNumber: data.caseNumber
             });
-            
+
             // Clear all metadata fields including fullCaseMetadata
             this.currentPage.subject = null;
             this.currentPage.status = null;
@@ -2518,10 +2521,10 @@ const PersistentBanner = {
         if (data.caseNumber) {
             // Always update case number when provided
             if (data.caseNumber !== this.currentPage.caseNumber) {
-            this.displayedCaseNumber = data.caseNumber;
-            this.currentPage.caseNumber = data.caseNumber;
-            hasChanges = true;
-                
+                this.displayedCaseNumber = data.caseNumber;
+                this.currentPage.caseNumber = data.caseNumber;
+                hasChanges = true;
+
                 // When case number changes, clear subject to force re-extraction from new case
                 if (this.currentPage.subject) {
                     console.log('[PersistentBanner] Case number changed, clearing subject to prevent stale data');
@@ -2529,16 +2532,16 @@ const PersistentBanner = {
                 }
             }
         }
-        
+
         // Always update subject if provided (even if null) when case number matches
         // This ensures we clear stale subject when new case doesn't have one
         if (data.subject !== undefined) {
             if (data.caseNumber && data.caseNumber === this.currentPage.caseNumber) {
                 // Only update subject if case number matches current
                 if (data.subject !== this.currentPage.subject) {
-            this.currentPage.subject = data.subject;
-            hasChanges = true;
-        }
+                    this.currentPage.subject = data.subject;
+                    hasChanges = true;
+                }
             } else if (!data.caseNumber && data.subject !== this.currentPage.subject) {
                 // If no case number in data, still update if different (for backward compatibility)
                 this.currentPage.subject = data.subject;
@@ -2551,12 +2554,12 @@ const PersistentBanner = {
                 hasChanges = true;
             }
         }
-        
+
         if (data.status !== undefined && data.status !== null) {
             if (data.status !== this.currentPage.status) {
-            this.currentPage.status = data.status;
-            hasChanges = true;
-        }
+                this.currentPage.status = data.status;
+                hasChanges = true;
+            }
         } else if (caseNumberChanged || caseIdChanged) {
             // Clear status when case changes
             if (this.currentPage.status) {
@@ -2564,11 +2567,11 @@ const PersistentBanner = {
                 hasChanges = true;
             }
         }
-        
+
         if (data.subStatus !== undefined && data.subStatus !== null) {
             if (data.subStatus !== this.currentPage.subStatus) {
-            this.currentPage.subStatus = data.subStatus;
-            hasChanges = true;
+                this.currentPage.subStatus = data.subStatus;
+                hasChanges = true;
             }
         } else if (caseNumberChanged || caseIdChanged) {
             // Clear subStatus when case changes
@@ -2610,7 +2613,7 @@ const PersistentBanner = {
         }
 
         // Enrich customer metadata from UserCustomerDataManager or CustomerMasterManager if missing
-        if (this.customerMetadata.institutionCode && 
+        if (this.customerMetadata.institutionCode &&
             (!this.customerMetadata.customerId || !this.customerMetadata.institutionId || !this.customerMetadata.server)) {
             this.enrichCustomerMetadataFromManagers(data.accountName);
             hasChanges = true;
@@ -2626,7 +2629,7 @@ const PersistentBanner = {
         // Always update UI to show new data progressively (even if primary fields unchanged)
         // This ensures partial data appears immediately as it's extracted during polling
         const shouldUpdateUI = hasChanges || source === 'polling';
-        
+
         if (shouldUpdateUI) {
             console.log(`[PersistentBanner] Applied data update from ${source}:`, {
                 caseNumber: this.currentPage.caseNumber,
@@ -2634,7 +2637,7 @@ const PersistentBanner = {
                 status: this.currentPage.status,
                 metadataComplete: this.fullCaseMetadata ? this.isMetadataComplete(this.fullCaseMetadata) : false
             });
-            
+
             // Update UI immediately to show progressive loading
             this.updateBannerUI();
         }
@@ -2697,7 +2700,7 @@ const PersistentBanner = {
             }
 
             const value = this.fullCaseMetadata[field];
-            
+
             if (value === null || value === undefined) {
                 // Check if this is a timezone field that we should have resolved
                 if (field === 'timezone' && this.fullCaseMetadata.exLibrisAccountNumber) {
@@ -2783,28 +2786,28 @@ const PersistentBanner = {
      */
     handleBannerClose() {
         console.log('[PersistentBanner] Close button clicked');
-        
+
         // Check if close button is enabled in settings
         if (this.messageSettings && this.messageSettings.banner && this.messageSettings.banner.showCloseButton === false) {
             console.log('[PersistentBanner] Close button is disabled in settings');
             return;
         }
-        
+
         // Get dismissal duration from settings (default: 'session')
         const dismissalDuration = this.messageSettings?.banner?.dismissalDuration || 'session';
-        
+
         // Hide banner with slide-up animation
         const banner = this.elements.banner;
         if (banner) {
             banner.style.transition = 'transform 0.3s ease-out, opacity 0.3s ease-out';
             banner.style.transform = 'translateY(-100%)';
             banner.style.opacity = '0';
-            
+
             setTimeout(() => {
                 banner.style.display = 'none';
             }, 300);
         }
-        
+
         // Store dismissal based on duration setting
         if (dismissalDuration === 'session') {
             // Session-based dismissal (clears on browser close)
@@ -2815,11 +2818,11 @@ const PersistentBanner = {
             // Permanent dismissal (disable for this domain)
             this.disableBannerForDomain();
         }
-        
+
         // Show undo notification with 7-second duration
         this.showUndoNotification();
     },
-    
+
     /**
      * Get current domain for dismissal tracking
      * @returns {string} Current domain (hostname without www.)
@@ -2833,13 +2836,13 @@ const PersistentBanner = {
             return 'unknown';
         }
     },
-    
+
     /**
      * Disable banner for current domain permanently
      */
     async disableBannerForDomain() {
         const domain = this.getCurrentDomain();
-        
+
         // Use SiteActivationManager if available
         if (typeof SiteActivationManager !== 'undefined' && typeof SiteActivationManager.disableBanner === 'function') {
             await SiteActivationManager.disableBanner(domain);
@@ -2855,7 +2858,7 @@ const PersistentBanner = {
             console.log('[PersistentBanner] Banner permanently disabled for domain via settings:', domain);
         }
     },
-    
+
     /**
      * Show undo notification with 7-second duration
      */
@@ -2879,7 +2882,7 @@ const PersistentBanner = {
             animation: slideInUp 0.3s ease-out;
             max-width: 400px;
         `;
-        
+
         notification.innerHTML = `
             <div style="flex: 1;">
                 <div style="font-weight: 600; margin-bottom: 4px;">Banner Hidden</div>
@@ -2898,24 +2901,24 @@ const PersistentBanner = {
                 transition: background 0.2s ease;
             ">Undo</button>
         `;
-        
+
         document.body.appendChild(notification);
-        
+
         // Undo button handler
         const undoBtn = notification.querySelector('.exl-undo-btn');
         undoBtn.addEventListener('click', () => {
             this.undoBannerDismissal();
             notification.remove();
         });
-        
+
         undoBtn.addEventListener('mouseenter', () => {
             undoBtn.style.background = '#005fb2';
         });
-        
+
         undoBtn.addEventListener('mouseleave', () => {
             undoBtn.style.background = '#0070d2';
         });
-        
+
         // Auto-remove after 7 seconds
         setTimeout(() => {
             notification.style.animation = 'slideOutDown 0.3s ease-out';
@@ -2926,17 +2929,17 @@ const PersistentBanner = {
             }, 300);
         }, 7000);
     },
-    
+
     /**
      * Undo banner dismissal - restore banner immediately
      */
     undoBannerDismissal() {
         console.log('[PersistentBanner] Undo banner dismissal');
-        
+
         // Clear session dismissal flag
         const domain = this.getCurrentDomain();
         sessionStorage.removeItem(`exl_banner_dismissed_${domain}`);
-        
+
         // Restore banner display
         const banner = this.elements.banner;
         if (banner) {
@@ -2944,11 +2947,11 @@ const PersistentBanner = {
             banner.style.transform = 'translateY(0)';
             banner.style.opacity = '1';
         }
-        
+
         // Show success notification
         this.showNotification('Banner restored', 'success');
     },
-    
+
     /**
      * Check if banner should be shown (not dismissed)
      * @returns {boolean} True if banner should be shown
@@ -2957,12 +2960,12 @@ const PersistentBanner = {
         // Banner is always enabled - only check if dismissed for current session
         const domain = this.getCurrentDomain();
         const isDismissed = sessionStorage.getItem(`exl_banner_dismissed_${domain}`) === 'true';
-        
+
         if (isDismissed) {
             console.log('[PersistentBanner] Banner dismissed for session on domain:', domain);
             return false;
         }
-        
+
         // Banner always shows if not dismissed
         return true;
     },
@@ -2986,7 +2989,7 @@ const PersistentBanner = {
                 // Check persistent banner feature toggle
                 const newEnabled = changes.exlibris.newValue?.features?.persistentBanner !== false;
                 const oldEnabled = changes.exlibris.oldValue?.features?.persistentBanner !== false;
-                
+
                 if (newEnabled !== oldEnabled) {
                     console.log('[PersistentBanner] Feature toggle changed:', newEnabled);
                     if (newEnabled) {
@@ -2995,11 +2998,11 @@ const PersistentBanner = {
                         this.hide();
                     }
                 }
-                
+
                 // Check banner messages feature toggle
                 const newMessagesEnabled = changes.exlibris.newValue?.features?.bannerMessages !== false;
                 const oldMessagesEnabled = changes.exlibris.oldValue?.features?.bannerMessages !== false;
-                
+
                 if (newMessagesEnabled !== oldMessagesEnabled) {
                     console.log('[PersistentBanner] Banner messages feature toggle changed:', newMessagesEnabled);
                     // Reload messages and update display
@@ -3008,14 +3011,14 @@ const PersistentBanner = {
                     });
                 }
             }
-            
+
             // Monitor local storage for message content changes
             if (areaName === 'local' && changes.exl_bannerMessages) {
                 console.log('[PersistentBanner] Banner messages content changed in local storage, reloading...');
-                    // Reload messages and restart rotation
+                // Reload messages and restart rotation
                 this.loadMessagesFromLocal().then(() => {
-                        this.updateBannerUI();
-                    });
+                    this.updateBannerUI();
+                });
             }
         });
     },
@@ -3076,22 +3079,73 @@ const PersistentBanner = {
         // Track when we last received data for fallback mechanism
         this.lastDataReceivedTime = null;
         this.dataReceptionTimeout = null;
-        
-        document.addEventListener('casePageDataExtracted', async (event) => {
-            const data = event.detail;
-            console.log('[PersistentBanner] Received case page data from CasePageDataExtractor:', data);
-            
+
+        // Listen for CASE_DATA_READY event from InterceptorCacheManager (via extractors)
+        // This is the primary data source when interceptor.js captures API data
+        window.addEventListener('CASE_DATA_READY', async (event) => {
+            const caseData = event.detail;
+            if (!caseData || !caseData.caseNumber) {
+                console.log('[PersistentBanner] CASE_DATA_READY event received but no case number');
+                return;
+            }
+
+            console.log('[PersistentBanner] Received CASE_DATA_READY from interceptor:', caseData.caseNumber);
+
+            // Update last data received time
+            this.lastDataReceivedTime = Date.now();
+
             // Clear any pending fallback timeout
             if (this.dataReceptionTimeout) {
                 clearTimeout(this.dataReceptionTimeout);
                 this.dataReceptionTimeout = null;
             }
-            
+
+            // Update banner with interceptor data
+            await this.updateCurrentPage({
+                type: 'Case',
+                caseNumber: caseData.caseNumber,
+                subject: caseData.subject,
+                status: caseData.status,
+                subStatus: caseData.subStatus
+            });
+
+            // Store full metadata including enriched customer data
+            this.fullCaseMetadata = caseData;
+
+            // Update customer metadata from enriched data
+            if (caseData.server || caseData.customerId || caseData.institutionId || caseData.timezone) {
+                this.customerMetadata = {
+                    customerId: caseData.customerId || null,
+                    institutionId: caseData.institutionId || null,
+                    server: caseData.server || null,
+                    region: caseData.region || null,
+                    timezone: caseData.timezone || null,
+                    institutionCode: caseData.institutionCode || null,
+                    accountCode: caseData.accountCode || null,
+                    productServiceName: caseData.productServiceName || null,
+                    accountName: caseData.accountName || null
+                };
+                console.log('[PersistentBanner] Updated customer metadata from interceptor:', this.customerMetadata);
+            }
+
+            this.updateBannerUI();
+        });
+
+        document.addEventListener('casePageDataExtracted', async (event) => {
+            const data = event.detail;
+            console.log('[PersistentBanner] Received case page data from CasePageDataExtractor:', data);
+
+            // Clear any pending fallback timeout
+            if (this.dataReceptionTimeout) {
+                clearTimeout(this.dataReceptionTimeout);
+                this.dataReceptionTimeout = null;
+            }
+
             // Update last data received time
             this.lastDataReceivedTime = Date.now();
-            
+
             // GUARDRAIL: Validate data before displaying using shared validation function
-            if (typeof PageContextValidator !== 'undefined' && 
+            if (typeof PageContextValidator !== 'undefined' &&
                 typeof PageContextValidator.validateExtractedData === 'function') {
                 try {
                     const validatedData = await PageContextValidator.validateExtractedData(data, {
@@ -3099,7 +3153,7 @@ const PersistentBanner = {
                         requireCaseId: true,
                         requireCaseNumber: false
                     });
-                    
+
                     if (!validatedData) {
                         console.warn(`[PersistentBanner] Cannot display data: validation failed`);
                         // Clear stale data if validation fails
@@ -3107,7 +3161,7 @@ const PersistentBanner = {
                         this.updateBannerUI();
                         return;
                     }
-                    
+
                     // Use validated data (ensures caseId and caseNumber match current page)
                     // Update data with validated values
                     data.caseId = validatedData.caseId || data.caseId;
@@ -3129,21 +3183,21 @@ const PersistentBanner = {
                 if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
                     try {
                         let validation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber);
-                        
+
                         // Handle async validation (when waiting for title update)
                         if (validation instanceof Promise) {
                             validation = await validation;
                         }
-                        
+
                         if (!validation.valid) {
                             console.warn(`[PersistentBanner] Cannot display data: ${validation.reason}`);
                             // Case number mismatch is authoritative - always clear stale data
                             // If validation failed, it means data doesn't match current page
                             if (validation.currentContext) {
                                 const caseIdMismatch = data.caseId && data.caseId !== validation.currentContext.caseId;
-                                const caseNumberMismatch = data.caseNumber && validation.currentContext.caseNumber && 
-                                                           data.caseNumber !== validation.currentContext.caseNumber;
-                                
+                                const caseNumberMismatch = data.caseNumber && validation.currentContext.caseNumber &&
+                                    data.caseNumber !== validation.currentContext.caseNumber;
+
                                 if (caseIdMismatch || caseNumberMismatch) {
                                     console.warn('[PersistentBanner] Validation failed - mismatched identifiers, clearing stale data', {
                                         caseIdMismatch,
@@ -3173,21 +3227,21 @@ const PersistentBanner = {
                 await CaseDataStore.setCurrentData(data, 'casePageDataExtractor-event');
                 return;
             }
-            
+
             // Extract case ID from the data
             const newCaseId = data.caseId || null;
-            
+
             // Check if we've navigated to a different case
             if (this.currentCaseId && newCaseId && this.currentCaseId !== newCaseId) {
                 console.log(`[PersistentBanner] Navigated from case ${this.currentCaseId} to ${newCaseId}, clearing old data...`);
                 this.clearCaseData();
             }
-            
+
             // Update current case ID
             this.currentCaseId = newCaseId;
             this.displayedCaseId = data.caseId || null;
             this.displayedCaseNumber = data.caseNumber || null;
-            
+
             // Update customer metadata from extracted data
             // CasePageDataExtractor now enriches data with custID, instID, server from CustomerMasterManager
             this.customerMetadata = {
@@ -3202,9 +3256,9 @@ const PersistentBanner = {
                 customerOrgName: data.customerOrgName || null,
                 customerDbServers: data.customerDbServers || []
             };
-            
+
             console.log('[PersistentBanner] Updated customer metadata:', this.customerMetadata);
-            
+
             // Get timezone if not already set
             if (!this.customerMetadata.timezone) {
                 this.getCustomerTimezone().then(timezone => {
@@ -3215,13 +3269,13 @@ const PersistentBanner = {
                     }
                 });
             }
-            
+
             // Update current page status from direct page data (for gradient coloring)
             if (data.pageStatus) {
                 this.currentPage.status = data.pageStatus;
                 console.log('[PersistentBanner] Updated status from page data:', data.pageStatus);
             }
-            
+
             // Messages can now appear on case pages - check if should show
             this.shouldShowMessages().then(showMessages => {
                 if (showMessages && this.elements.messagesSection) {
@@ -3237,14 +3291,14 @@ const PersistentBanner = {
             }).catch(error => {
                 console.error('[PersistentBanner] Error checking shouldShowMessages:', error);
             });
-            
+
             // Update banner UI with new metadata and status
             this.updateBannerUI();
         });
-        
+
         // Set up fallback mechanism: if no data received within 3 seconds after page change, trigger manual extraction
         this.setupDataReceptionFallback();
-        
+
         console.log('[PersistentBanner] CasePageDataExtractor listener registered');
     },
 
@@ -3259,10 +3313,10 @@ const PersistentBanner = {
                 if (this.dataReceptionTimeout) {
                     clearTimeout(this.dataReceptionTimeout);
                 }
-                
+
                 // Reset last data received time
                 this.lastDataReceivedTime = null;
-                
+
                 // Set timeout: if no data received within 3 seconds, trigger manual extraction
                 this.dataReceptionTimeout = this.registerTimer(setTimeout(() => {
                     if (!this.lastDataReceivedTime || (Date.now() - this.lastDataReceivedTime) > 3000) {
@@ -3281,14 +3335,14 @@ const PersistentBanner = {
         // Check if we're on a case page first
         const urlNow = window.location.href;
         const casePageMatchForExtraction = urlNow.match(/\/lightning\/r\/Case\/([^\/]+)\/view(?:\?|$)/);
-        
+
         if (!casePageMatchForExtraction) {
             // Not on a case page - this is expected, no need to log
             return;
         }
-        
+
         const caseId = casePageMatchForExtraction[1];
-            
+
         if (typeof CasePageDataExtractor !== 'undefined' && typeof CasePageDataExtractor.extractNow === 'function') {
             console.log('[PersistentBanner] Triggering manual extraction for case:', caseId);
             CasePageDataExtractor.extractNow(caseId);
@@ -3304,7 +3358,7 @@ const PersistentBanner = {
      */
     extractServerFromAffectedEnvironment(affectedEnvironment) {
         if (!affectedEnvironment) return null;
-        
+
         // Match patterns like NA05, EU01, AP02, CN01, CA01
         const match = affectedEnvironment.match(/(NA|EU|AP|CN|CA)\d{2}/i);
         return match ? match[0].toLowerCase() : null;
@@ -3335,7 +3389,7 @@ const PersistentBanner = {
      */
     startUrlMonitoring() {
         this.lastKnownUrl = window.location.href;
-        
+
         // Use NavigationObserver for immediate URL change detection
         if (typeof NavigationObserver !== 'undefined') {
             NavigationObserver.onRouteChange((newUrl) => {
@@ -3407,9 +3461,9 @@ const PersistentBanner = {
         if (this.actionFocusedMode.active && context && context.isCase) {
             const currentCaseId = context.caseId;
             const currentCaseNumber = context.caseNumber;
-            
-            if (this.actionFocusedMode.originalCaseId && 
-                currentCaseId && 
+
+            if (this.actionFocusedMode.originalCaseId &&
+                currentCaseId &&
                 currentCaseId !== this.actionFocusedMode.originalCaseId) {
                 // Case has changed - show warning
                 this.showStaleDataWarning(currentCaseNumber);
@@ -3434,10 +3488,10 @@ const PersistentBanner = {
         }
 
         const caseChanged = context.caseId !== this.currentCaseId;
-        const caseNumberChanged = context.caseNumber && 
-                                  this.displayedCaseNumber && 
-                                  context.caseNumber !== this.displayedCaseNumber;
-        
+        const caseNumberChanged = context.caseNumber &&
+            this.displayedCaseNumber &&
+            context.caseNumber !== this.displayedCaseNumber;
+
         // Case number mismatch is authoritative - clear stale data
         if (caseNumberChanged) {
             console.warn('[PersistentBanner] Case number mismatch detected in context change, clearing stale data', {
@@ -3458,20 +3512,20 @@ const PersistentBanner = {
 
         if (caseChanged || caseNumberChanged) {
             console.log(`[PersistentBanner] Case context changed to ${context.caseNumber || 'unknown'} (${context.caseId})`);
-            
+
             // Check for case navigation in action-focused mode
             if (this.actionFocusedMode.active && context && context.isCase) {
                 const currentCaseId = context.caseId;
                 const currentCaseNumber = context.caseNumber;
-                
-                if (this.actionFocusedMode.originalCaseId && 
-                    currentCaseId && 
+
+                if (this.actionFocusedMode.originalCaseId &&
+                    currentCaseId &&
                     currentCaseId !== this.actionFocusedMode.originalCaseId) {
                     // Case has changed - show warning
                     this.showStaleDataWarning(currentCaseNumber);
                 }
             }
-            
+
             this.stopDataPolling();
             this.clearCaseData(true);
             // Immediately update UI to clear stale data display
@@ -3506,7 +3560,7 @@ const PersistentBanner = {
 
         // Step 1: Validate URL - extract current URL fresh from window.location.href
         const currentUrl = window.location.href;
-        
+
         // Check if URL matches the one provided by CaseDataStore (if available)
         if (data.url && data.url !== currentUrl) {
             console.warn('[PersistentBanner] URL mismatch, rejecting update', {
@@ -3519,7 +3573,7 @@ const PersistentBanner = {
         // Step 2: Verify case ID matches current page
         if (data.caseId && this.currentCaseId && data.caseId !== this.currentCaseId) {
             console.warn('[PersistentBanner] Ignoring store data for different case', data.caseId, this.currentCaseId);
-            
+
             // Check for case navigation in action-focused mode
             if (this.actionFocusedMode.active) {
                 const currentContext = typeof CaseContextWatcher !== 'undefined' ? CaseContextWatcher.getCurrentContext?.() : null;
@@ -3527,7 +3581,7 @@ const PersistentBanner = {
                     this.showStaleDataWarning(currentContext.caseNumber);
                 }
             }
-            
+
             return;
         }
 
@@ -3551,12 +3605,12 @@ const PersistentBanner = {
         if (hasCaseNumber && !this.dataPollingInterval) {
             this.startDataPolling();
             this.currentPage.type = 'case_page';
-        } else {this.currentPage.type = pageIdentifier.identifyPage().type;}
-        
+        } else { this.currentPage.type = pageIdentifier.identifyPage().type; }
+
         // Stop polling if all primary metadata is captured
-        const hasAllPrimaryMetadata = this.currentPage.caseNumber && 
-                                     this.currentPage.subject && 
-                                     this.currentPage.status;
+        const hasAllPrimaryMetadata = this.currentPage.caseNumber &&
+            this.currentPage.subject &&
+            this.currentPage.status;
         if (hasAllPrimaryMetadata && this.dataPollingInterval) {
             console.log('[PersistentBanner] All primary metadata captured, stopping polling');
             this.stopDataPolling();
@@ -3576,7 +3630,7 @@ const PersistentBanner = {
 
         // Step 1: Validate URL - extract current URL fresh from window.location.href
         const currentUrl = window.location.href;
-        
+
         if (url && url !== currentUrl) {
             console.warn('[PersistentBanner] URL mismatch in field update, rejecting', {
                 updateUrl: url,
@@ -3655,10 +3709,10 @@ const PersistentBanner = {
      */
     handleUrlChange(newUrl) {
         console.log('[PersistentBanner] Handling URL change, resetting current page data');
-        
+
         // Clear case-specific data when navigating away (this also clears fullCaseMetadata and cancels retries)
         this.clearCaseData();
-        
+
         // Reset current page to initial state
         this.currentPage = {
             type: 'Unknown',
@@ -3669,10 +3723,10 @@ const PersistentBanner = {
             url: newUrl,
             timestamp: new Date().toISOString()
         };
-        
+
         // Update UI to reflect cleared state
         this.updateBannerUI();
-        
+
         // The content script will call updateCurrentPage with proper data after page analysis
         console.log('[PersistentBanner] Waiting for content script to update page data...');
     },
@@ -3682,28 +3736,28 @@ const PersistentBanner = {
      */
     clearCaseData(preserveContext = false) {
         console.log('[PersistentBanner] Clearing case-specific data');
-        
+
         // Stop polling when clearing data
         this.stopDataPolling();
-        
+
         // Cancel any pending retries
         this.cancelMetadataRetry();
-        
+
         // Clear full case metadata
         this.fullCaseMetadata = null;
-        
+
         // Clear current case ID
         if (!preserveContext) {
-        this.currentCaseId = null;
+            this.currentCaseId = null;
         }
-        
+
         // Clear displayed case tracking
         this.displayedCaseId = null;
         this.displayedCaseNumber = null;
-        
+
         // Stop customer time refresh
         this.stopCustomerTimeRefresh();
-        
+
         // Clear customer metadata
         this.customerMetadata = {
             customerId: null,
@@ -3721,15 +3775,15 @@ const PersistentBanner = {
             this.currentPage.status = null;
             this.currentPage.subStatus = null;
         }
-        
+
         // Reset environment menu state
         this.envMenuVisible = false;
-        
+
         // Clear CaseDataStore to prevent stale data
         if (typeof CaseDataStore !== 'undefined' && typeof CaseDataStore.clear === 'function') {
             CaseDataStore.clear('navigation');
         }
-        
+
         // Clear cached case data in window.ExLibrisExtension
         if (window.ExLibrisExtension) {
             if (window.ExLibrisExtension.caseToolkit) {
@@ -3738,13 +3792,13 @@ const PersistentBanner = {
             window.ExLibrisExtension.apiCaseData = null;
             window.ExLibrisExtension.apiCaseDataTimestamp = null;
         }
-        
+
         // Clear last extracted data in CasePageDataExtractor
         if (typeof CasePageDataExtractor !== 'undefined') {
             CasePageDataExtractor.lastExtractedData = null;
             CasePageDataExtractor.currentCaseId = null;
         }
-        
+
         console.log('[PersistentBanner] Case data cleared (including cached data and full metadata)');
     },
 
@@ -3799,7 +3853,7 @@ const PersistentBanner = {
             status: this.currentPage.status || null,
             accountCode: this.customerMetadata.accountCode || this.currentPage.accountCode || this.currentPage.exLibrisAccountNumber || null,
             accountName: this.customerMetadata.accountName || this.currentPage.accountName || null
-   
+
         };
 
         if (lastEntry && lastEntry.url === pageInfo.url) {
@@ -3810,9 +3864,9 @@ const PersistentBanner = {
                 }
             }
             console.log('[PersistentBanner:History] Last entry:', lastEntry);
-            
+
         }
-        
+
         this.navigationHistory.push(historyEntry);
 
         // Keep only last 3 items
@@ -3822,9 +3876,9 @@ const PersistentBanner = {
 
         // Save to sessionStorage
         this.saveNavigationHistory();
-        
+
         console.log('[PersistentBanner] Updated navigation history:', this.navigationHistory);
-        
+
         // Update UI
         this.updateNavigationHistoryUI();
     },
@@ -3839,22 +3893,22 @@ const PersistentBanner = {
         if (pageData.caseNumber || pageData.caseId) {
             // Get case ID from URL if not provided
             const caseId = pageData.caseId || this.getCaseIdFromUrl();
-            
+
             if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
                 let validation = PageContextValidator.validatePageContextBeforeDisplay(caseId, pageData.caseNumber);
-                
+
                 // Handle async validation (when waiting for title update)
                 if (validation instanceof Promise) {
                     validation = await validation;
                 }
-                
+
                 if (!validation.valid) {
                     // Case number mismatch is authoritative - always clear stale data
                     if (validation.currentContext) {
                         const caseIdMismatch = caseId && caseId !== validation.currentContext.caseId;
-                        const caseNumberMismatch = pageData.caseNumber && validation.currentContext.caseNumber && 
-                                                   pageData.caseNumber !== validation.currentContext.caseNumber;
-                        
+                        const caseNumberMismatch = pageData.caseNumber && validation.currentContext.caseNumber &&
+                            pageData.caseNumber !== validation.currentContext.caseNumber;
+
                         if (caseIdMismatch || caseNumberMismatch) {
                             console.warn(`[PersistentBanner] Cannot update page: ${validation.reason}`, {
                                 caseIdMismatch,
@@ -3864,9 +3918,9 @@ const PersistentBanner = {
                                 currentCaseId: validation.currentContext.caseId,
                                 currentCaseNumber: validation.currentContext.caseNumber
                             });
-                        this.clearCaseData();
+                            this.clearCaseData();
                             this.updateBannerUI();
-                        return;
+                            return;
                         }
                     } else {
                         // No current context - clear stale data
@@ -3878,12 +3932,12 @@ const PersistentBanner = {
                 }
             }
         }
-        
+
         // Normalize page type - store raw type for internal logic, display name for UI
         const rawPageType = pageData.type || 'Unknown';
         // Convert display name back to raw type if needed for logic checks
         const normalizedType = this.normalizePageType(rawPageType);
-        
+
         this.currentPage = {
             type: normalizedType,  // Store raw type for logic checks
             displayType: this.getPageTypeDisplayName(normalizedType),  // Store display name for UI
@@ -3896,7 +3950,7 @@ const PersistentBanner = {
         };
 
         console.log('[PersistentBanner] Updated current page:', this.currentPage);
-        
+
         // Track displayed case for validation
         if (pageData.caseNumber) {
             this.displayedCaseNumber = pageData.caseNumber;
@@ -3904,10 +3958,10 @@ const PersistentBanner = {
         if (pageData.caseId) {
             this.displayedCaseId = pageData.caseId;
         }
-        
+
         // Update UI
         this.updateBannerUI();
-        
+
         // Add to navigation history
         this.addToNavigationHistory({
             type: this.currentPage.type,
@@ -4064,11 +4118,11 @@ const PersistentBanner = {
 
         const COLLAPSE_THRESHOLD = 175; // Collapse when width < 175px
         const EXPAND_THRESHOLD = 190; // Expand when width >= 190px
-        
+
         // Only check if the section is visible
-        const isVisible = this.elements.messagesSection.style.display !== 'none' && 
-                        window.getComputedStyle(this.elements.messagesSection).display !== 'none';
-        
+        const isVisible = this.elements.messagesSection.style.display !== 'none' &&
+            window.getComputedStyle(this.elements.messagesSection).display !== 'none';
+
         if (!isVisible) return;
 
         const width = this.elements.messagesSection.offsetWidth;
@@ -4110,7 +4164,7 @@ const PersistentBanner = {
             });
 
             resizeObserver.observe(this.elements.messagesSection);
-            
+
             // Store observer for cleanup
             if (!this.trackedObservers) {
                 this.trackedObservers = [];
@@ -4155,7 +4209,7 @@ const PersistentBanner = {
             };
 
             window.addEventListener('resize', handleResize);
-            
+
             // Store listener for cleanup
             if (!this.trackedListeners) {
                 this.trackedListeners = [];
@@ -4225,7 +4279,7 @@ const PersistentBanner = {
                 window.location.href = url;
             }
         });
-        
+
         // Handle message navigation buttons
         if (this.elements.messagePrevBtn) {
             this.elements.messagePrevBtn.addEventListener('click', (e) => {
@@ -4233,25 +4287,25 @@ const PersistentBanner = {
                 this.rotateToPreviousMessage();
             });
         }
-        
+
         if (this.elements.messageNextBtn) {
             this.elements.messageNextBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.rotateToNextMessage();
             });
         }
-        
+
         // Setup pause-on-hover for message content
         if (this.elements.messageContent) {
             this.registerListener(this.elements.messageContent, 'mouseenter', () => {
                 this.pauseMessageRotation();
             });
-            
+
             this.registerListener(this.elements.messageContent, 'mouseleave', () => {
                 this.resumeMessageRotation();
             });
         }
-        
+
         // Add dropdown button to message index
         if (this.elements.messageIndex) {
             this.elements.messageIndex.style.cursor = 'pointer';
@@ -4261,7 +4315,7 @@ const PersistentBanner = {
                 this.showMessageDropdown();
             });
         }
-        
+
         // Handle close button
         const closeBtn = banner.querySelector('.exl-hl-banner-close-btn');
         if (closeBtn) {
@@ -4286,20 +4340,20 @@ const PersistentBanner = {
             if (menuItem) {
                 const toolName = menuItem.dataset.tool;
                 const action = menuItem.dataset.action;
-                
+
                 // Check if menu item is disabled
                 if (menuItem.disabled || menuItem.classList.contains('exl-disabled')) {
                     console.log('[PersistentBanner] Menu item is disabled, ignoring click');
                     event.stopPropagation();
                     return;
                 }
-                
+
                 if (toolName) {
                     this.handleToolClick(toolName);
                 } else if (action) {
                     this.handleAction(action);
                 }
-                
+
                 this.hidePopupMenu();
                 event.stopPropagation();
                 return;
@@ -4320,7 +4374,7 @@ const PersistentBanner = {
                 event.preventDefault();
                 event.target.click();
             }
-            
+
             // Handle Escape to close popups
             if (event.key === 'Escape' && this.activePopup) {
                 this.hidePopupMenu();
@@ -4337,7 +4391,7 @@ const PersistentBanner = {
      */
     handleAction(action) {
         console.log('[PersistentBanner] Action triggered:', action);
-        
+
         switch (action) {
             case 'refresh':
                 this.handleRefresh();
@@ -4367,14 +4421,14 @@ const PersistentBanner = {
      */
     async handleRefresh() {
         console.log('[PersistentBanner] Refresh button clicked');
-        
+
         this.showNotification('Refreshing banner data...', 'info');
-        
+
         try {
             const caseId = this.getCaseIdFromUrl();
-            
+
             // Handle non-case pages
-                if (!caseId) {
+            if (!caseId) {
                 if (typeof PageIdentifier !== 'undefined') {
                     const pageInfo = PageIdentifier.identifyPage(window.location.href);
                     const displayType = this.getPageTypeDisplayName(pageInfo.type);
@@ -4391,26 +4445,26 @@ const PersistentBanner = {
                 }
                 return;
             }
-            
+
             // Save original scroll position
             const originalScrollTop = window.pageYOffset || document.documentElement.scrollTop || 0;
             console.log('[PersistentBanner] Saved scroll position:', originalScrollTop);
-            
+
             // Clear current case data (prevents stale data display)
             this.clearCaseData();
-            
+
             // Clear toolkit cache if available
-            if (typeof window.ExLibrisExtension !== 'undefined' && 
+            if (typeof window.ExLibrisExtension !== 'undefined' &&
                 window.ExLibrisExtension.caseToolkit) {
                 window.ExLibrisExtension.caseToolkit.caseData = null;
                 console.log('[PersistentBanner] Cleared toolkit cache');
             }
-            
+
             // Step 1: Scroll to load all content (like "Prepare Tools")
             let scrollStats = null;
-            const hasScrollController = typeof ScrollController !== 'undefined' && 
-                                       typeof ScrollController.ensureFullPageLoad === 'function';
-            
+            const hasScrollController = typeof ScrollController !== 'undefined' &&
+                typeof ScrollController.ensureFullPageLoad === 'function';
+
             if (hasScrollController) {
                 console.log('[PersistentBanner] Using ScrollController.ensureFullPageLoad()');
                 this.showNotification('Scrolling to load all content...', 'info');
@@ -4422,16 +4476,16 @@ const PersistentBanner = {
                 this.showNotification('Scrolling to load content...', 'info');
                 scrollStats = await this.scrollToLoadContent();
             }
-            
+
             // Step 2: Extract case data after scrolling
             this.showNotification('Extracting case data...', 'info');
-            
+
             // Priority 1: CasePageDataExtractor.extractNow() (preferred - event-driven)
-            if (typeof CasePageDataExtractor !== 'undefined' && 
+            if (typeof CasePageDataExtractor !== 'undefined' &&
                 typeof CasePageDataExtractor.extractNow === 'function') {
                 console.log('[PersistentBanner] Using CasePageDataExtractor.extractNow()');
                 const extractedData = await CasePageDataExtractor.extractNow();
-                
+
                 if (extractedData) {
                     // Event dispatched automatically, triggers update via setupCaseDataListener()
                     // Restore scroll position
@@ -4441,13 +4495,13 @@ const PersistentBanner = {
                 }
                 console.warn('[PersistentBanner] CasePageDataExtractor.extractNow() returned no data');
             }
-            
+
             // Priority 2: ExLibrisExtension.getCaseData() with forceRefresh
-            if (typeof window.ExLibrisExtension !== 'undefined' && 
+            if (typeof window.ExLibrisExtension !== 'undefined' &&
                 typeof window.ExLibrisExtension.getCaseData === 'function') {
                 console.log('[PersistentBanner] Using ExLibrisExtension.getCaseData() with forceRefresh');
                 const caseData = await window.ExLibrisExtension.getCaseData(caseId, { forceRefresh: true });
-                
+
                 if (caseData) {
                     await this.updateCurrentPage({
                         type: 'Case',
@@ -4456,7 +4510,7 @@ const PersistentBanner = {
                         status: caseData.status,
                         subStatus: caseData.subStatus
                     });
-                    
+
                     if (caseData.custID || caseData.instID || caseData.server) {
                         this.customerMetadata = {
                             customerId: caseData.custID || null,
@@ -4466,7 +4520,7 @@ const PersistentBanner = {
                             institutionCode: caseData.exLibrisAccountNumber || null
                         };
                     }
-                    
+
                     this.updateBannerUI();
                     // Restore scroll position
                     window.scrollTo({ top: originalScrollTop, behavior: 'auto' });
@@ -4475,12 +4529,12 @@ const PersistentBanner = {
                 }
                 console.warn('[PersistentBanner] ExLibrisExtension.getCaseData() returned no data');
             }
-            
+
             // Priority 3: Fallback to CaseDataExtractor.getData()
             if (typeof CaseDataExtractor !== 'undefined') {
                 console.log('[PersistentBanner] Using CaseDataExtractor.getData() as fallback');
                 const freshData = await CaseDataExtractor.getData();
-                
+
                 if (freshData) {
                     await this.updateCurrentPage({
                         type: 'Case',
@@ -4489,7 +4543,7 @@ const PersistentBanner = {
                         status: freshData.status,
                         subStatus: freshData.subStatus
                     });
-                    
+
                     if (freshData.custID || freshData.instID || freshData.server) {
                         this.customerMetadata = {
                             customerId: freshData.custID || null,
@@ -4502,7 +4556,7 @@ const PersistentBanner = {
 
                         };
                     }
-                    
+
                     this.updateBannerUI();
                     // Restore scroll position
                     window.scrollTo({ top: originalScrollTop, behavior: 'auto' });
@@ -4511,13 +4565,13 @@ const PersistentBanner = {
                 }
                 console.warn('[PersistentBanner] CaseDataExtractor.getData() returned no data');
             }
-            
+
             // All methods failed
             console.error('[PersistentBanner] All extraction methods failed or unavailable');
             // Restore scroll position even on failure
             window.scrollTo({ top: originalScrollTop, behavior: 'auto' });
             this.showNotification('Unable to refresh: No data extractors available', 'error');
-            
+
         } catch (error) {
             console.error('[PersistentBanner] Error refreshing banner data:', error);
             this.showNotification('Error refreshing data: ' + (error.message || 'Unknown error'), 'error');
@@ -4532,7 +4586,7 @@ const PersistentBanner = {
         const STEP_PX = 800;
         const DELAY_MS = 150;
         const MAX_SCROLLS = 50;
-        
+
         const stats = {
             totalScrolled: 0,
             iterations: 0,
@@ -4541,25 +4595,25 @@ const PersistentBanner = {
             duration: 0,
             startTime: performance.now()
         };
-        
+
         let lastScrollHeight = 0;
         let unchangedCount = 0;
-        
+
         console.log('[PersistentBanner] Starting incremental scroll, initial height:', stats.startScrollHeight);
-        
+
         for (let i = 0; i < MAX_SCROLLS; i++) {
             stats.iterations = i + 1;
-            
+
             // Get current scroll position and height
             const currentScrollHeight = document.documentElement.scrollHeight;
             const currentScrollTop = window.pageYOffset || document.documentElement.scrollTop;
-            
+
             // Check if we've reached the bottom
             if (currentScrollTop + window.innerHeight >= currentScrollHeight - 10) {
                 console.log('[PersistentBanner] Reached bottom after', stats.iterations, 'iterations');
                 break;
             }
-            
+
             // Check if content is still loading
             if (currentScrollHeight === lastScrollHeight) {
                 unchangedCount++;
@@ -4570,26 +4624,26 @@ const PersistentBanner = {
             } else {
                 unchangedCount = 0;
             }
-            
+
             lastScrollHeight = currentScrollHeight;
-            
+
             // Scroll by step
             window.scrollBy(0, STEP_PX);
             stats.totalScrolled += STEP_PX;
-            
+
             // Wait for content to load
             await new Promise(resolve => setTimeout(resolve, DELAY_MS));
         }
-        
+
         // Scroll back to top
         window.scrollTo({ top: 0, behavior: 'auto' });
-        
+
         // Wait for any final renders
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         stats.endScrollHeight = document.documentElement.scrollHeight;
         stats.duration = performance.now() - stats.startTime;
-        
+
         console.log('[PersistentBanner] Incremental scroll complete:', stats);
         return stats;
     },
@@ -4612,17 +4666,17 @@ const PersistentBanner = {
 
         // Force refresh of cached case data to ensure we're using current page data
         console.log('[PersistentBanner] Forcing refresh of case data before comment extraction');
-        if (typeof window.ExLibrisExtension !== 'undefined' && 
+        if (typeof window.ExLibrisExtension !== 'undefined' &&
             typeof CaseDataExtractor !== 'undefined') {
             try {
                 // Clear cached data
                 if (window.ExLibrisExtension.caseToolkit) {
                     window.ExLibrisExtension.caseToolkit.caseData = null;
                 }
-                
+
                 // Extract fresh data from current page
                 const freshCaseData = await CaseDataExtractor.getData();
-                
+
                 // Update toolkit cache
                 if (window.ExLibrisExtension.caseToolkit && freshCaseData) {
                     window.ExLibrisExtension.caseToolkit.caseData = freshCaseData;
@@ -4636,7 +4690,7 @@ const PersistentBanner = {
         try {
             // Get fresh comments data from current page (await the async function)
             const data = await CaseCommentExtractor.extractCaseComments();
-            
+
             if (!data || !data.comments || data.comments.length === 0) {
                 this.showNotification(
                     'No comments found. Make sure you are on the Communications tab and Case Comments section is loaded.',
@@ -4649,13 +4703,13 @@ const PersistentBanner = {
 
             // Re-initialize the extractor to use current page elements
             CaseCommentExtractor.initialize();
-            
+
             // Wait for the buttons to be injected
             await new Promise(resolve => setTimeout(resolve, 1000));
 
             // Check if buttons were actually injected
             const injectedButtons = document.querySelectorAll('[data-cc-extractor="true"]');
-            
+
             if (injectedButtons.length > 0) {
                 this.showNotification(
                     `Found ${data.comments.length} comment(s). Copy buttons injected successfully.`,
@@ -4694,35 +4748,35 @@ const PersistentBanner = {
         }
 
         console.log('[PersistentBanner] Preparing case detail extraction...');
-        
+
         // Step 1: Get or extract case data intelligently
         let caseData = null;
         let caseId = null;
-        
+
         // Try to get case ID from URL
         const urlMatch = window.location.pathname.match(/\/lightning\/r\/Case\/([a-zA-Z0-9]{15,18})/);
         if (urlMatch) {
             caseId = urlMatch[1];
             console.log('[PersistentBanner] Detected case ID from URL:', caseId);
         }
-        
+
         // Try to get from cached toolkit first
-        if (window.ExLibrisExtension && 
-            window.ExLibrisExtension.caseToolkit && 
+        if (window.ExLibrisExtension &&
+            window.ExLibrisExtension.caseToolkit &&
             window.ExLibrisExtension.caseToolkit.caseData &&
             window.ExLibrisExtension.currentCaseId === caseId) {
             caseData = window.ExLibrisExtension.caseToolkit.caseData;
             console.log('[PersistentBanner] Using cached case data for extraction:', caseData.caseNumber);
         }
-        
+
         // If no cached data or case ID mismatch, extract fresh data
         if (!caseData && typeof CaseDataExtractor !== 'undefined') {
             console.log('[PersistentBanner] No cached data available, extracting fresh case data...');
             this.showNotification('Loading case data...', 'info');
-            
+
             try {
                 caseData = await CaseDataExtractor.getData();
-                
+
                 // Update toolkit cache
                 if (window.ExLibrisExtension && window.ExLibrisExtension.caseToolkit && caseData) {
                     window.ExLibrisExtension.caseToolkit.caseData = caseData;
@@ -4735,17 +4789,17 @@ const PersistentBanner = {
                 return;
             }
         }
-        
+
         if (!caseData) {
             this.showNotification('Could not extract case data. Please try again.', 'error');
             return;
         }
-        
+
         console.log('[PersistentBanner] Case data ready for extraction, showing format menu...');
 
         // Step 2: Show format selection menu
         const formatChoice = await this.showFormatMenu();
-        
+
         if (!formatChoice) {
             console.log('[PersistentBanner] Case detail extraction cancelled');
             return;
@@ -4754,7 +4808,7 @@ const PersistentBanner = {
         // Step 3: Extract and copy based on selected format
         try {
             let result;
-            
+
             if (formatChoice === 'xml') {
                 console.log('[PersistentBanner] Extracting case details as XML...');
                 result = await CaseDetailExtractor.copyAsXML();
@@ -4762,7 +4816,7 @@ const PersistentBanner = {
                 console.log('[PersistentBanner] Extracting case details as TSV...');
                 result = await CaseDetailExtractor.copyAsTSV();
             }
-            
+
             if (result && result.success) {
                 this.showNotification(result.message + ` (Case: ${caseData.caseNumber})`, 'success');
             } else {
@@ -4941,12 +4995,12 @@ const PersistentBanner = {
             'Search': 'search_page',
             'Unknown': 'unknown'
         };
-        
+
         // If it's a display name, convert to raw type
         if (reverseMap[pageType]) {
             return reverseMap[pageType];
         }
-        
+
         // Otherwise assume it's already a raw type
         return pageType;
     },
@@ -4967,7 +5021,7 @@ const PersistentBanner = {
             'search_page': 'Search',
             'unknown': 'Unknown'
         };
-        
+
         return displayNames[pageType] || pageType;
     },
 
@@ -4976,12 +5030,12 @@ const PersistentBanner = {
      */
     updateBannerUI() {
         if (!this.elements.pageType) return;
-        
+
         // Update page type styling based on raw type
         const rawType = this.currentPage.type;
         this.elements.pageType.className = 'exl-banner-page-type';
         this.elements.pageType.classList.add(`exl-page-${rawType.toLowerCase().replace(/\s+/g, '-').replace(/_/g, '-')}`);
-        
+
         // For case pages and case comment pages, show case number instead of display name
         if (rawType === 'case_page' || rawType === 'case_comments') {
             const caseNumber = this.currentPage.caseNumber || '—';
@@ -4998,13 +5052,13 @@ const PersistentBanner = {
         const isCaseComments = rawType === 'case_comments';
         const metadataSection = this.elements.metadataSection;
         const messagesSection = this.elements.messagesSection;
-        
+
         if (isCasePage || isCaseComments) {
             // Case page or case comments - show metadata and optionally messages
             // Check extraction state for case pages
             if (isCasePage) {
                 const extractionState = this.isCaseDataExtractionComplete();
-                
+
                 if (extractionState.complete && extractionState.hasData) {
                     // Extraction complete - show case data
                     if (metadataSection) {
@@ -5030,10 +5084,10 @@ const PersistentBanner = {
                     metadataSection.style.display = 'flex';
                 }
             }
-            
+
             // Update metadata fields (will show '—' if no data)
             this.updateMetadataFields();
-            
+
             // Check if should show messages (messages can now appear on case pages)
             this.shouldShowMessages().then(showMessages => {
                 if (showMessages) {
@@ -5059,13 +5113,13 @@ const PersistentBanner = {
                     this.stopMessageRotation();
                 }
             });
-            
+
         } else {
             // NOT a case page or case comments - show messages if enabled
             if (metadataSection) {
                 metadataSection.style.display = 'none';
             }
-            
+
             // Check if should show messages
             this.shouldShowMessages().then(showMessages => {
                 if (showMessages) {
@@ -5092,7 +5146,7 @@ const PersistentBanner = {
                 }
             });
         }
-        
+
         // Update banner background based on case status
         this.updateBannerBackground();
     },
@@ -5112,7 +5166,7 @@ const PersistentBanner = {
         if (this.elements.subStatus) {
             this.elements.subStatus.textContent = this.currentPage.subStatus || '—';
         }
-        
+
         // Update customer metadata
         if (this.elements.product) {
             this.elements.product.textContent = this.customerMetadata.productServiceName || '—';
@@ -5132,12 +5186,12 @@ const PersistentBanner = {
         if (this.elements.timezone) {
             this.elements.timezone.textContent = this.customerMetadata.timezone || '—';
         }
-        
+
         // Update timezone and customer time
         this.updateTimezoneDisplay();
         this.updateCustomerTime();
         this.startCustomerTimeRefresh();
-        
+
         // Combine status and substatus
         if (this.elements.status) {
             if (this.currentPage.subStatus && this.currentPage.subStatus !== '—') {
@@ -5146,16 +5200,16 @@ const PersistentBanner = {
                 this.elements.status.textContent = this.currentPage.status || '—';
             }
         }
-        
+
         // Hide substatus field (combined with status)
         if (this.elements.substatusItem) {
             this.elements.substatusItem.style.display = 'none';
         }
-        
+
         // Check customer data completeness and show notification if needed
         this.checkAndShowCustomerDataNotification();
     },
-    
+
     /**
      * Get customer timezone from case data or lookup helper
      * @returns {Promise<string|null>} Timezone string or null
@@ -5173,7 +5227,7 @@ const PersistentBanner = {
             institutionCode: this.customerMetadata.institutionCode || this.currentPage.institutionCode || null,
             customerId: this.customerMetadata.customerId || this.customerMetadata.custId || this.currentPage.custId || this.currentPage.customerId || null,
             instID: this.customerMetadata.institutionId || this.customerMetadata.instId || this.currentPage.instId || this.currentPage.institutionId || null,
-            accountName: this.currentPage?.accountName || this.customerMetadata.accountName || this.data.accountName || this.customerMetadata.exLibrisAccountNumber || null
+            accountName: this.currentPage?.accountName || this.customerMetadata?.accountName || this.fullCaseMetadata?.accountName || null
         };
 
         if (typeof CustomerMasterManager !== 'undefined') {
@@ -5189,18 +5243,18 @@ const PersistentBanner = {
 
         return null;
     },
-    
+
     /**
      * Update timezone display in metadata
      */
     async updateTimezoneDisplay() {
         if (!this.elements.timezone) return;
-        
+
         // Get timezone if not already stored
         if (!this.customerMetadata.timezone) {
             this.customerMetadata.timezone = await this.getCustomerTimezone();
         }
-        
+
         const timezone = this.customerMetadata.timezone;
         if (timezone) {
             // Format timezone for display (e.g., "America/New_York" -> "America/New York")
@@ -5210,19 +5264,19 @@ const PersistentBanner = {
             this.elements.timezone.textContent = '—';
         }
     },
-    
+
     /**
      * Update customer time display
      */
     updateCustomerTime() {
         if (!this.elements.customerTime) return;
-        
+
         const timezone = this.customerMetadata.timezone;
         if (!timezone) {
             this.elements.customerTime.textContent = '—';
             return;
         }
-        
+
         try {
             // Get current time in customer timezone
             const now = new Date();
@@ -5233,7 +5287,7 @@ const PersistentBanner = {
                 second: '2-digit',
                 hour12: false
             });
-            
+
             const timeString = formatter.format(now);
             this.elements.customerTime.textContent = timeString;
         } catch (error) {
@@ -5241,7 +5295,7 @@ const PersistentBanner = {
             this.elements.customerTime.textContent = '—';
         }
     },
-    
+
     /**
      * Start customer time refresh interval (30 seconds)
      */
@@ -5251,24 +5305,24 @@ const PersistentBanner = {
             clearInterval(this.customerTimeInterval);
             this.customerTimeInterval = null;
         }
-        
+
         // Only start if we have a timezone
         if (!this.customerMetadata.timezone) {
             return;
         }
-        
+
         // Update immediately
         this.updateCustomerTime();
-        
+
         // Set up 30-second interval
         this.customerTimeInterval = setInterval(() => {
             this.updateCustomerTime();
         }, 30000);
-        
+
         // Track interval for cleanup
         this.trackedTimers.push(this.customerTimeInterval);
     },
-    
+
     /**
      * Stop customer time refresh interval
      */
@@ -5284,13 +5338,13 @@ const PersistentBanner = {
      */
     checkAndShowCustomerDataNotification() {
         const completeness = this.checkCustomerDataCompleteness();
-        
+
         if (completeness.missing) {
             // Show notification
             if (this.elements.customerDataNotification) {
                 this.elements.customerDataNotification.style.display = 'flex';
-        }
-            
+            }
+
             // Hide missing metadata fields
             if (completeness.missingFields.includes('custID') && this.elements.custId) {
                 this.elements.custId.closest('.exl-banner-meta-item')?.style.setProperty('display', 'none');
@@ -5305,8 +5359,8 @@ const PersistentBanner = {
             // Hide notification
             if (this.elements.customerDataNotification) {
                 this.elements.customerDataNotification.style.display = 'none';
-        }
-        
+            }
+
             // Show all metadata fields
             if (this.elements.custId) {
                 this.elements.custId.closest('.exl-banner-meta-item')?.style.setProperty('display', 'inline');
@@ -5329,15 +5383,15 @@ const PersistentBanner = {
         const institutionCode = this.customerMetadata.institutionCode || this.currentPage.institutionCode || this.customerMetadata.instCode || null;
         const accountCode = this.customerMetadata.accountCode || this.currentPage.accountCode || this.currentPage.exLibrisAccountNumber || null;
         const accountName = this.customerMetadata.accountName || this.currentPage.accountName || null;
-        
-        
+
+
         // if (!institutionCode && !accountName) {
         //     return { missing: false, reason: null, missingFields: [] };
         // }
 
         // Check critical fields
         const criticalFields = {
-            instCode: this.customerMetadata.institutionCode,   
+            instCode: this.customerMetadata.institutionCode,
             institutionCode: this.customerMetadata.institutionCode,
             custID: this.customerMetadata.customerId,
             customerId: this.customerMetadata.customerId,
@@ -5361,16 +5415,16 @@ const PersistentBanner = {
 
         // Check if customer exists in CustomerMasterManager or UserCustomerDataManager
         let customerFound = false;
-        
+
         // Check UserCustomerDataManager first (user-added data takes priority)
         if (typeof UserCustomerDataManager !== 'undefined') {
-            const userCustomer = UserCustomerDataManager.lookupInDataset(criticalFields);
+            const userCustomer = UserCustomerDataManager.findByInstitutionCode(institutionCode, accountName);
             if (userCustomer) {
                 // Check if user customer has all critical fields
                 const userHasAllFields = userCustomer.custID && userCustomer.instID && userCustomer.server;
                 if (userHasAllFields) {
                     return { missing: false, reason: null, missingFields: [] };
-        }
+                }
                 customerFound = true;
             }
         }
@@ -5422,16 +5476,16 @@ const PersistentBanner = {
         // Check if we're on a case page with a status
         if (this.currentPage.type === 'case_page' && this.currentPage.status) {
             const statusConfig = this.STATUS_COLORS[this.currentPage.status];
-            
+
             if (statusConfig) {
                 // Create gradient using the status color
                 const baseColor = statusConfig.base;
                 const gradient = this.createStatusGradient(baseColor);
                 this.elements.banner.style.background = gradient;
-                
+
                 // Update accent colors to match status
                 this.updateAccentColors(baseColor);
-                
+
                 console.log(`[PersistentBanner] Applied ${statusConfig.category} gradient and accent colors for status: ${this.currentPage.status}`);
             } else {
                 // Unknown status - use default gradient and reset accents
@@ -5445,14 +5499,14 @@ const PersistentBanner = {
             this.updateAccentColors(null);
         }
     },
-    
+
     /**
      * Update accent colors (borders, buttons) to match status color
      * @param {string|null} statusColor - Status color in rgb() format, or null to reset
      */
     updateAccentColors(statusColor) {
         if (!this.elements.banner) return;
-        
+
         // Update page type border-left color
         if (this.elements.pageType) {
             if (statusColor) {
@@ -5462,7 +5516,7 @@ const PersistentBanner = {
                 this.elements.pageType.style.borderLeftColor = '';
             }
         }
-        
+
         // Update button colors (use status color as background)
         const buttons = this.elements.banner.querySelectorAll('.exl-banner-btn, .exl-popup-trigger');
         buttons.forEach(button => {
@@ -5478,7 +5532,7 @@ const PersistentBanner = {
                 button.style.borderColor = '';
             }
         });
-        
+
         // Update popup menu item hover colors
         const popupItems = this.elements.banner.querySelectorAll('.exl-popup-menu-item:not(.exl-disabled)');
         popupItems.forEach(item => {
@@ -5532,17 +5586,17 @@ const PersistentBanner = {
             const relativeIndex = caseHistory.length - index;
             const institutionCode = item.institutionCode || '';
             const subject = item.subject || '';
-            
+
             // Get status color for this history item
             let statusColor = null;
             let statusCategory = null;
             let backgroundColor = 'rgba(255, 255, 255, 0.05)'; // Default transparency
-            
+
             if (item.status && this.STATUS_COLORS[item.status]) {
                 const statusConfig = this.STATUS_COLORS[item.status];
                 statusColor = statusConfig.base;
                 statusCategory = statusConfig.category;
-                
+
                 // For red and orange statuses, use less transparent background
                 if (statusCategory === 'red' || statusCategory === 'orange') {
                     backgroundColor = this.rgbToRgba(statusColor, 0.15);
@@ -5550,7 +5604,7 @@ const PersistentBanner = {
                     backgroundColor = this.rgbToRgba(statusColor, 0.05);
                 }
             }
-            
+
             // Build tooltip with case details
             const tooltipParts = [];
             if (item.caseNumber) tooltipParts.push(`Case: ${item.caseNumber}`);
@@ -5562,10 +5616,10 @@ const PersistentBanner = {
             if (item.server) tooltipParts.push(`Server: ${item.server}`);
             if (item.status) tooltipParts.push(`Status: ${item.status}`);
             const tooltip = tooltipParts.join('\n');
-            
+
             // Build style string for history item
             const itemStyle = `background-color: ${backgroundColor};${statusColor ? ` border-left-color: ${statusColor};` : ''}`;
-            
+
             return `
                 <div class="exl-banner-history-item" data-history-url="${item.url}" title="${tooltip || 'No details available'}" style="${itemStyle}">
                     <span class="exl-history-number">${relativeIndex}</span>
@@ -5601,7 +5655,7 @@ const PersistentBanner = {
         if (!rgbString || !rgbString.startsWith('rgb(')) {
             return `rgba(255, 255, 255, ${opacity})`;
         }
-        
+
         // Extract RGB values: "rgb(107, 9, 40)" -> ["107", "9", "40"]
         const match = rgbString.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
         if (match) {
@@ -5610,7 +5664,7 @@ const PersistentBanner = {
             const b = match[3];
             return `rgba(${r}, ${g}, ${b}, ${opacity})`;
         }
-        
+
         return `rgba(255, 255, 255, ${opacity})`;
     },
 
@@ -5621,7 +5675,7 @@ const PersistentBanner = {
         const tryInject = () => {
             // Try multiple injection strategies
             const injectionPoint = this.findInjectionPoint();
-            
+
             if (injectionPoint && !document.getElementById(this.bannerId)) {
                 this.injectBanner(injectionPoint);
                 return true;
@@ -5645,7 +5699,7 @@ const PersistentBanner = {
             childList: true,
             subtree: true
         });
-        
+
         // Track observer for cleanup
         this.registerObserver(observer);
 
@@ -5692,7 +5746,7 @@ const PersistentBanner = {
         }
 
         console.log('[PersistentBanner] Injected into:', targetElement);
-        
+
         // Initial UI update
         this.updateBannerUI();
         this.updateNavigationHistoryUI();
@@ -5730,7 +5784,7 @@ const PersistentBanner = {
                 return false;
             }
         }
-        
+
         // Check messages.enabled setting
         return new Promise((resolve) => {
             chrome.storage.sync.get(['exlibris'], (result) => {
@@ -5748,11 +5802,11 @@ const PersistentBanner = {
         if (typeof CasePageDataExtractor === 'undefined') {
             return { complete: false, hasData: false, isExtracting: false };
         }
-        
+
         const isExtracting = CasePageDataExtractor.isExtracting || false;
         const hasData = CasePageDataExtractor.lastExtractedData !== null;
         const complete = !isExtracting && hasData;
-        
+
         return {
             complete: complete,
             hasData: hasData,
@@ -5768,14 +5822,14 @@ const PersistentBanner = {
         return new Promise((resolve) => {
             chrome.storage.sync.get(['exlibris'], (result) => {
                 const messagesConfig = result.exlibris?.persistentBanner?.messages;
-                
+
                 if (!messagesConfig) {
                     this.activeMessages = [];
                     this.messageSettings = null;
                     resolve();
                     return;
                 }
-                
+
                 this.messageSettings = messagesConfig;
                 this.activeMessages = this.getActiveMessages(messagesConfig);
                 console.log(`[PersistentBanner] Loaded ${this.activeMessages.length} active messages`);
@@ -5791,7 +5845,7 @@ const PersistentBanner = {
      */
     getActiveMessages(messagesConfig) {
         const active = [];
-        
+
         // Add enabled default messages if default messages are enabled
         if (messagesConfig.defaultMessages?.enabled && messagesConfig.defaultMessages?.items) {
             messagesConfig.defaultMessages.items.forEach(msg => {
@@ -5809,7 +5863,7 @@ const PersistentBanner = {
                 }
             });
         }
-        
+
         // Add enabled custom messages
         if (messagesConfig.customMessages && Array.isArray(messagesConfig.customMessages)) {
             messagesConfig.customMessages.forEach(msg => {
@@ -5827,17 +5881,17 @@ const PersistentBanner = {
                 }
             });
         }
-        
+
         return active;
     },
 
     /**
      * Start message rotation timer
      */
-    
+
     startMessageRotation() {
 
-    if (window.ExLibrisExtension.lastUrl !== null && window.ExLibrisExtension.lastUrl !== window.location.href) {
+        if (window.ExLibrisExtension.lastUrl !== null && window.ExLibrisExtension.lastUrl !== window.location.href) {
             this.stopMessageRotation(); // Clear any existing timer
 
             if (!this.messageSettings || !this.messageSettings.autoRotate) {
@@ -5878,7 +5932,7 @@ const PersistentBanner = {
      */
     rotateToNextMessage() {
         if (this.activeMessages.length === 0) return;
-        
+
         this.currentMessageIndex = (this.currentMessageIndex + 1) % this.activeMessages.length;
         this.updateMessageDisplay();
     },
@@ -5888,7 +5942,7 @@ const PersistentBanner = {
      */
     rotateToPreviousMessage() {
         if (this.activeMessages.length === 0) return;
-        
+
         this.currentMessageIndex = (this.currentMessageIndex - 1 + this.activeMessages.length) % this.activeMessages.length;
         this.updateMessageDisplay();
     },
@@ -5899,7 +5953,7 @@ const PersistentBanner = {
      */
     rotateToMessage(index) {
         if (this.activeMessages.length === 0) return;
-        
+
         if (index >= 0 && index < this.activeMessages.length) {
             this.currentMessageIndex = index;
             this.updateMessageDisplay();
@@ -5914,10 +5968,10 @@ const PersistentBanner = {
      */
     renderMessage(messageText) {
         if (!messageText) return '';
-        
+
         // Split by newlines - no line limit (supports up to 4000 chars)
         const lines = messageText.split('\n');
-        
+
         // Apply dynamic spacing based on line count
         let lineClass = 'message-line';
         if (lines.length === 1) {
@@ -5927,14 +5981,14 @@ const PersistentBanner = {
         } else {
             lineClass = 'message-line message-line-triple';
         }
-        
+
         // Escape HTML and render lines (CSP compliant)
         const escapeHtml = (text) => {
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
         };
-        
+
         return lines.map(line => {
             const escaped = escapeHtml(line.trim());
             return `<div class="${lineClass}">${escaped}</div>`;
@@ -5946,26 +6000,26 @@ const PersistentBanner = {
      */
     updateMessageDisplay() {
         if (!this.elements.messageContent || !this.elements.messageIndex) return;
-        
+
         if (this.activeMessages.length === 0) {
             this.elements.messageContent.innerHTML = '<div class="message-line">No messages available</div>';
             this.elements.messageIndex.textContent = '0/0';
-            
+
             // Disable navigation buttons
             if (this.elements.messagePrevBtn) this.elements.messagePrevBtn.disabled = true;
             if (this.elements.messageNextBtn) this.elements.messageNextBtn.disabled = true;
             return;
         }
-        
+
         const currentMessage = this.activeMessages[this.currentMessageIndex];
         if (currentMessage) {
             // Cleanup previous hover image listeners
             this.cleanupHoverImagePopup();
-            
+
             // Render message text
             this.elements.messageContent.innerHTML = this.renderMessage(currentMessage.text);
             this.elements.messageIndex.textContent = `${this.currentMessageIndex + 1}/${this.activeMessages.length}`;
-            
+
             // Setup hover image if available
             if (currentMessage.hoverImage) {
                 this.setupHoverImage(
@@ -5974,7 +6028,7 @@ const PersistentBanner = {
                     currentMessage.text
                 );
             }
-            
+
             // Store current message metadata for context menu
             this.currentDisplayedMessage = {
                 id: currentMessage.id,
@@ -5985,14 +6039,14 @@ const PersistentBanner = {
                 pinnedCaseId: currentMessage.pinnedCaseId,
                 pinnedCaseUrl: currentMessage.pinnedCaseUrl
             };
-            
+
             // Attach context menu (right-click) handler
             const handleContextMenu = (e) => {
                 this.showContextMenu(e, currentMessage.id);
             };
             this.registerListener(this.elements.messageContent, 'contextmenu', handleContextMenu);
         }
-        
+
         // Enable/disable navigation buttons
         if (this.elements.messagePrevBtn) {
             this.elements.messagePrevBtn.disabled = this.activeMessages.length <= 1;
@@ -6013,12 +6067,12 @@ const PersistentBanner = {
         if (!featureEnabled) {
             return false;
         }
-        
+
         // Check if we have active messages
         if (this.activeMessages.length === 0) {
             return false;
         }
-        
+
         // All checks passed - can show messages (including on case pages)
         return true;
     },
@@ -6031,23 +6085,23 @@ const PersistentBanner = {
         // Restore Salesforce layout adjustments BEFORE removing banner
         // This prevents leaving an unpleasant gap
         this.applySalesforceLayoutAdjustments(false);
-        
+
         // Stop polling
         this.stopDataPolling();
-        
+
         // Clear data reception timeout
         if (this.dataReceptionTimeout) {
             clearTimeout(this.dataReceptionTimeout);
             this.dataReceptionTimeout = null;
         }
-        
+
         // Stop periodic validation
         this.stopPeriodicValidation();
-        
+
         this.stopUrlMonitoring();
         this.stopMessageRotation();
         this.remove();
-        
+
         // Close any open modals and dropdowns
         this.closeContextMenu();
         this.closeMessageDropdown();
@@ -6055,10 +6109,10 @@ const PersistentBanner = {
         if (this.editModal) this.editModal.remove();
         if (this.addImageModal) this.addImageModal.remove();
         if (this.viewImageModal) this.viewImageModal.remove();
-        
+
         // Clean up all tracked resources (timers, listeners, observers)
         this.cleanupTrackedResources();
-        
+
         // Remove storage change listener explicitly (in addition to tracked cleanup)
         if (this.storageChangeListener) {
             try {
@@ -6068,7 +6122,7 @@ const PersistentBanner = {
                 console.warn('[PersistentBanner] Error removing storage listener:', error);
             }
         }
-        
+
         this.isInitialized = false;
         console.log('[PersistentBanner] Cleaned up');
     },
@@ -6078,18 +6132,18 @@ const PersistentBanner = {
      */
     populateEnvButtons() {
         if (!this.elements.envPopupContent) return;
-        
+
         const { server, institutionCode, productServiceName } = this.customerMetadata;
-        
+
         // Use institutionCode (not institutionId) for URLs
         if (!institutionCode) {
             console.warn('[PersistentBanner] Cannot populate env buttons - institutionCode not available');
             this.elements.envPopupContent.innerHTML = '<div class="exl-popup-menu-item" style="color: #999; cursor: default;">No environment data available</div>';
             return;
         }
-        
+
         const buttonsHtml = [];
-        
+
         // Production Back Office button
         buttonsHtml.push(`
             <button class="exl-popup-menu-item" 
@@ -6099,7 +6153,7 @@ const PersistentBanner = {
                 <span class="exl-env-label">Prod</span> Back Office
             </button>
         `);
-        
+
         // Production Live View button
         buttonsHtml.push(`
             <button class="exl-popup-menu-item" 
@@ -6109,7 +6163,7 @@ const PersistentBanner = {
                 <span class="exl-env-label">Prod</span> Live View
             </button>
         `);
-        
+
         // SQA Environment buttons (always available)
         buttonsHtml.push(`
             <button class="exl-popup-menu-item" 
@@ -6119,7 +6173,7 @@ const PersistentBanner = {
                 <span class="exl-env-label">SQA</span> Back Office
             </button>
         `);
-        
+
         buttonsHtml.push(`
             <button class="exl-popup-menu-item" 
                     data-env-url="https://sqa-${server}.alma.exlibrisgroup.com/esploro/?institution=${institutionCode}"
@@ -6128,7 +6182,7 @@ const PersistentBanner = {
                 <span class="exl-env-label">SQA</span> Live View
             </button>
         `);
-        
+
         // Sandbox buttons - depends on product type
         if (productServiceName) {
             if (productServiceName.includes('esploro advanced')) {
@@ -6141,7 +6195,7 @@ const PersistentBanner = {
                         <span class="exl-env-label">PSB</span> Back Office
                     </button>
                 `);
-                
+
                 // Premium Sandbox Live View
                 buttonsHtml.push(`
                     <button class="exl-popup-menu-item" 
@@ -6161,7 +6215,7 @@ const PersistentBanner = {
                         <span class="exl-env-label">SB</span> Back Office
                     </button>
                 `);
-                
+
                 // Standard Sandbox Live View
                 buttonsHtml.push(`
                     <button class="exl-popup-menu-item" 
@@ -6173,7 +6227,7 @@ const PersistentBanner = {
                 `);
             }
         }
-        
+
         this.elements.envPopupContent.innerHTML = buttonsHtml.join('');
     },
 
@@ -6199,7 +6253,7 @@ const PersistentBanner = {
         } else {
             return;
         }
-        
+
         if (!popup) return;
 
         // Get trigger button position
@@ -6221,7 +6275,7 @@ const PersistentBanner = {
                 this.hidePopupMenu();
             }
         };
-        
+
         // Use setTimeout to avoid immediate closure
         setTimeout(() => {
             document.addEventListener('click', this.popupCloseHandler, true);
@@ -6451,7 +6505,7 @@ const PersistentBanner = {
 
         // Find or create tool view (search in body)
         let toolView = document.querySelector(`.exl-tool-view[data-tool="${toolName}"]`);
-        
+
         if (!toolView) {
             // Create tool view based on tool name
             if (toolName === 'customer-data') {
@@ -6636,7 +6690,7 @@ const PersistentBanner = {
         const displayValue = value || '—';
         const requiredClass = isRequired ? 'exl-field-required' : '';
         const requiredIndicator = isRequired ? ' <span class="exl-required-indicator">*</span>' : '';
-        
+
         return `
             <div class="exl-editable-field ${requiredClass}" data-field="${fieldName}">
                 <span class="exl-field-label">${label}:${requiredIndicator}</span>
@@ -6724,7 +6778,7 @@ const PersistentBanner = {
         const display = toolView.querySelector(`[data-field-display="${fieldName}"]`);
         const edit = toolView.querySelector(`[data-field-edit="${fieldName}"]`);
         const input = toolView.querySelector(`[data-field-input="${fieldName}"]`);
-        
+
         if (display && edit && input) {
             display.style.display = 'none';
             edit.style.display = 'flex';
@@ -6744,7 +6798,7 @@ const PersistentBanner = {
         const display = toolView.querySelector(`[data-field-display="${fieldName}"]`);
         const edit = toolView.querySelector(`[data-field-edit="${fieldName}"]`);
         const input = toolView.querySelector(`[data-field-input="${fieldName}"]`);
-        
+
         if (display && edit && input) {
             const newValue = input.value.trim();
             display.textContent = newValue || '—';
@@ -6774,7 +6828,7 @@ const PersistentBanner = {
             const fieldName = input.dataset.fieldInput;
             // Get value from input (it may be hidden but value is preserved)
             let value = input.value.trim();
-            
+
             // If input is hidden and empty, check the display element
             if (!value) {
                 const display = toolView.querySelector(`[data-field-display="${fieldName}"]`);
@@ -6782,7 +6836,7 @@ const PersistentBanner = {
                     value = display.textContent.trim();
                 }
             }
-            
+
             if (value) {
                 customerData[fieldName] = value;
             }
@@ -6797,7 +6851,7 @@ const PersistentBanner = {
         try {
             // Check if customer already exists
             const existing = UserCustomerDataManager.findByInstitutionCode(customerData.institutionCode);
-            
+
             if (existing) {
                 // Update existing
                 await UserCustomerDataManager.update(customerData.institutionCode, customerData);
@@ -6881,13 +6935,13 @@ const PersistentBanner = {
 
                 const result = await UserCustomerDataManager.import(jsonData, { overwrite: false });
                 alert(`Import complete: ${result.valid} valid customers (${result.added} added, ${result.updated} updated)`);
-                
+
                 // Refresh banner UI
                 this.updateBannerUI();
             } catch (error) {
                 console.error('[PersistentBanner] Error importing customer list:', error);
                 alert('Error importing customer list: ' + error.message);
-        }
+            }
         };
         input.click();
     },
@@ -7001,11 +7055,11 @@ const PersistentBanner = {
         const groups = ['URGENT', 'IMMEDIATE', 'ONGOING', 'IDLE', 'MONITOR', 'COMPLETED'];
         const defaultConfig = typeof ColorHandlerConfig !== 'undefined' ? ColorHandlerConfig.getDefaultConfig() : null;
         const defaultStatusGroups = defaultConfig ? defaultConfig.handleStatus.statusGroups : {};
-        
+
         return groups.map(group => {
             const groupColors = statusConfig.groupColors[group] || { bg: 'rgb(128, 128, 128)', text: 'rgb(255, 255, 255)' };
             const statuses = statusConfig.statusGroups[group] || defaultStatusGroups[group] || [];
-            
+
             return `
                 <div class="exl-status-group" data-group="${group}">
                     <div class="exl-group-header">
@@ -7032,7 +7086,7 @@ const PersistentBanner = {
     renderAnchorColors(anchorConfig) {
         const defaultConfig = typeof ColorHandlerConfig !== 'undefined' ? ColorHandlerConfig.getDefaultConfig() : null;
         const defaultAnchor = defaultConfig ? defaultConfig.handleAnchor : {};
-        
+
         return `
             <div class="exl-anchor-color-item" data-anchor-type="clarivateEmail">
                 <span class="exl-anchor-label">Clarivate Email</span>
@@ -7062,9 +7116,9 @@ const PersistentBanner = {
         const thresholds = caseConfig.thresholds || [];
         const defaultConfig = typeof ColorHandlerConfig !== 'undefined' ? ColorHandlerConfig.getDefaultConfig() : null;
         const defaultThresholds = defaultConfig ? defaultConfig.handleCase.thresholds : [];
-        
+
         const thresholdsToRender = thresholds.length > 0 ? thresholds : defaultThresholds;
-        
+
         return thresholdsToRender.map((threshold, index) => `
             <div class="exl-case-threshold-item" data-threshold-index="${index}">
                 <span class="exl-threshold-label">${threshold.label}</span>
@@ -7118,7 +7172,7 @@ const PersistentBanner = {
                 const currentColor = config.handleStatus.groupColors[group] || {};
                 const colorType = isBg ? 'bg' : 'text';
                 const currentColorValue = currentColor[colorType] || (isBg ? 'rgb(128, 128, 128)' : 'rgb(255, 255, 255)');
-                
+
                 const selectedColor = await this.showColorPickerModal({ currentColor: currentColorValue });
                 if (selectedColor) {
                     if (typeof ColorHandlerConfig !== 'undefined') {
@@ -7153,7 +7207,7 @@ const PersistentBanner = {
                 const colorType = isBg ? 'bg' : 'text';
                 const currentColor = config.handleAnchor[anchorType] || {};
                 const currentColorValue = currentColor[colorType] || (isBg ? '#ffffff' : 'rgb(0, 0, 0)');
-                
+
                 const selectedColor = await this.showColorPickerModal({ currentColor: currentColorValue });
                 if (selectedColor) {
                     if (typeof ColorHandlerConfig !== 'undefined') {
@@ -7181,7 +7235,7 @@ const PersistentBanner = {
                 const thresholds = config.handleCase.thresholds || [];
                 const threshold = thresholds[thresholdIndex];
                 if (!threshold) return;
-                
+
                 const selectedColor = await this.showColorPickerModal({ currentColor: threshold.color });
                 if (selectedColor) {
                     if (typeof ColorHandlerConfig !== 'undefined') {

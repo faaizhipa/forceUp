@@ -332,14 +332,66 @@ const CustomerMasterManager = (function() {
       state: record.state || null,
       country: record.country || null,
       
-      // Timezone
-      timezone: record.timezone || null,
+      // Timezone (normalized via TimezoneNormalizer)
+      timezone: normalizeTimezone(record),
+      timezoneRaw: record.timezone || null, // Original value for debugging
       
       // Metadata
       source,
       matchType: matchMeta.matchType || null,
       matchValue: matchMeta.matchValue || null
     };
+  }
+
+  /**
+   * Normalize timezone value using TimezoneNormalizer
+   * @param {Object} record - Customer record with timezone and geography data
+   * @returns {string|null} Normalized IANA timezone or null
+   */
+  function normalizeTimezone(record) {
+    if (!record) return null;
+    
+    const rawTimezone = record.timezone;
+    
+    // Skip if no timezone
+    if (!rawTimezone || rawTimezone === 'null' || rawTimezone === 'undefined') {
+      return null;
+    }
+    
+    // Use TimezoneNormalizer if available
+    if (typeof TimezoneNormalizer !== 'undefined') {
+      const result = TimezoneNormalizer.normalize(rawTimezone, {
+        country: record.country,
+        state: record.state,
+        city: record.city
+      });
+      
+      if (result && result.timezone) {
+        // Log normalization for debugging (only if changed)
+        if (result.timezone !== rawTimezone) {
+          console.log('[CustomerMasterManager] Timezone normalized:', {
+            original: rawTimezone,
+            normalized: result.timezone,
+            source: result.source
+          });
+        }
+        return result.timezone;
+      }
+    }
+    
+    // If TimezoneNormalizer not available or couldn't normalize, return raw value
+    // but only if it looks like a valid IANA timezone (contains /)
+    if (rawTimezone.includes('/')) {
+      return rawTimezone;
+    }
+    
+    // Log warning for unresolved non-IANA timezone
+    console.warn('[CustomerMasterManager] Unable to normalize timezone:', rawTimezone, {
+      country: record.country,
+      state: record.state
+    });
+    
+    return null;
   }
 
   /**
@@ -352,8 +404,11 @@ const CustomerMasterManager = (function() {
   function formatTimezoneResult(record, source = 'customerMasterList', matchMeta = {}) {
     if (!record) return null;
 
+    const normalizedTz = normalizeTimezone(record);
+
     return {
-      timezone: record.timezone || null,
+      timezone: normalizedTz,
+      timezoneRaw: record.timezone || null, // Original value for debugging
       source,
       accountName: record.sfName || record.sqlName || record.accountName || null,
       orgCode: record.institutionCode || record.accountCode || null,
