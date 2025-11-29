@@ -501,7 +501,10 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 20px; /* Fixed gap, not responsive */
+    /* Fixed 20px gap ensures consistent spacing regardless of viewport width.
+       This maintains visual balance and prevents navigation buttons from
+       becoming too cramped or spread out on different screen sizes. */
+    gap: 20px;
     min-width: auto;
 }
 

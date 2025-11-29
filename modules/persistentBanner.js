@@ -104,6 +104,9 @@ const PersistentBanner = {
     // Default banner gradient (for non-case pages)
     DEFAULT_GRADIENT: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
 
+    // Cache freshness threshold (5 minutes in milliseconds)
+    MAX_CACHE_AGE_MS: 5 * 60 * 1000,
+
 
     /**
      * Initialize the persistent banner
@@ -1336,6 +1339,7 @@ const PersistentBanner = {
      * @deprecated Use populateEnvironmentButtons() instead
      */
     populateEnvButtons() {
+        console.warn('[PersistentBanner] populateEnvButtons() is deprecated, use populateEnvironmentButtons() instead');
         // Delegate to the new function that tracks readiness
         this.populateEnvironmentButtons();
     },
@@ -1490,6 +1494,9 @@ const PersistentBanner = {
 
     /**
      * Check message section width and apply collapsed styles
+     * Note: This function targets '.exl-banner-message-section' which is part of
+     * an optional message feature. The element may not exist in the banner HTML
+     * if the message feature is not enabled, so we gracefully handle this case.
      */
     checkMessageSectionWidth() {
         const messageSection = this.elements.banner?.querySelector('.exl-banner-message-section');
@@ -1824,7 +1831,10 @@ const PersistentBanner = {
         
         const { server, institutionId, productServiceName } = this.customerMetadata;
         
-        // Build institution code - for now using institutionId as placeholder
+        // TODO: Institution code extraction needs proper implementation.
+        // Currently using institutionId as a placeholder. In production,
+        // proper institution code (e.g., '61USC_INST') should be extracted
+        // from the case data or customer metadata.
         const institutionCode = institutionId;
         
         const buttonsHtml = [];
@@ -2002,9 +2012,8 @@ const PersistentBanner = {
         
         const dataTime = new Date(timestamp).getTime();
         const now = Date.now();
-        const maxAge = 5 * 60 * 1000; // 5 minutes
         
-        return (now - dataTime) < maxAge;
+        return (now - dataTime) < this.MAX_CACHE_AGE_MS;
     },
 
     /**
