@@ -3470,6 +3470,24 @@ const PersistentBanner = {
             }
         }
         if (!context || !context.caseId) {
+            PageContextWatcher.getCurrentContext();
+            if (context && context.caseId) {
+                console.log('[PersistentBanner] Context indicates case page, clearing state');
+                this.stopDataPolling();
+                this.cancelMetadataRetry();
+                this.clearCaseData();
+                this.currentPage = {
+                    type: 'Unknown',
+                    caseNumber: null,
+                    subject: null,
+                    status: null,
+                    subStatus: null,
+                    url: window.location.href,
+                    timestamp: new Date().toISOString()
+                };
+                this.updateBannerUI();
+                return;
+            }
             console.log('[PersistentBanner] Context indicates non-case page, clearing state');
             this.stopDataPolling();
             this.cancelMetadataRetry();
@@ -5445,7 +5463,7 @@ const PersistentBanner = {
         // }
 
         if (typeof CustomerMasterManager !== 'undefined') {
-            const masterCustomer = CustomerMasterManager.lookupInDataset(criticalFields);
+            const masterCustomer = CustomerMasterManager.findByInstitutionCode(institutionCode, accountName);
             if (masterCustomer) {
                 // Check if master customer has all critical fields
                 const masterHasAllFields = (masterCustomer.custID || masterCustomer.customerId) &&

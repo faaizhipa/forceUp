@@ -14,22 +14,35 @@
    "content_scripts": [
       {
          "matches": [
-            "https://proquestllc.lightning.force.com/*"
+            "https://proquestllc.lightning.force.com/*",
+            "https://clarivateanalytics.lightning.force.com/*", 
+            "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*"
          ],
          "js": [
-            "interceptor.js"
+            "interceptor.js",
+            "modules/pageIdentifier.js",
+            "content_script_interceptor.js"
          ],
-         "world": "MAIN"
+         "world": "MAIN",
+         "run_at": "document_start"
 
       },
       {
-         "js": [ "content_script.js" ],
+         "js": [ 
+            "content_script.js",
+            "content_script_exlibris.js",
+            "modules/persistentBanner.js",
+            "modules/interceptorCacheManager.js"
+         ],
          "matches": [ 
             "https://clarivateanalytics.lightning.force.com/*", 
             "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*", 
             "https://scholarone.my.salesforce.com/*"
          ],
-         "run_at": "document_idle"
+         "run_at": "document_idle",
+         "css": [ 
+            "modules/styles/persistent-banner.css"
+         ]
       },
       {
          "js": [
@@ -72,8 +85,8 @@
             "modules/colorPicker3D.js",
             "modules/implementationStatus.js",
             "modules/debugHelper.js",
-            "content_script_exlibris.js",
-            "modules/persistentBanner.js"
+            "modules/persistentBanner.js",
+            "content_script_exlibris.js"
          ],
          "matches": [
             "https://proquestllc.lightning.force.com/*"
