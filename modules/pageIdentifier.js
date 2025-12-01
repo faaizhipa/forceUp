@@ -5,6 +5,7 @@
 
 const PageIdentifier = {
   pageTypes: {
+    CASE_PAGE_CHILD: 'case_page_child',
     CASE_PAGE: 'case_page',
     CASE_COMMENTS: 'case_comments',
     CASES_LIST: 'cases_list',
@@ -23,31 +24,69 @@ const PageIdentifier = {
   _isProcessing: false,
 
   /**
+   * Gets current case context with validation (delegates to PageContextValidator)
+   * @returns {Object|null} { caseId: string, caseNumber: string, caseTitle: string } or null
+   */
+  getCurrentCaseContext() {
+    if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.getCurrentCaseContext === 'function') {
+      return PageContextValidator.getCurrentCaseContext();
+    }
+    // Fallback if PageContextValidator not available
+    return null;
+  },
+
+  /**
+   * Normalizes tab label to standard format
+   * @param {string} label - Tab label to normalize
+   * @returns {string} Normalized tab label
+   */
+  normalizeTabLabel(label) {
+    const normalized = (label || '').toLowerCase().trim();
+    const mappings = {
+      'details': 'details',
+      'detail': 'details',
+      'communication': 'communication',
+      'communications': 'communication',
+      'related': 'related',
+      'files': 'files',
+      'file': 'files',
+      'attachments': 'files',
+      'attachment': 'files',
+      'history': 'history',
+      'reporting fields': 'reporting_fields',
+      'reporting': 'reporting_fields'
+    };
+    return mappings[normalized] || normalized;
+  },
+
+  /**
    * Detects the active tab view on a case page
+   * Uses best practice: data-label + slds-is-active (most reliable)
    * @returns {string|null} 'details', 'communication', 'files', or null if not detectable
    */
   detectCasePageView() {
     try {
-      // Check for active tab in Lightning interface
-      const activeTab = document.querySelector('a[role="tab"][aria-selected="true"]');
-      if (activeTab) {
-        const tabText = activeTab.textContent?.trim().toLowerCase();
-        
-        if (tabText?.includes('detail')) {
-          return 'details';
-        } else if (tabText?.includes('communication')) {
-          return 'communication';
-        } else if (tabText?.includes('file') || tabText?.includes('attachment')) {
-          return 'files';
-        } else if (tabText?.includes('related')) {
-          return 'related';
+      // Strategy 1: data-label + slds-is-active (BEST - most reliable)
+      const activeTab = document.querySelector('.slds-tabs_default__item.slds-is-active');
+      if (activeTab && activeTab.dataset.label) {
+        return this.normalizeTabLabel(activeTab.dataset.label);
+      }
+
+      // Strategy 2: aria-selected + title or data-label
+      const activeByAria = document.querySelector('a[role="tab"][aria-selected="true"]');
+      if (activeByAria) {
+        // Try data-label first
+        if (activeByAria.closest('li')?.dataset.label) {
+          return this.normalizeTabLabel(activeByAria.closest('li').dataset.label);
         }
-        
-        // Return the actual tab text if it doesn't match known patterns
-        return tabText || null;
+        // Fallback to title or text content
+        const label = activeByAria.title || activeByAria.textContent?.trim();
+        if (label) {
+          return this.normalizeTabLabel(label);
+        }
       }
       
-      // Fallback: check for specific components that indicate the view
+      // Strategy 3: Component-based detection (fallback)
       if (document.querySelector('records-lwc-detail-panel') || 
           document.querySelector('force-record-layout-item')) {
         return 'details';
@@ -66,8 +105,156 @@ const PageIdentifier = {
   },
 
   /**
-   * Identifies the current page type
-   * @returns {Object} { type: string, caseId: string|null, reportId: string|null, view: string|null }
+   * Identifies the page type from URL ONLY (no DOM access)
+   * Used for early initialization at document_start before DOM is ready
+   * 
+   * @param {string} [url] - URL to identify (defaults to current location)
+   * @returns {Object} { type: string, caseId: string|null, reportId: string|null, partial: boolean }
+   * 
+   * NOTE: This method returns partial pageInfo (no caseNumber, no view)
+   * because those require DOM access. Use identifyPage() for full info.
+   */
+  identifyPageFromUrl(url = window.location.href) {
+    const hash = window.location.hash;
+
+    console.log('PageIdentifier: identifyPageFromUrl:', url);
+
+    // === CASE PAGE DETECTION ===
+    // Pattern: /lightning/r/Case/{id}/view
+    const casePageMatch = url.match(/\/lightning\/r\/Case\/([^\/]+)\/view(?:\?|$)/);
+    if (casePageMatch) {
+      let caseId = casePageMatch[1];
+      
+      // Check for child case in workspace param (ws=...)
+      // Example: /lightning/r/Case/PARENT_ID/view?ws=%2Flightning%2Fr%2FCase%2FCHILD_ID%2Fview
+      let childCaseId = null;
+      let parentCaseId = null;
+      try {
+        const parsedUrl = new URL(url);
+        const wsParam = parsedUrl.searchParams.get('ws');
+        if (wsParam && wsParam.includes('/lightning/r/Case/')) {
+          let decodedWs = decodeURIComponent(wsParam);
+          // Handle double encoding
+          if (decodedWs.includes('%2F')) {
+            decodedWs = decodeURIComponent(decodedWs);
+          }
+          const childCaseMatch = decodedWs.match(/\/lightning\/r\/Case\/([^\/]+)\/view/);
+          if (childCaseMatch) {
+            childCaseId = childCaseMatch[1];
+            parentCaseId = caseId;
+            caseId = childCaseId; // Use child as primary
+          }
+        }
+      } catch (e) {
+        // Malformed URL - ignore
+      }
+
+      return {
+        type: this.pageTypes.CASE_PAGE,
+        caseId: caseId,
+        caseNumber: null, // Requires DOM - filled by identifyPage()
+        reportId: null,
+        view: null, // Requires DOM - filled by identifyPage()
+        parentCaseId: parentCaseId,
+        partial: true
+      };
+    }
+
+    // === CASE COMMENTS PAGE DETECTION ===
+    // Pattern: /lightning/r/Case/{id}/related/CaseComments/view
+    const caseCommentsMatch = url.match(/\/lightning\/r\/Case\/([^\/]+)\/related\/CaseComments\/view/);
+    if (caseCommentsMatch) {
+      return {
+        type: this.pageTypes.CASE_COMMENTS,
+        caseId: caseCommentsMatch[1],
+        caseNumber: null,
+        reportId: null,
+        view: 'comments',
+        partial: true
+      };
+    }
+
+    // === CASES LIST PAGE DETECTION ===
+    // Pattern: /lightning/o/Case/list
+    if (url.includes('/lightning/o/Case/list')) {
+      return {
+        type: this.pageTypes.CASES_LIST,
+        caseId: null,
+        caseNumber: null,
+        reportId: null,
+        view: 'list',
+        partial: true
+      };
+    }
+
+    // === REPORT HOME PAGE DETECTION ===
+    // Pattern: /lightning/o/Report/home
+    if (url.includes('/lightning/o/Report/home')) {
+      return {
+        type: this.pageTypes.REPORT_HOME,
+        caseId: null,
+        caseNumber: null,
+        reportId: null,
+        view: null,
+        partial: true
+      };
+    }
+
+    // === REPORT PAGE DETECTION ===
+    // Pattern: /lightning/r/Report/{id}/view
+    const reportPageMatch = url.match(/\/lightning\/r\/Report\/([^\/]+)\/view/);
+    if (reportPageMatch) {
+      return {
+        type: this.pageTypes.REPORT_PAGE,
+        caseId: null,
+        caseNumber: null,
+        reportId: reportPageMatch[1],
+        view: null,
+        partial: true
+      };
+    }
+
+    // === REPORT BUILDER PAGE DETECTION ===
+    // Pattern: /lightning/r/Report/{id}/edit or includes reportBuilder
+    if (url.includes('/lightning/r/Report/') && (url.includes('/edit') || url.includes('reportBuilder'))) {
+      const reportBuilderMatch = url.match(/\/lightning\/r\/Report\/([^\/]+)/);
+      return {
+        type: this.pageTypes.REPORT_BUILDER,
+        caseId: null,
+        caseNumber: null,
+        reportId: reportBuilderMatch ? reportBuilderMatch[1] : null,
+        view: 'builder',
+        partial: true
+      };
+    }
+
+    // === SEARCH PAGE DETECTION ===
+    // Pattern: /one/one.app with hash containing search
+    if (url.includes('/one/one.app') && hash.includes('search')) {
+      return {
+        type: this.pageTypes.SEARCH_PAGE,
+        caseId: null,
+        caseNumber: null,
+        reportId: null,
+        view: 'search',
+        partial: true
+      };
+    }
+
+    // === UNKNOWN PAGE ===
+    return {
+      type: this.pageTypes.UNKNOWN,
+      caseId: null,
+      caseNumber: null,
+      reportId: null,
+      view: null,
+      partial: true
+    };
+  },
+
+  /**
+   * Identifies the current page type with title + URL validation
+   * @returns {Object} { type: string, caseId: string|null, caseNumber: string|null, reportId: string|null, view: string|null }
    */
   identifyPage() {
     const url = window.location.href;
@@ -78,28 +265,181 @@ const PageIdentifier = {
     // Case Page (Details, Communication, or Files Tab)
     const casePageMatch = url.match(/\/lightning\/r\/Case\/([^\/]+)\/view(?:\?|$)/);
     if (casePageMatch) {
+      const caseId = casePageMatch[1];
+      
+      // Get case context with title + URL validation
+      const context = this.getCurrentCaseContext();
+      
+      // Validate case ID matches context (if context available)
+      if (context !== null && context.caseId !== caseId) {
+        console.warn(`[PageIdentifier] Case ID mismatch: URL=${caseId}, Context=${context.caseId}`);
+      }
+      
       const view = this.detectCasePageView();
-      const result = {
+
+      
+      // Detect a "parent case" and "child case" scenario in the URL
+      // Example: 
+      // https://proquestllc.lightning.force.com/lightning/r/Case/500QO00000KaijmYAB/view?ws=%2Flightning%2Fr%2FCase%2F500QO00000kGONGYA4%2Fview
+      // The 'ws' param encodes the child case being viewed inside the workspace/tab (as a URL-encoded inner path)
+      let childCaseId = null;
+      try {
+        const parsedUrl = new URL(url);
+        const wsParam = parsedUrl.searchParams.get('ws');
+        if (wsParam && wsParam.includes('/lightning/r/Case/')) {
+          // In some cases, wsParam may be encoded twice; try both approaches
+          let decodedWs = decodeURIComponent(wsParam);
+          try {
+            // Try a second decode if there's still %2F in the string
+            if (decodedWs.includes('%2F')) {
+              decodedWs = decodeURIComponent(decodedWs);
+            }
+          } catch (_) { /* ignore */ }
+          const childCaseMatch = decodedWs.match(/\/lightning\/r\/Case\/([^\/]+)\/view/);
+          if (childCaseMatch) {
+            childCaseId = childCaseMatch[1];
+          }
+        }
+      } catch (e) {
+        // Malformed URL or decoding error: ignore
+      }
+
+      // If we found a child case ID in the workspace param, use it as primary caseId
+      // but keep the parent caseId as well for reference if needed in the future.
+      if (childCaseId) {
+        console.log(`[PageIdentifier] Child case ID detected in ws param: ${childCaseId} (parent caseId: ${caseId})`);
+        // Replace 'caseId' in this context with the child, since that's the page in focus
+        // Optionally, could add a field for parentId in result in future
+        parentCaseId = caseId;
+        caseId = childCaseId;
+      }
+      // Extract case number from title if available
+      // Try to extract case number from the active tab label in Salesforce, falling back to document title if not found
+      let caseNumberFromTab = null;
+      try {
+        // Look for the active tab element in standard Salesforce Lightning UI
+        const activeTab = document.querySelector('.slds-tabs_default__item.slds-is-active');
+        if (activeTab && activeTab.dataset && activeTab.dataset.label) {
+          // The label might be like "00012345 - Subject", so extract the leading 6-10 digit case number
+          const tabCaseNumberMatch = activeTab.dataset.label.match(/^(\d{6,10})/);
+          if (tabCaseNumberMatch) {
+            caseNumberFromTab = tabCaseNumberMatch[1];
+          }
+        }
+      } catch (err) {
+        // fallback, ignore, we'll try other methods
+      }
+
+      let caseNumberFromParentTab = null;
+      if (childCaseId) {
+        if (caseNumberFromTab) {
+          caseNumberFromParentTab = caseNumberFromTab;
+        }
+        // Try to extract the case number for the child case from a tab label
+        // Per instruction: extract the case number from the following selector
+        // We assume you meant this selector for the child case workspace tab
+        try {
+          // This selector targets tabs in the Lightning UI; prefer the child caseId if present
+          const tabList = Array.from(document.querySelectorAll('.slds-tabs_default__item'));
+          let childTab = null;
+          // Attempt to find a tab with the child caseId in its data attributes or label
+          for (const tab of tabList) {
+            // Prefer a data-label attribute that starts with 6-10 digits, or contains the child case id
+            const label = tab.dataset && tab.dataset.label ? tab.dataset.label : '';
+            if (label.match(/^(\d{6,10})/) && label.includes(childCaseId.slice(0, 6))) {
+              childTab = tab;
+              break;
+            }
+            // Or just try to match the caseId in data attributes (Robustness)
+            if (
+              (tab.dataset && tab.dataset.recordId && tab.dataset.recordId === childCaseId) ||
+              (tab.dataset && tab.dataset.tabValue && tab.dataset.tabValue.includes(childCaseId))
+            ) {
+              childTab = tab;
+              break;
+            }
+          }
+          // Fallback: pick the first tab with case number pattern (6-10 digits at start)
+          if (!childTab) {
+            childTab = tabList.find(tab => {
+              const label = tab.dataset && tab.dataset.label ? tab.dataset.label : '';
+              return label.match(/^(\d{6,10})/);
+            });
+          }
+          // Extract the case number from the found tab, if any
+          if (childTab && childTab.dataset && childTab.dataset.label) {
+            const match = childTab.dataset.label.match(/^(\d{6,10})/);
+            if (match) {
+              caseNumberFromTab = match[1];
+            }
+          }
+        } catch (e) {
+          // Ignore selector/parsing errors, fallback to defaults
+        }
+      }
+      const titleMatch = caseNumberFromTab 
+        ? [caseNumberFromTab] 
+        : document.title.match(/^(\d{6,10})/);
+      const caseNumberFromTitle = titleMatch ? titleMatch[1] : null;
+      
+      let result = null;
+
+      if (childCaseId) {
+        console.log(`[PageIdentifier] Child case ID detected in ws param: ${childCaseId} (parent caseId: ${caseId})`);
+        result = {
+          type: this.pageTypes.CASE_PAGE_CHILD,
+          caseId: childCaseId,
+          parentCaseId: caseId,
+          caseNumber: caseNumberFromTab || caseNumberFromTitle,
+          parentCaseNumber: parentCaseNumber,
+          reportId: null,
+          view: view,
+          url: url
+        }
+      } else {
+      result = {
         type: this.pageTypes.CASE_PAGE,
-        caseId: casePageMatch[1],
+        caseId: context?.caseId || caseId, // Use validated case ID from context if available
+        caseNumber: caseNumberFromTitle || context?.caseNumber || null,
         reportId: null,
-        view: view
+        view: view,
+        url: url
       };
-      console.log('PageIdentifier: Detected CASE_PAGE:', result);
+    }
+      
+      // Validate page info before returning
+      const validatedResult = this.validatePageInfo(result);
+      console.log(`[PageIdentifier] Detected ${result.type}: ${validatedResult.caseId} - }`);
+      if (validatedResult.caseNumber === null) {
+        const checkingIdAndNumber = this.PageContextValidator();
+        if (checkingIdAndNumber.Id === validatedResult.caseId) {
+          validatedResult.caseNumber = checkingIdAndNumber.CaseNumber;
+          console.log('Found case number from context validator:', validatedResult.caseNumber);
+        }
+      }
       return result;
     }
 
     // Case Comments "View All" Page
     const caseCommentsMatch = url.match(/\/lightning\/r\/Case\/([^\/]+)\/related\/CaseComments\/view(?:\?|$)/);
     if (caseCommentsMatch) {
+      const caseId = caseCommentsMatch[1];
+      const context = this.getCurrentCaseContext();
+      
+      // Extract case number from title if available
+      const titleMatch = document.title.match(/^(\d{6,10})/);
+      const caseNumberFromTitle = titleMatch ? titleMatch[1] : null;
+      
       const result = {
         type: this.pageTypes.CASE_COMMENTS,
-        caseId: caseCommentsMatch[1],
+        caseId: context?.caseId || caseId,
+        caseNumber: caseNumberFromTitle || context?.caseNumber || null,
         reportId: null,
         view: 'case_comments'
       };
-      console.log('PageIdentifier: Detected CASE_COMMENTS:', result);
-      return result;
+      const validatedResult = this.validatePageInfo(result);
+      console.log('PageIdentifier: Detected CASE_COMMENTS:', validatedResult);
+      return validatedResult;
     }
 
     // Cases List Page
@@ -192,11 +532,48 @@ const PageIdentifier = {
     const result = {
       type: this.pageTypes.UNKNOWN,
       caseId: null,
+      caseNumber: null,
       reportId: null,
       view: null
     };
     console.log('PageIdentifier: Detected UNKNOWN page type:', result);
     return result;
+  },
+
+  /**
+   * Validates page info before returning
+   * Ensures case ID and case number match current context
+   * @param {Object} pageInfo - Page info to validate
+   * @returns {Object} Validated page info
+   */
+  validatePageInfo(pageInfo) {
+    if (pageInfo.type === this.pageTypes.CASE_PAGE || pageInfo.type === this.pageTypes.CASE_COMMENTS) {
+      if (pageInfo.caseId) {
+        const context = this.getCurrentCaseContext();
+        
+        if (context) {
+          // Validate case ID matches
+          if (pageInfo.caseId !== context.caseId) {
+            console.warn(`[PageIdentifier] Case ID mismatch in page info, correcting`);
+            return {
+              ...pageInfo,
+              caseId: context.caseId, // Use validated case ID
+              caseNumber: context.caseNumber
+            };
+          }
+          
+          // Add case number if missing
+          if (!pageInfo.caseNumber && context.caseNumber) {
+            return {
+              ...pageInfo,
+              caseNumber: context.caseNumber
+            };
+          }
+        }
+      }
+    }
+    
+    return pageInfo;
   },
 
   /**
@@ -244,11 +621,12 @@ const PageIdentifier = {
     callback(initialPageInfo);
 
     // Use NavigationObserver for immediate URL change detection
+    // Register with priority=true to ensure PageIdentifier runs before other callbacks (e.g., PersistentBanner)
     if (typeof NavigationObserver !== 'undefined') {
       NavigationObserver.onRouteChange((url) => {
         console.log('PageIdentifier: Navigation detected to:', url);
         this._handleNavigationChange(callback);
-      });
+      }, true); // Priority callback - runs before regular callbacks
     } else {
       console.warn('PageIdentifier: NavigationObserver not available, using fallback');
       
@@ -270,9 +648,10 @@ const PageIdentifier = {
 
     // Check if page actually changed
     const hasChanges = this._detectPageChanges(newPageInfo);
+    hasChanges = newPageInfo.url ?? (newPageInfo.url !== result._lastPageInfo.url || newPageInfo.url !== window.location.href);
 
     if (!hasChanges) {
-      console.log('PageIdentifier: URL changed but page info unchanged');
+      console.log('PageIdentifier: URL same, page info unchanged');
       return;
     }
 
@@ -325,10 +704,7 @@ const PageIdentifier = {
     const caseIdChanged = newPageInfo.caseId !== this._lastPageInfo.caseId;
 
     if (pageTypeChanged || caseIdChanged) {
-      if (typeof CaseTimezoneResolver !== 'undefined') {
-        CaseTimezoneResolver.cleanup();
-        console.log('PageIdentifier: CaseTimezoneResolver cleaned up');
-      }
+      // Module cleanup handled by individual modules
     }
 
     // Update last page info

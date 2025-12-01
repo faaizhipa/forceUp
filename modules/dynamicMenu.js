@@ -3,6 +3,168 @@
  * Injects custom buttons into Salesforce case pages
  */
 
+const TimezoneDisplayUtils = {
+  async resolveCaseTimezone(caseData) {
+    try {
+      if (caseData?.customerTimezone) {
+        return {
+          timezone: caseData.customerTimezone,
+          displayName: formatTimezoneLabel(caseData.customerTimezone),
+          isAuto: false
+        };
+      }
+
+      if (typeof CustomerMasterManager !== 'undefined') {
+        const result = await CustomerMasterManager.resolveTimezone({
+          institutionCode: caseData?.institutionCode || caseData?.exLibrisAccountNumber,
+          accountCode: caseData?.accountCode,
+          server: caseData?.server,
+          customerId: caseData?.custID || caseData?.customerId,
+          institutionId: caseData?.instID || caseData?.institutionId,
+          accountName: caseData?.accountName
+        });
+
+        if (result && result.timezone) {
+          return {
+            timezone: result.timezone,
+            displayName: formatTimezoneLabel(result.timezone),
+            isAuto: false
+          };
+        }
+      }
+    } catch (error) {
+      console.warn('[DynamicMenu] Error resolving case timezone:', error);
+    }
+
+    return { timezone: 'UTC', displayName: 'UTC', isAuto: false };
+  },
+
+  async resolveUserTimezone() {
+    let preference = null;
+    if (typeof SettingsManager !== 'undefined' && typeof SettingsManager.get === 'function') {
+      const settings = SettingsManager.get();
+      preference = settings?.exlibris?.ui?.timezone || settings?.timezone;
+    }
+
+    const fallback = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const timezone = preference && preference !== 'auto' ? preference : fallback;
+    return {
+      timezone,
+      displayName: formatTimezoneLabel(timezone),
+      isAuto: !preference || preference === 'auto'
+    };
+  },
+
+  getAvailableDates(caseData, refreshInfo) {
+    const dates = [];
+
+    if (refreshInfo && refreshInfo.utc) {
+      const utcMatch = refreshInfo.utc.match(/(\d{2}):(\d{2})/);
+      if (utcMatch) {
+        const now = new Date();
+        const [hours, minutes] = utcMatch.slice(1).map(Number);
+        const refreshTime = new Date(Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate(),
+          hours,
+          minutes
+        ));
+        if (refreshTime < now) {
+          refreshTime.setUTCDate(refreshTime.getUTCDate() + 1);
+        }
+        dates.push({
+          label: 'Next Analytics Refresh',
+          value: 'analytics_refresh',
+          date: refreshTime
+        });
+      }
+    }
+
+    const addCaseDate = (label, value, rawDate) => {
+      const parsed = parseSalesforceDate(rawDate);
+      if (parsed) {
+        dates.push({ label, value, date: parsed });
+      }
+    };
+
+    addCaseDate('Case Created Date', 'case_created', caseData?.caseCreatedDate);
+    addCaseDate('Case Closed Date', 'case_closed', caseData?.caseClosedOn);
+    addCaseDate('Case Last Modified', 'case_modified', caseData?.lastModifiedDate);
+
+    return dates;
+  },
+
+  convertToAllTimezones(date, caseTimezone, userTimezone) {
+    return {
+      case: formatConversion(date, caseTimezone),
+      user: formatConversion(date, userTimezone),
+      utc: formatConversion(date, 'UTC')
+    };
+  }
+};
+
+function formatTimezoneLabel(timezone) {
+  if (!timezone) return 'UTC';
+  return timezone.replace(/_/g, ' ');
+}
+
+function formatConversion(date, timezone) {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
+
+  const dateFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    dateStyle: 'medium'
+  });
+
+  return {
+    timezone,
+    time: formatter.format(date),
+    dateStr: dateFormatter.format(date),
+    offset: formatOffset(date, timezone)
+  };
+}
+
+function formatOffset(date, timezone) {
+  try {
+    const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
+    const tzDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }));
+    const offsetMs = tzDate - utcDate;
+    const sign = offsetMs >= 0 ? '+' : '-';
+    const abs = Math.abs(offsetMs);
+    const hours = Math.floor(abs / (1000 * 60 * 60));
+    const minutes = Math.floor((abs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${sign}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  } catch (error) {
+    console.warn('[DynamicMenu] Error computing offset:', error);
+    return '+00:00';
+  }
+}
+
+function parseSalesforceDate(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (!isNaN(parsed.getTime())) {
+    return parsed;
+  }
+
+  const match = value.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*,?\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (match) {
+    let [, month, day, year, hour, minute, meridiem ] = match;
+    hour = parseInt(hour, 10);
+    minute = parseInt(minute, 10);
+    if (/PM/i.test(meridiem) && hour < 12) hour += 12;
+    if (/AM/i.test(meridiem) && hour === 12) hour = 0;
+    return new Date(`${year}-${month}-${day}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`);
+  }
+
+  return null;
+}
+
 const DynamicMenu = {
   injectionSettings: {
     cardActions: false,
@@ -26,13 +188,13 @@ const DynamicMenu = {
    * @param {Object} buttonGroups
    * @param {Object} caseData
    */
-  injectMenu(buttonGroups, caseData) {
+  async injectMenu(buttonGroups, caseData) {
     if (this.injectionSettings.cardActions) {
-      this.injectIntoCardActions(buttonGroups, caseData);
+      await this.injectIntoCardActions(buttonGroups, caseData);
     }
 
     if (this.injectionSettings.headerDetails) {
-      this.injectIntoHeaderDetails(buttonGroups, caseData);
+      await this.injectIntoHeaderDetails(buttonGroups, caseData);
     }
   },
 
@@ -41,12 +203,12 @@ const DynamicMenu = {
    * @param {Object} buttonGroups
    * @param {Object} caseData
    */
-  injectIntoCardActions(buttonGroups, caseData) {
+  async injectIntoCardActions(buttonGroups, caseData) {
     const cardSlot = document.querySelector('lightning-card slot[name="actions"]');
     if (!cardSlot || cardSlot.querySelector('.exlibris-custom-menu')) return;
 
     const menuContainer = this.createMenuContainer('card');
-    this.populateMenu(menuContainer, buttonGroups, caseData);
+    await this.populateMenu(menuContainer, buttonGroups, caseData);
 
     // Wrap menu in a slot element for proper encapsulation
     const slotWrapper = document.createElement('slot');
@@ -61,7 +223,7 @@ const DynamicMenu = {
    * @param {Object} buttonGroups
    * @param {Object} caseData
    */
-  injectIntoHeaderDetails(buttonGroups, caseData) {
+  async injectIntoHeaderDetails(buttonGroups, caseData) {
     // Primary strategy: Target div.secondaryFields within records-highlights2
     let container = document.querySelector('records-highlights2 div.secondaryFields');
     
@@ -88,7 +250,7 @@ const DynamicMenu = {
     }
 
     const menuContainer = this.createMenuContainer('header');
-    this.populateMenu(menuContainer, buttonGroups, caseData);
+    await this.populateMenu(menuContainer, buttonGroups, caseData);
 
     // Wrap menu in a slot element for proper encapsulation
     const slotWrapper = document.createElement('slot');
@@ -135,7 +297,9 @@ const DynamicMenu = {
 
       if (!menuExists && this.lastButtonGroups && this.lastCaseData) {
         console.log('[DynamicMenu] Menu removed by DOM change, re-injecting...');
-        this.injectIntoHeaderDetails(this.lastButtonGroups, this.lastCaseData);
+        this.injectIntoHeaderDetails(this.lastButtonGroups, this.lastCaseData).catch(err => {
+          console.error('[DynamicMenu] Error re-injecting menu:', err);
+        });
       } else {
         // Menu still exists, reattach observer
         this.observeHeaderSection(headerSlot);
@@ -187,12 +351,12 @@ const DynamicMenu = {
    * @param {Object} buttonGroups
    * @param {Object} caseData
    */
-  populateMenu(container, buttonGroups, caseData) {
+  async populateMenu(container, buttonGroups, caseData) {
     const readiness = this.evaluateReadiness(caseData);
 
     if (buttonGroups.analyticsRefresh) {
-      const refreshInfo = this.createRefreshInfo(buttonGroups.analyticsRefresh);
-      container.appendChild(refreshInfo);
+      const timezoneConverter = await this.createTimezoneConverter(buttonGroups.analyticsRefresh, caseData);
+      container.appendChild(timezoneConverter);
     }
 
     if (buttonGroups.production) {
@@ -252,62 +416,220 @@ const DynamicMenu = {
   },
 
   /**
-   * Creates analytics refresh info display
+   * Creates timezone converter UI widget
    * @param {Object} refreshInfo
-   * @returns {HTMLElement}
+   * @param {Object} caseData
+   * @returns {Promise<HTMLElement>}
    */
-  createRefreshInfo(refreshInfo) {
+  async createTimezoneConverter(refreshInfo, caseData) {
     const container = document.createElement('div');
+    container.className = 'exlibris-timezone-converter';
     container.style.cssText = `
-      width: 100%;
-      padding: 10px;
-      background: #fff;
-      border: 1px solid #ddd;
-      border-radius: 6px;
       margin-bottom: 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: #fff;
     `;
 
-    const title = document.createElement('div');
-    title.textContent = 'Next Analytics Refresh';
-    title.style.cssText = `
-      font-weight: bold;
+    // Header (clickable to expand/collapse)
+    const header = document.createElement('div');
+    header.style.cssText = `
+      padding: 8px 12px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #f8f9fa;
+      border-bottom: 1px solid #ddd;
+    `;
+    header.setAttribute('role', 'button');
+    header.setAttribute('tabindex', '0');
+    header.setAttribute('aria-expanded', 'false');
+
+    const headerText = document.createElement('span');
+    headerText.textContent = 'Timezone Converter';
+    headerText.style.cssText = 'font-weight: 600; font-size: 13px;';
+
+    const expandIcon = document.createElement('span');
+    expandIcon.textContent = '▼';
+    expandIcon.style.cssText = `
+      font-size: 10px;
+      transition: transform 0.2s;
+      color: #666;
+    `;
+
+    header.appendChild(headerText);
+    header.appendChild(expandIcon);
+
+    // Summary (always visible)
+    const summary = document.createElement('div');
+    summary.style.cssText = `
+      padding: 8px 12px;
       font-size: 12px;
       color: #666;
-      margin-bottom: 6px;
     `;
 
-    const times = document.createElement('div');
-    times.style.cssText = `
-      display: flex;
-      gap: 16px;
-      font-size: 13px;
+    // Expanded content (hidden by default)
+    const expandedContent = document.createElement('div');
+    expandedContent.style.cssText = `
+      display: none;
+      padding: 12px;
     `;
 
-    const utcTime = document.createElement('div');
-    utcTime.innerHTML = `<strong>UTC:</strong> ${refreshInfo.utc}`;
+    // Resolve timezones
+    const caseTimezoneResult = await TimezoneDisplayUtils.resolveCaseTimezone(caseData);
+    const userTimezoneResult = await TimezoneDisplayUtils.resolveUserTimezone();
+    const caseTimezone = caseTimezoneResult.timezone;
+    const userTimezone = userTimezoneResult.timezone;
 
-    const localTime = document.createElement('div');
-    localTime.innerHTML = `<strong>Local:</strong> ${refreshInfo.local}`;
+    // Get available dates
+    const availableDates = TimezoneDisplayUtils.getAvailableDates(caseData, refreshInfo);
+    let selectedDate = availableDates.length > 0 ? availableDates[0].date : new Date();
+    let selectedValue = availableDates.length > 0 ? availableDates[0].value : 'now';
 
-    if (refreshInfo.isAuto) {
-      localTime.style.position = 'relative';
-      const autoIndicator = document.createElement('span');
-      autoIndicator.textContent = '(auto)';
-      autoIndicator.style.cssText = `
-        color: #ff6b35;
-        font-size: 11px;
-        margin-left: 6px;
-        cursor: help;
-      `;
-      autoIndicator.title = 'Timezone automatically detected. Set your timezone in the extension popup for consistency.';
-      localTime.appendChild(autoIndicator);
-    }
+    // Dropdown container
+    const dropdownContainer = document.createElement('div');
+    dropdownContainer.style.cssText = 'margin-bottom: 12px;';
 
-    times.appendChild(utcTime);
-    times.appendChild(localTime);
+    const dropdownLabel = document.createElement('label');
+    dropdownLabel.textContent = 'Select Date:';
+    dropdownLabel.style.cssText = `
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: #333;
+    `;
 
-    container.appendChild(title);
-    container.appendChild(times);
+    const dropdown = document.createElement('select');
+    dropdown.style.cssText = `
+      width: 100%;
+      padding: 6px;
+      font-size: 12px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    `;
+
+    availableDates.forEach((date) => {
+      const option = document.createElement('option');
+      option.value = date.value;
+      option.textContent = date.label;
+      dropdown.appendChild(option);
+    });
+
+    dropdownContainer.appendChild(dropdownLabel);
+    dropdownContainer.appendChild(dropdown);
+
+    // Timezones container
+    const timezonesContainer = document.createElement('div');
+    timezonesContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+
+    // Update functions
+    const updateSummary = () => {
+      const conversions = TimezoneDisplayUtils.convertToAllTimezones(selectedDate, caseTimezone, userTimezone);
+      summary.textContent = `${conversions.case.time} (Case) | ${conversions.user.time} (User) | ${conversions.utc.time} (UTC)`;
+    };
+
+    const updateTimezoneDisplays = () => {
+      timezonesContainer.innerHTML = '';
+      const conversions = TimezoneDisplayUtils.convertToAllTimezones(selectedDate, caseTimezone, userTimezone);
+
+      const createTimezoneDisplay = (label, conversion, isAuto = false) => {
+        const tzDiv = document.createElement('div');
+        tzDiv.style.cssText = `
+          padding: 8px;
+          background: #f8f9fa;
+          border-radius: 4px;
+          border-left: 3px solid #0070d2;
+        `;
+
+        const labelEl = document.createElement('div');
+        labelEl.textContent = label;
+        labelEl.style.cssText = `
+          font-weight: 600;
+          font-size: 12px;
+          margin-bottom: 4px;
+          color: #333;
+        `;
+
+        const timeEl = document.createElement('div');
+        timeEl.textContent = conversion.time;
+        timeEl.style.cssText = `
+          font-size: 14px;
+          color: #000;
+          margin-bottom: 2px;
+        `;
+
+        const offsetEl = document.createElement('div');
+        offsetEl.textContent = `${conversion.timezone} (${conversion.offset})`;
+        offsetEl.style.cssText = `
+          font-size: 11px;
+          color: #666;
+        `;
+
+        tzDiv.appendChild(labelEl);
+        tzDiv.appendChild(timeEl);
+        tzDiv.appendChild(offsetEl);
+
+        if (isAuto) {
+          const autoIndicator = document.createElement('div');
+          autoIndicator.textContent = 'Auto-detected';
+          autoIndicator.style.cssText = `
+            font-size: 10px;
+            color: #ff6b35;
+            margin-top: 4px;
+            font-style: italic;
+          `;
+          tzDiv.appendChild(autoIndicator);
+        }
+
+        return tzDiv;
+      };
+
+      timezonesContainer.appendChild(createTimezoneDisplay('Case Timezone', conversions.case));
+      timezonesContainer.appendChild(createTimezoneDisplay('Your Timezone', conversions.user, userTimezoneResult.isAuto));
+      timezonesContainer.appendChild(createTimezoneDisplay('UTC', conversions.utc));
+    };
+
+    // Initial render
+    updateSummary();
+    updateTimezoneDisplays();
+
+    // Dropdown change handler
+    dropdown.addEventListener('change', (e) => {
+      const selectedOption = availableDates.find(d => d.value === e.target.value);
+      if (selectedOption) {
+        selectedDate = selectedOption.date;
+        selectedValue = selectedOption.value;
+        updateSummary();
+        updateTimezoneDisplays();
+      }
+    });
+
+    // Expand/collapse handler
+    let isExpanded = false;
+    const toggleExpand = () => {
+      isExpanded = !isExpanded;
+      expandedContent.style.display = isExpanded ? 'block' : 'none';
+      expandIcon.style.transform = isExpanded ? 'rotate(180deg)' : 'rotate(0deg)';
+      header.setAttribute('aria-expanded', isExpanded.toString());
+    };
+
+    header.addEventListener('click', toggleExpand);
+    header.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleExpand();
+      }
+    });
+
+    // Assemble container
+    expandedContent.appendChild(dropdownContainer);
+    expandedContent.appendChild(timezonesContainer);
+
+    container.appendChild(header);
+    container.appendChild(summary);
+    container.appendChild(expandedContent);
 
     return container;
   },
@@ -438,9 +760,9 @@ const DynamicMenu = {
    * @param {Object} buttonGroups
    * @param {Object} caseData
    */
-  refresh(buttonGroups, caseData) {
+  async refresh(buttonGroups, caseData) {
     this.removeAllMenus();
-    this.injectMenu(buttonGroups, caseData);
+    await this.injectMenu(buttonGroups, caseData);
   }
 };
 

@@ -1,8 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <title>Penang CoE CForce Extension Popup</title>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <style>
     * {
@@ -14,7 +15,6 @@
 
     html {
       width: 450px;
-      max-height: 600px;
     }
 
     body {
@@ -22,7 +22,7 @@
       padding: 20px;
       color: white;
       overflow-y: auto;
-      max-height: 600px;
+      height: min-content;
     }
 
     h1 {
@@ -197,6 +197,101 @@
       overflow-y: auto;
     }
 
+    .messages-settings-panel {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .setting-subgroup {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .setting-subgroup h3 {
+      font-size: 12px;
+      margin: 0 0 8px 0;
+      padding: 0;
+      border: none;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .messages-list {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .message-item {
+      background: rgba(0, 0, 0, 0.2);
+      padding: 8px;
+      border-radius: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .message-item.custom-message {
+      border-left: 3px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .message-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+    }
+
+    .message-toggle input[type="checkbox"] {
+      width: auto;
+    }
+
+    .message-text {
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 11px;
+    }
+
+    .message-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .message-textarea {
+      width: 100%;
+      padding: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      font-size: 11px;
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      resize: vertical;
+      min-height: 50px;
+      font-family: Arial, sans-serif;
+    }
+
+    .message-textarea::placeholder {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .button-small {
+      padding: 4px 8px;
+      font-size: 11px;
+      width: auto;
+      margin: 0;
+    }
+
+    .button-small.delete-message-btn {
+      background: rgba(220, 53, 69, 0.8);
+      color: white;
+    }
+
+    .button-small.delete-message-btn:hover {
+      background: rgba(220, 53, 69, 1);
+    }
+
     .shortcuts-list code {
       background: rgba(255, 255, 255, 0.2);
       padding: 2px 6px;
@@ -211,6 +306,15 @@
       padding: 16px;
       text-align: center;
       font-size: 13px;
+      display: none;
+    }
+
+    .timezone-label-spacing {
+      margin-top: 12px;
+    }
+
+    .info-text-spacing {
+      margin-top: 8px;
     }
 
   </style>
@@ -227,7 +331,7 @@
     <button class="tab" data-tab="about">About</button>
   </div>
 
-  <div id="notInSFDC" class="notInSFDC" style="display: none;">
+  <div id="notInSFDC" class="notInSFDC">
     ⚠️ Please open this extension on a Salesforce page to configure settings.
   </div>
 
@@ -245,6 +349,11 @@
           <option value="LifeScienceHDS">Life Science (HDS)</option>
           <option value="LifeSciencePS">Life Science (Product Specialist)</option>
           <option value="AccountSupport">Account Support</option>
+          <option value="Esploro">Esploro</option>
+          <option value="Alma">Alma</option>
+          <option value="Pivot-RP">Pivot-RP</option>
+          <option value="RefWorks">RefWorks</option>
+          <option value="InCites">InCites</option>
         </select>
         <p class="info-text">Used for email highlighting in case emails</p>
         <button id="saveTeamButton">Save Team Setting</button>
@@ -352,29 +461,83 @@
         <h2>✨ Features</h2>
         <div class="checkbox-group">
           <div class="checkbox-item">
-            <input type="checkbox" id="featureHighlighting" checked>
+            <input type="checkbox" id="featureHighlighting">
             <label for="featureHighlighting">Field Highlighting</label>
           </div>
           <div class="checkbox-item">
-            <input type="checkbox" id="featureContextMenu" checked>
+            <input type="checkbox" id="featureContextMenu">
             <label for="featureContextMenu">Context Menu Formatting</label>
           </div>
           <div class="checkbox-item">
-            <input type="checkbox" id="featureMultiTab" checked>
+            <input type="checkbox" id="featureMultiTab">
             <label for="featureMultiTab">Multi-Tab Warning</label>
           </div>
           <div class="checkbox-item">
-            <input type="checkbox" id="featureCommentMemory" checked>
+            <input type="checkbox" id="featureCommentMemory">
             <label for="featureCommentMemory">Auto-Save Comments</label>
           </div>
           <div class="checkbox-item">
-            <input type="checkbox" id="featureCharCounter" checked>
+            <input type="checkbox" id="featureCharCounter">
             <label for="featureCharCounter">Character Counter</label>
           </div>
           <div class="checkbox-item">
-            <input type="checkbox" id="featureDynamicMenu" checked>
+            <input type="checkbox" id="featureDynamicMenu">
             <label for="featureDynamicMenu">Dynamic Buttons</label>
           </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="featurePersistentBanner">
+            <label for="featurePersistentBanner">Persistent Banner (Page Info & History)</label>
+          </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="featureHighlighter">
+            <label for="featureHighlighter">Text Highlighter & Sticky Notes (Support Sites)</label>
+          </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="featureBannerMessages">
+            <label for="featureBannerMessages">Banner Rotating Messages</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <h2>✨ Highlighter Banner</h2>
+        <div id="highlighter-banner-section">
+          <div class="activation-info">
+            <span class="domain-label">Current URL:</span>
+            <span id="highlighter-banner-url" class="domain-value" style="max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Loading...</span>
+          </div>
+          <div class="activation-status-row" style="margin-top: 10px;">
+            <span id="highlighter-banner-status" class="status-badge status-inactive">●Hidden</span>
+            <button id="toggle-highlighter-banner-btn" class="toggle-btn" data-enabled="false">
+              Show Banner
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <h2>✨ Highlighter Banner Sites</h2>
+        <p class="info-text">Manage which sites show the banner by default (besides the default domains)</p>
+        
+        <!-- Add Site Form -->
+        <div style="margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <label for="addSiteType" style="font-size: 12px; margin: 0;">Type:</label>
+            <select id="addSiteType" style="flex: 1; max-width: 120px; padding: 6px; font-size: 12px;">
+              <option value="domain">Domain</option>
+              <option value="url">URL</option>
+            </select>
+            <input type="text" id="addSiteInput" placeholder="example.com or https://example.com/page" style="flex: 2; padding: 6px; font-size: 12px;">
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button id="addSiteBtn" class="button-small" style="flex: 1;">Add Site</button>
+            <button id="addCurrentSiteBtn" class="button-small" style="flex: 1;">Add Current Site</button>
+          </div>
+        </div>
+        
+        <!-- Whitelisted Sites List -->
+        <div id="whitelistedSitesList" style="margin-top: 12px;">
+          <p class="info-text" style="font-size: 11px; margin: 0;">Loading...</p>
         </div>
       </div>
 
@@ -387,7 +550,7 @@
           <option value="abbreviated">Abbreviated (LV, BO)</option>
         </select>
 
-        <label for="timezoneSelect" style="margin-top: 12px;">Timezone</label>
+        <label for="timezoneSelect" class="timezone-label-spacing">Timezone</label>
         <select id="timezoneSelect" title="Timezone Selection">
           <option value="auto">Auto-detect</option>
           <option value="America/New_York">Eastern Time (ET)</option>
@@ -410,6 +573,48 @@
           <div class="checkbox-item">
             <input type="checkbox" id="menuHeaderDetails" checked>
             <label for="menuHeaderDetails">Header Details Section</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <h2>📢 Banner Messages</h2>
+        
+        <!-- Master Toggle -->
+        <div class="checkbox-item">
+          <input type="checkbox" id="bannerMessagesEnabled" checked>
+          <label for="bannerMessagesEnabled">Enable rotating messages on non-case pages</label>
+        </div>
+        
+        <!-- Rotation Settings (shown when enabled) -->
+        <div id="bannerMessagesSettings" class="messages-settings-panel">
+          <label for="messageRotationInterval">Rotation Interval (seconds)</label>
+          <input type="number" id="messageRotationInterval" min="3" max="60" value="5">
+          
+          <label>
+            <input type="checkbox" id="messageAutoRotate" checked>
+            Auto-rotate messages
+          </label>
+          
+          <!-- Default Messages (Toggle Only) -->
+          <div class="setting-subgroup">
+            <h3>Default Messages (Extension Features)</h3>
+            <label>
+              <input type="checkbox" id="defaultMessagesEnabled" checked>
+              Enable default messages
+            </label>
+            <div id="defaultMessagesList" class="messages-list">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+          
+          <!-- Custom Messages (Editable) -->
+          <div class="setting-subgroup">
+            <h3>Custom Messages</h3>
+            <button id="addCustomMessageBtn" class="button-secondary">+ Add Message</button>
+            <div id="customMessagesList" class="messages-list">
+              <!-- Populated dynamically -->
+            </div>
           </div>
         </div>
       </div>
@@ -453,7 +658,7 @@
           <code>Escape</code> - Close preview modal<br>
           <code>Ctrl+Shift+R</code> - Open restore menu<br>
         </div>
-        <p class="info-text" style="margin-top: 8px;">Select text in a textarea and press the shortcut</p>
+        <p class="info-text info-text-spacing">Select text in a textarea and press the shortcut</p>
       </div>
 
       <button id="saveShortcutsButton">Save Shortcuts Settings</button>
@@ -482,10 +687,14 @@
         <button id="resetButton" class="button-secondary">Reset to Defaults</button>
         <button id="exportButton" class="button-secondary">Export Settings</button>
         <button id="importButton" class="button-secondary">Import Settings</button>
+        <p class="info-text info-text-spacing">
+          Export files now include workspace data (highlights, notes, bookmarks, layers) and their backups so you can move them to another browser.
+        </p>
       </div>
     </div>
   </div>
 
+<script src="modules/dataMigration.js"></script>
 <script src="popup.js"></script>
 </body>
 </html>

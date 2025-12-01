@@ -10,6 +10,8 @@ const CasePageDataExtractor = {
   lastExtractedData: null,
   isExtracting: false, // Track if extraction is in progress
   extractionQueue: [], // Queue for pending extractions
+  retryTimeoutId: null, // Track retry timeout for cleanup
+  currentExtractionToken: null,
 
   /**
    * Initialize the module and start monitoring page changes
@@ -23,14 +25,30 @@ const CasePageDataExtractor = {
     console.log('[CasePageDataExtractor] Module initializing');
     this.isInitialized = true;
 
+    if (typeof CaseContextWatcher !== 'undefined') {
+      CaseContextWatcher.init?.();
+    }
+
+    if (typeof CaseDataStore !== 'undefined') {
+      CaseDataStore.init();
+    }
+
     // Use PageIdentifier to monitor page changes
-    if (typeof PageIdentifier !== 'undefined' && typeof PageIdentifier.monitorPageChanges === 'function') {
+    if (typeof PageIdentifier !== 'undefined' && PageIdentifier && typeof PageIdentifier.monitorPageChanges === 'function') {
       console.log('[CasePageDataExtractor] Using PageIdentifier for page monitoring');
-      PageIdentifier.monitorPageChanges((pageInfo) => {
-        this.handlePageChange(pageInfo);
-      });
+      try {
+        PageIdentifier.monitorPageChanges((pageInfo) => {
+          this.handlePageChange(pageInfo);
+        });
+      } catch (error) {
+        console.error('[CasePageDataExtractor] Error initializing PageIdentifier monitoring:', error);
+      }
     } else {
-      console.warn('[CasePageDataExtractor] PageIdentifier not available, module will not function');
+      console.warn('[CasePageDataExtractor] PageIdentifier module not available or monitorPageChanges method not found');
+      console.warn('[CasePageDataExtractor] Module will not function without PageIdentifier');
+      if (typeof PageIdentifier !== 'undefined') {
+        console.warn('[CasePageDataExtractor] PageIdentifier exists but missing monitorPageChanges method');
+      }
     }
   },
 
@@ -41,27 +59,32 @@ const CasePageDataExtractor = {
   async handlePageChange(pageInfo) {
     // Only handle case detail pages (PageIdentifier returns 'case_page')
     if (pageInfo.type !== 'case_page') {
-      // Not a case page, clear current data
-      this.currentCaseId = null;
-      this.lastExtractedData = null;
-      this.isExtracting = false;
-      this.extractionQueue = [];
+      this.cleanup('non-case-page');
       return;
     }
 
-    const caseId = pageInfo.caseId;
+    if (typeof CaseContextWatcher !== 'undefined') {
+      await CaseContextWatcher.init?.();
+    }
+
+    const context = (typeof CaseContextWatcher !== 'undefined')
+      ? await CaseContextWatcher.getStableContext({ requireCase: true, timeout: 4000 })
+      : null;
+
+    const caseId = context?.caseId || pageInfo.caseId;
+    const contextCaseNumber = context?.caseNumber || pageInfo.caseNumber || null;
+
     if (!caseId) {
       console.warn('[CasePageDataExtractor] Case page detected but no case ID found');
+      this.cleanup('missing-case-id');
       return;
     }
 
-    // Check if we already extracted data for this case
-    if (this.currentCaseId === caseId && this.lastExtractedData) {
-      console.log('[CasePageDataExtractor] Already have data for case:', caseId);
-      return;
+    if (this.currentCaseId && this.currentCaseId !== caseId) {
+      console.log(`[CasePageDataExtractor] Case changed from ${this.currentCaseId} to ${caseId}, cleaning up...`);
+      this.cleanup('case-switch');
     }
 
-    // Check if extraction is already in progress for this case
     if (this.isExtracting && this.currentCaseId === caseId) {
       console.log('[CasePageDataExtractor] Extraction already in progress for case:', caseId);
       return;
@@ -69,45 +92,224 @@ const CasePageDataExtractor = {
 
     console.log('[CasePageDataExtractor] Extracting data for case:', caseId);
     this.currentCaseId = caseId;
+
+    const extractionToken = Symbol(`case-extraction-${caseId}-${Date.now()}`);
+    this.currentExtractionToken = extractionToken;
     this.isExtracting = true;
 
     try {
-      // Wait for page to fully load
-      await this.waitForPageLoad();
+      await this.waitForPageLoad(extractionToken);
 
-      // Extract all case data
-      const data = await this.extractAllCaseData();
+      if (!this.isTokenActive(extractionToken)) {
+        console.log('[CasePageDataExtractor] Navigation changed during wait, aborting extraction');
+        return;
+      }
+
+      const data = await this.extractAllCaseData({
+        caseId,
+        caseNumber: contextCaseNumber
+      });
+
+      if (!this.isTokenActive(extractionToken)) {
+        console.log('[CasePageDataExtractor] Token no longer active after extraction, aborting');
+        return;
+      }
+      
+      // Validate extracted data matches current page context before using
+      // Note: validatePageContextBeforeDisplay may return a Promise if waiting for title update
+      if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
+        let validation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber);
+        
+        // Handle async validation (when waiting for title update)
+        if (validation instanceof Promise) {
+          validation = await validation;
+        }
+        
+        if (!validation.valid) {
+          console.warn(`[CasePageDataExtractor] Extracted data validation failed: ${validation.reason}`);
+          console.warn(`[CasePageDataExtractor] Data caseId: ${data.caseId}, caseNumber: ${data.caseNumber}`);
+          if (validation.currentContext) {
+            console.warn(`[CasePageDataExtractor] Current context caseId: ${validation.currentContext.caseId}, caseNumber: ${validation.currentContext.caseNumber}`);
+          }
+          // Clear extracted data if validation failed
+          this.lastExtractedData = null;
+          
+          // Check if validation failed due to case number mismatch (stale data)
+          const isCaseNumberMismatch = validation.currentContext && 
+                                      data.caseId === validation.currentContext.caseId &&
+                                      data.caseNumber && 
+                                      validation.currentContext.caseNumber &&
+                                      data.caseNumber !== validation.currentContext.caseNumber;
+          
+          if (isCaseNumberMismatch) {
+            // Case IDs match but case numbers don't - data is stale
+            // Current page shows a different case number which is authoritative
+            console.warn(`[CasePageDataExtractor] Extracted data is stale: data shows case ${data.caseNumber}, but current page shows case ${validation.currentContext.caseNumber}`);
+            console.warn(`[CasePageDataExtractor] Clearing extraction state to allow fresh re-extraction`);
+            
+            // Clear extraction state immediately to allow fresh extraction
+            this.isExtracting = false;
+            this.currentExtractionToken = null;
+            
+            // Don't retry - the data is definitively stale
+            // Navigation or next page change will trigger fresh extraction
+            return;
+          }
+          
+          // Other validation failures - might be timing issues, retry once
+          if (validation.currentContext && data.caseId === validation.currentContext.caseId) {
+            console.log('[CasePageDataExtractor] Validation failed but case IDs match. Retrying validation after delay...');
+            
+            // Clear any existing retry timeout
+            if (this.retryTimeoutId) {
+              clearTimeout(this.retryTimeoutId);
+              this.retryTimeoutId = null;
+            }
+            
+            // Store case ID for validation check
+            const retryCaseId = data.caseId;
+            
+            this.retryTimeoutId = setTimeout(async () => {
+              try {
+                // Check if we're still on the same case (might have navigated away)
+                const currentCaseId = this.getCaseIdFromUrl();
+                if (currentCaseId !== retryCaseId) {
+                  console.log('[CasePageDataExtractor] Case changed during retry, aborting');
+                  this.retryTimeoutId = null;
+                  this.isExtracting = false;
+                  this.currentExtractionToken = null;
+                  return;
+                }
+                
+                // Retry with waitForTitle disabled (already waited)
+                const retryValidation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber, false);
+                const retryResult = retryValidation instanceof Promise ? await retryValidation : retryValidation;
+                
+                if (retryResult.valid) {
+                  console.log('[CasePageDataExtractor] Retry validation succeeded');
+                  // Update data with validated identifiers from current context
+                  if (retryResult.currentContext) {
+                    data.caseId = retryResult.currentContext.caseId;
+                    // Always use current context's case number (authoritative)
+                    data.caseNumber = retryResult.currentContext.caseNumber;
+                  }
+                  this.lastExtractedData = data;
+                  if (typeof CaseDataStore !== 'undefined') {
+                    await CaseDataStore.setCurrentData(data, 'CasePageDataExtractor');
+                  }
+                  await this.dispatchDataExtractedEvent(data);
+                } else {
+                  console.warn(`[CasePageDataExtractor] Retry validation also failed: ${retryResult.reason}`);
+                  // Clear extraction state to allow fresh extraction
+                  this.isExtracting = false;
+                  this.currentExtractionToken = null;
+                }
+              } catch (error) {
+                console.error('[CasePageDataExtractor] Error during retry validation:', error);
+                this.isExtracting = false;
+                this.currentExtractionToken = null;
+              } finally {
+                this.retryTimeoutId = null;
+              }
+            }, 500);
+          } else {
+            // Case ID mismatch - clear extraction state
+            this.isExtracting = false;
+            this.currentExtractionToken = null;
+          }
+          return;
+        }
+        
+        // Update data with validated identifiers if needed
+        if (validation.currentContext) {
+          data.caseId = validation.currentContext.caseId;
+          // Always use current context's case number (authoritative)
+          if (validation.currentContext.caseNumber) {
+            data.caseNumber = validation.currentContext.caseNumber;
+            
+            // If case number changed, re-extract subject from the visible header
+            // to ensure it matches the current case number
+            if (data.caseNumber !== contextCaseNumber) {
+              console.log('[CasePageDataExtractor] Case number validated, re-extracting subject to ensure match');
+              const headerData = this.extractCaseNumberAndSubjectFromVisibleHeader();
+              if (headerData.caseNumber === data.caseNumber && headerData.subject) {
+                data.subject = headerData.subject;
+                console.log('[CasePageDataExtractor] Re-extracted subject from visible header:', data.subject);
+              } else {
+                // Clear subject if we can't get it from the matching header
+                console.warn('[CasePageDataExtractor] Could not extract matching subject, clearing to prevent stale data');
+                data.subject = null;
+              }
+            }
+          }
+        }
+      }
+      
       this.lastExtractedData = data;
 
-      console.log('[CasePageDataExtractor] Extracted case data:', data);
+      console.log('[CasePageDataExtractor] Extracted case data (validated):', data);
 
-      // Trigger custom event for other modules to consume
-      this.dispatchDataExtractedEvent(data);
+      if (typeof CaseDataStore !== 'undefined') {
+        await CaseDataStore.setCurrentData(data, 'CasePageDataExtractor');
+      }
+
+      // Trigger custom event for other modules to consume (only if validated)
+      await this.dispatchDataExtractedEvent(data);
     } catch (error) {
       console.error('[CasePageDataExtractor] Error during extraction:', error);
     } finally {
-      // Mark extraction as complete
-      this.isExtracting = false;
+      if (this.currentExtractionToken === extractionToken) {
+        this.isExtracting = false;
+        this.currentExtractionToken = null;
+      }
       console.log('[CasePageDataExtractor] Extraction complete for case:', caseId);
     }
   },
 
   /**
-   * Wait for page elements to be present
+   * Wait for visible page elements to be present
+   * Checks for visible elements to ensure we wait for actual page content, not hidden/cached DOM nodes
    * @returns {Promise<void>}
    */
-  waitForPageLoad() {
+  waitForPageLoad(token = null) {
     return new Promise((resolve) => {
       const maxAttempts = 20;
       let attempts = 0;
 
       const checkElements = () => {
-        attempts++;
-        const hasRecordLayout = document.querySelector('records-record-layout-item');
-        const hasFlexipageField = document.querySelector('flexipage-field');
+        if (token && !this.isTokenActive(token)) {
+          resolve();
+          return;
+        }
 
-        if (hasRecordLayout || hasFlexipageField || attempts >= maxAttempts) {
-          console.log('[CasePageDataExtractor] Page elements ready (attempt ' + attempts + ')');
+        attempts++;
+        
+        // Check for visible record layout items
+        let hasVisibleRecordLayout = false;
+        const recordLayoutCandidates = document.querySelectorAll('records-record-layout-item');
+        if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+          hasVisibleRecordLayout = CaseDomUtils.getFirstVisibleElement(recordLayoutCandidates) !== null;
+        } else if (recordLayoutCandidates.length > 0) {
+          // Fallback: if CaseDomUtils not available, check first candidate
+          hasVisibleRecordLayout = recordLayoutCandidates.length > 0;
+        }
+        
+        // Check for visible flexipage fields
+        let hasVisibleFlexipageField = false;
+        const flexipageCandidates = document.querySelectorAll('flexipage-field');
+        if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+          hasVisibleFlexipageField = CaseDomUtils.getFirstVisibleElement(flexipageCandidates) !== null;
+        } else if (flexipageCandidates.length > 0) {
+          // Fallback: if CaseDomUtils not available, check first candidate
+          hasVisibleFlexipageField = flexipageCandidates.length > 0;
+        }
+
+        if (hasVisibleRecordLayout || hasVisibleFlexipageField || attempts >= maxAttempts) {
+          if (hasVisibleRecordLayout || hasVisibleFlexipageField) {
+            console.log('[CasePageDataExtractor] Visible page elements ready (attempt ' + attempts + ')');
+          } else {
+            console.log('[CasePageDataExtractor] Max attempts reached, proceeding anyway (attempt ' + attempts + ')');
+          }
           resolve();
         } else {
           setTimeout(checkElements, 200);
@@ -119,15 +321,328 @@ const CasePageDataExtractor = {
   },
 
   /**
-   * Extract all case data fields
-   * @returns {Object} - Extracted case data
+   * Checks if the provided extraction token is still active
+   * @param {symbol} token
+   * @returns {boolean}
    */
-  async extractAllCaseData() {
+  isTokenActive(token) {
+    return Boolean(token && this.currentExtractionToken === token);
+  },
+
+  /**
+   * Gets the last modified date of the case
+   * Always reselects visible elements fresh on each call
+   * @returns {string|null}
+   */
+  getLastModifiedDate() {
+    const candidates = document.querySelectorAll('records-record-layout-item[field-label*="Last Modified"]');
+    let field = null;
+    
+    // Find visible layout item
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      field = CaseDomUtils.getFirstVisibleElement(candidates);
+    } else if (candidates.length > 0) {
+      field = candidates[0];
+    }
+    
+    if (field) {
+      // Try to find visible value field within the layout item
+      const valueCandidates = field.querySelectorAll('.test-id__field-value, lightning-formatted-text, lightning-formatted-date-time');
+      let value = null;
+      if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+        value = CaseDomUtils.getFirstVisibleElement(valueCandidates);
+      } else if (valueCandidates.length > 0) {
+        value = valueCandidates[0];
+      }
+      return value ? value.textContent.trim() : null;
+    }
+    return null;
+  },
+
+  /**
+   * Normalize date string for comparison
+   * Handles various Salesforce date formats
+   * @param {string} dateString - Date string to normalize
+   * @returns {string|null} - Normalized date string or null
+   */
+  normalizeDate(dateString) {
+    if (!dateString) return null;
+    
+    try {
+      // Try to parse as Date and return ISO string
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        // If parsing fails, return trimmed original
+        return dateString.trim();
+      }
+      // Return ISO string for consistent comparison
+      return date.toISOString();
+    } catch (error) {
+      // If error, return trimmed original
+      return dateString.trim();
+    }
+  },
+
+  /**
+   * Normalize API data to match existing case data structure
+   * Maps API field names to the structure expected by other modules
+   * @param {Object} apiData - Flattened API field map from FetchInterceptor
+   * @param {string} caseId - Current case ID
+   * @returns {Object} - Normalized case data matching extractAllCaseDataFromDOM structure
+   */
+  normalizeApiData(apiData, caseId) {
+    console.log('[CasePageDataExtractor] Normalizing API data, field count:', Object.keys(apiData).length);
+    
     const data = {
       // Basic case info
-      caseId: this.currentCaseId,
-      caseNumber: this.getCaseNumber(),
-      subject: this.getSubject(),
+      caseId: caseId,
+      caseNumber: apiData.CaseNumber || null,
+      subject: apiData.Subject || null,
+      description: apiData.Description || null,
+
+      // Contact and Account (from nested lookups)
+      accountName: apiData['Account.Name'] || null,
+      contactName: apiData['Contact.Name'] || null,
+
+      // Product/Service Information
+      platformService: apiData.PQ_Product_Group__c || apiData.Platform__c || null,
+      productServiceName: apiData['Product_Service_Name__c'] || null,
+
+      // Case categorization
+      category: apiData.Category__c || null,
+      subCategory: apiData.Sub_Category__c || null,
+      status: apiData.Status || null,
+      subStatus: apiData.Sub_Status__c || null,
+
+      // Customer data
+      exLibrisAccountNumber: apiData.Ex_Libris_Account_Number__c || null,
+      analysisNote: apiData.Analysis_Note__c || null,
+
+      // Additional fields from API
+      asset: apiData.Asset_Line_Item__c || null,
+      affectedEnvironment: apiData.bl_Affected_Environment__c || null,
+      caseOwner: apiData['Owner.Name'] || null,
+      parentCase: apiData['Parent.CaseNumber'] || null,
+      parentCaseOwner: apiData.Parent_Case_Owner__c || null,
+
+      // Additional metadata
+      escalation: apiData.Escalation__c || null,
+      caseCreatedDate: apiData.CreatedDate || null,
+      caseClosedOn: apiData.ClosedDate || null,
+      customerExLibrisAccountNumber: apiData.Ex_Libris_Account_Number__c || null,
+      pageStatus: apiData.Status || null,
+
+      // Timestamp
+      extractedAt: new Date().toISOString(),
+      lastModifiedDate: apiData.LastModifiedDate || null,
+      
+      // Metadata
+      dataSource: 'API' // Mark data source for debugging
+    };
+
+    // Enrich with customer data from CustomerMasterManager
+    if (typeof CustomerMasterManager !== 'undefined' && data.exLibrisAccountNumber) {
+      const customerInfo = CustomerMasterManager.findByAccountNumber(
+        data.exLibrisAccountNumber,
+        data.accountName
+      );
+      
+      if (customerInfo) {
+        // Use standardized field names (customerId, institutionId, institutionCode)
+        data.customerId = customerInfo.customerId;
+        data.institutionId = customerInfo.institutionId;
+        data.server = customerInfo.server;
+        data.region = customerInfo.region;
+        data.institutionCode = customerInfo.institutionCode;
+        data.accountCode = customerInfo.accountCode;
+        data.customerName = customerInfo.accountName;
+        data.customerTimezone = customerInfo.timezone;
+
+        console.log('[CasePageDataExtractor] API data enriched with customer info:', customerInfo.accountName);
+      }
+    }
+
+    console.log('[CasePageDataExtractor] Normalized API data:', {
+      caseNumber: data.caseNumber,
+      subject: data.subject?.substring(0, 50),
+      fieldsPopulated: Object.values(data).filter(v => v !== null).length
+    });
+
+    return data;
+  },
+
+  /**
+   * Extract all case data fields
+   * Priority: InterceptorCacheManager > Legacy API data > DOM extraction
+   * @param {Object} contextSnapshot - Optional context snapshot
+   * @returns {Object} - Extracted case data
+   */
+  async extractAllCaseData(contextSnapshot = null) {
+    const snapshot = contextSnapshot || (typeof CaseContextWatcher !== 'undefined'
+      ? CaseContextWatcher.getCurrentContext?.()
+      : null);
+    const contextCaseId = snapshot?.caseId || this.currentCaseId;
+    const contextCaseNumber = snapshot?.caseNumber || this.getCaseNumberFromContext();
+
+    // PRIORITY 1: Check InterceptorCacheManager first (from interceptor.js)
+    if (contextCaseNumber && typeof InterceptorCacheManager !== 'undefined') {
+      const cachedData = InterceptorCacheManager.get(contextCaseNumber);
+      if (cachedData) {
+        console.log(`[CasePageDataExtractor] Using cached interceptor data for case ${contextCaseNumber}`);
+        const mappedData = InterceptorCacheManager.mapToExpectedFields(cachedData);
+        // Ensure caseId is set from context
+        mappedData.caseId = contextCaseId;
+        // Broadcast to banner
+        this.broadcastToBanner(mappedData);
+        return mappedData;
+      }
+    }
+
+    // PRIORITY 2: Try legacy API data (from FetchInterceptor - deprecated)
+    if (window.ExLibrisExtension?.apiCaseData) {
+      const apiData = window.ExLibrisExtension.apiCaseData;
+      const apiTimestamp = window.ExLibrisExtension.apiCaseDataTimestamp;
+      
+      // Check if data is fresh (within last 50 minutes)
+      const age = Date.now() - (apiTimestamp || 0);
+      if (age < 3000000) {
+        // Verify API data matches current case
+        if (apiData.CaseNumber === contextCaseNumber || !contextCaseNumber) {
+          console.log(`[CasePageDataExtractor] Using fresh legacy API data (age: ${age}ms)`);
+          const normalized = this.normalizeApiData(apiData, contextCaseId);
+          this.broadcastToBanner(normalized);
+          return normalized;
+        } else {
+          console.warn('[CasePageDataExtractor] Legacy API data case number mismatch, falling back to DOM', {
+            apiCaseNumber: apiData.CaseNumber,
+            contextCaseNumber
+          });
+        }
+      } else {
+        console.log(`[CasePageDataExtractor] Legacy API data too old (age: ${age}ms), falling back to DOM`);
+      }
+    }
+
+    // PRIORITY 3: Fallback to DOM extraction
+    console.log('[CasePageDataExtractor] Extracting data from DOM');
+    const domData = await this.extractAllCaseDataFromDOM(contextSnapshot);
+    this.broadcastToBanner(domData);
+    return domData;
+  },
+
+  /**
+   * Get case number from current context or URL
+   * @returns {string|null}
+   */
+  getCaseNumberFromContext() {
+    // Try CaseContextWatcher first
+    if (typeof CaseContextWatcher !== 'undefined') {
+      const context = CaseContextWatcher.getCurrentContext?.();
+      if (context?.caseNumber) {
+        return context.caseNumber;
+      }
+    }
+    
+    // Try visible header
+    const headerData = this.extractCaseNumberAndSubjectFromVisibleHeader();
+    if (headerData?.caseNumber) {
+      return headerData.caseNumber;
+    }
+    
+    return null;
+  },
+
+  /**
+   * Broadcast case data to PersistentBanner via event
+   * @param {Object} caseData - Extracted/mapped case data
+   */
+  broadcastToBanner(caseData) {
+    if (!caseData) return;
+    
+    window.dispatchEvent(new CustomEvent('CASE_DATA_READY', { 
+      detail: caseData 
+    }));
+    console.log('[CasePageDataExtractor] Broadcasted CASE_DATA_READY event for case:', caseData.caseNumber);
+  },
+
+  /**
+   * Extract case number and subject atomically from the same visible header element
+   * Ensures they match and come from the currently visible case
+   * @returns {Object} - { caseNumber: string|null, subject: string|null, headerText: string|null }
+   */
+  extractCaseNumberAndSubjectFromVisibleHeader() {
+    // Get the visible header element once
+    let headerText = null;
+    let headerElement = null;
+    
+    if (typeof CaseDomUtils !== 'undefined') {
+      headerText = CaseDomUtils.getVisibleCaseHeaderText();
+      headerElement = CaseDomUtils.getVisibleCaseHeaderElement();
+    }
+    
+    // Fallback if CaseDomUtils not available
+    if (!headerText && typeof CaseDomUtils !== 'undefined' && typeof CaseDomUtils.getVisibleHighlightsContainer === 'function') {
+      const container = CaseDomUtils.getVisibleHighlightsContainer();
+      if (container) {
+        const headerSelector = '.slds-page-header__title lightning-formatted-text';
+        headerElement = container.querySelector(headerSelector);
+        if (headerElement && (typeof CaseDomUtils === 'undefined' || !CaseDomUtils.isElementVisible || CaseDomUtils.isElementVisible(headerElement))) {
+          headerText = (headerElement.textContent || '').trim();
+        }
+      }
+    }
+    
+    // Extract case number and subject from the same header text
+    let caseNumber = null;
+    let subject = null;
+    
+    if (headerText) {
+      // Extract case number (6+ digits at start)
+      const numberMatch = headerText.match(/^([0-9]{6,})/);
+      caseNumber = numberMatch ? numberMatch[1] : null;
+      
+      // Extract subject (everything after " - ")
+      const parts = headerText.split(' - ');
+      if (parts.length > 1) {
+        subject = parts.slice(1).join(' - ').trim() || null;
+      }
+    }
+    
+    // Validate that we got both from the same element
+    if (caseNumber && !subject && headerText) {
+      // Case number found but no subject separator - might be just the number
+      console.warn('[CasePageDataExtractor] Found case number but no subject in header:', headerText);
+    }
+    
+    return {
+      caseNumber,
+      subject,
+      headerText
+    };
+  },
+
+  /**
+   * Extract all case data fields from DOM
+   * Original DOM-based extraction method (now used as fallback)
+   * Ensures case number and subject come from the same visible header element
+   * @param {Object} contextSnapshot - Optional context snapshot
+   * @returns {Object} - Extracted case data
+   */
+  async extractAllCaseDataFromDOM(contextSnapshot = null) {
+    const snapshot = contextSnapshot || (typeof CaseContextWatcher !== 'undefined'
+      ? CaseContextWatcher.getCurrentContext?.()
+      : null);
+    const contextCaseId = snapshot?.caseId || this.currentCaseId;
+    
+    // Extract case number and subject atomically from visible header
+    const headerData = this.extractCaseNumberAndSubjectFromVisibleHeader();
+    const contextCaseNumber = snapshot?.caseNumber || headerData.caseNumber || null;
+
+    const data = {
+      // Basic case info - use atomically extracted values
+      caseId: contextCaseId,
+      caseNumber: contextCaseNumber,
+      subject: headerData.subject || this.getSubject(), // Fallback to getSubject() if header extraction didn't find subject
       description: this.getDescription(),
 
       // Contact and Account
@@ -163,24 +678,94 @@ const CasePageDataExtractor = {
       pageStatus: this.getFlexipageField('RecordStatusField', false), // Direct page status for banner
 
       // Timestamp
-      extractedAt: new Date().toISOString()
+      extractedAt: new Date().toISOString(),
+      
+      // Last Modified Date for cache validation
+      lastModifiedDate: this.getLastModifiedDate()
     };
 
-    // Enrich with customer data from CustomerDataManager
-    if (typeof CustomerDataManager !== 'undefined' && data.exLibrisAccountNumber) {
+    // Enrich with customer data from CustomerMasterManager
+    if (typeof CustomerMasterManager !== 'undefined' && data.exLibrisAccountNumber) {
       // Pass both institution code and account name for flexible matching
-      const customerInfo = CustomerDataManager.findByInstitutionCode(
+      const customerInfo = CustomerMasterManager.findByInstitutionCode(
         data.exLibrisAccountNumber,
         data.accountName // Fallback to account name matching
       );
       
       if (customerInfo) {
-        data.custID = customerInfo.custID;
-        data.instID = customerInfo.instID;
+        // Use standardized field names (customerId, institutionId, institutionCode)
+        data.customerId = customerInfo.customerId;
+        data.institutionId = customerInfo.institutionId;
         data.server = customerInfo.server;
-        console.log('[CaseDataExtractor] Found customer by institution code:', customerInfo.name);
-        console.log('[CaseDataExtractor] Using server from customer record:', customerInfo.server);
-        console.log('[CaseDataExtractor] Applied customer data - custID:', customerInfo.custID, 'instID:', customerInfo.instID, 'server:', customerInfo.server);
+        data.region = customerInfo.region;
+        data.institutionCode = customerInfo.institutionCode || data.exLibrisAccountNumber;
+        console.log('[CasePageDataExtractor] Found customer by institution code:', customerInfo.accountName);
+        console.log('[CasePageDataExtractor] Using server from customer record:', customerInfo.server);
+        console.log('[CasePageDataExtractor] Applied customer data - customerId:', data.customerId, 'institutionId:', data.institutionId, 'server:', data.server, 'institutionCode:', data.institutionCode);
+      } else {
+        // No customer match - still set institutionCode from exLibrisAccountNumber
+        data.institutionCode = data.exLibrisAccountNumber;
+        console.log('[CasePageDataExtractor] No customer match found - using exLibrisAccountNumber as institutionCode:', data.institutionCode);
+      }
+    } else if (data.exLibrisAccountNumber) {
+      // CustomerMasterManager not available but we have exLibrisAccountNumber
+      data.institutionCode = data.exLibrisAccountNumber;
+    }
+
+    // Resolve timezone information using CustomerMasterManager as single source of truth
+    // CustomerMasterManager loads from customerMasterList.json and supports user overrides
+    // No fallbacks - if CustomerMasterManager is unavailable or doesn't resolve, timezone remains null
+    if (data.accountName || data.exLibrisAccountNumber) {
+      try {
+        if (typeof CustomerMasterManager !== 'undefined') {
+          const timezoneInfo = await CustomerMasterManager.resolveTimezone({
+            accountName: data.accountName,
+            accountCode: data.exLibrisAccountNumber,
+            server: data.server,
+            customerId: data.customerId,      // Standardized field name
+            institutionId: data.institutionId  // Standardized field name
+          });
+
+          if (timezoneInfo && timezoneInfo.timezone) {
+            data.timezone = timezoneInfo.timezone;
+            data.timezoneRaw = timezoneInfo.timezoneRaw || timezoneInfo.timezone;
+            data.timezoneSource = timezoneInfo.source || 'customerMasterManager';
+            
+            // Use TimezoneNormalizer for enhanced display if available
+            if (typeof TimezoneNormalizer !== 'undefined') {
+              data.timezoneDisplayName = TimezoneNormalizer.getDisplayName(timezoneInfo.timezone, 'long');
+              const offset = TimezoneNormalizer.getOffset(timezoneInfo.timezone);
+              if (offset) {
+                data.timezoneOffset = offset.formatted;
+                data.timezoneOffsetMinutes = offset.offsetMinutes;
+              }
+              // Get current time in customer timezone
+              const currentTime = TimezoneNormalizer.getCurrentTime(timezoneInfo.timezone);
+              if (currentTime) {
+                data.customerCurrentTime = currentTime.time24h;
+              }
+            } else {
+              data.timezoneDisplayName = timezoneInfo.timezone.replace(/_/g, ' ');
+            }
+            
+            console.log('[CasePageDataExtractor] Timezone resolved via CustomerMasterManager:', {
+              timezone: timezoneInfo.timezone,
+              raw: timezoneInfo.timezoneRaw,
+              source: timezoneInfo.source,
+              matchType: timezoneInfo.matchType,
+              offset: data.timezoneOffset
+            });
+          } else {
+            console.log('[CasePageDataExtractor] Timezone not found in CustomerMasterManager for:', {
+              institutionCode: data.exLibrisAccountNumber,
+              accountName: data.accountName
+            });
+          }
+        } else {
+          console.warn('[CasePageDataExtractor] CustomerMasterManager not available for timezone resolution');
+        }
+      } catch (error) {
+        console.error('[CasePageDataExtractor] Error resolving timezone:', error);
       }
     }
 
@@ -210,6 +795,13 @@ const CasePageDataExtractor = {
    * @returns {string|null}
    */
   getCaseNumber() {
+    if (typeof CaseDomUtils !== 'undefined') {
+      const visibleNumber = CaseDomUtils.getVisibleCaseNumber();
+      if (visibleNumber) {
+        return visibleNumber;
+      }
+    }
+
     const header = this.getHeaderText();
     if (header) {
       const numberMatch = header.match(/^([0-9]{6,})/);
@@ -241,6 +833,13 @@ const CasePageDataExtractor = {
    * @returns {string|null}
    */
   getSubject() {
+    if (typeof CaseDomUtils !== 'undefined') {
+      const visibleSubject = CaseDomUtils.getVisibleCaseSubject();
+      if (visibleSubject) {
+        return visibleSubject;
+      }
+    }
+
     const header = this.getHeaderText();
     if (!header) return null;
     const parts = header.split(' - ');
@@ -249,20 +848,60 @@ const CasePageDataExtractor = {
 
   /**
    * Get combined header text (case number + subject)
+   * Always reselects visible elements fresh on each call
    * @returns {string|null}
    */
   getHeaderText() {
-    const headerField = document.querySelector('slot[name="primaryField"] lightning-formatted-text, records-formula-output[slot="primaryField"] lightning-formatted-text');
+    if (typeof CaseDomUtils !== 'undefined') {
+      const header = CaseDomUtils.getVisibleCaseHeaderText();
+      if (header) {
+        return header;
+      }
+    }
+
+    // Fallback: check visibility of header field
+    const candidates = document.querySelectorAll('slot[name="primaryField"] lightning-formatted-text, records-formula-output[slot="primaryField"] lightning-formatted-text');
+    let headerField = null;
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      headerField = CaseDomUtils.getFirstVisibleElement(candidates);
+    } else if (candidates.length > 0) {
+      headerField = candidates[0];
+    }
     return headerField ? (headerField.textContent || '').trim() : null;
   },
 
   /**
    * Get description field content
+   * Always reselects visible elements fresh on each call
    * @returns {string|null}
    */
   getDescription() {
-    const field = document.querySelector('records-record-layout-item[field-label*="Description"] lightning-formatted-text, records-record-layout-item[field-label*="Description"] .test-id__field-value');
-    if (!field) return null;
+    const candidates = document.querySelectorAll('records-record-layout-item[field-label*="Description"]');
+    let layoutItem = null;
+    
+    // Find visible layout item
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      layoutItem = CaseDomUtils.getFirstVisibleElement(candidates);
+    } else if (candidates.length > 0) {
+      layoutItem = candidates[0];
+    }
+    
+    if (!layoutItem) {
+      return null;
+    }
+    
+    // Try to find visible field within the layout item
+    const fieldCandidates = layoutItem.querySelectorAll('lightning-formatted-text, .test-id__field-value');
+    let field = null;
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      field = CaseDomUtils.getFirstVisibleElement(fieldCandidates);
+    } else if (fieldCandidates.length > 0) {
+      field = fieldCandidates[0];
+    }
+    
+    if (!field) {
+      return null;
+    }
 
     if (field.tagName && field.tagName.toLowerCase() === 'lightning-formatted-text') {
       return field.textContent.trim();
@@ -310,39 +949,69 @@ const CasePageDataExtractor = {
 
   /**
    * Extract text from records-record-layout-item by label
+   * Always reselects visible elements fresh on each call
    * @param {string} label - Field label to search for
    * @returns {string|null}
    */
   getRecordLayoutField(label) {
-    // Query by label attribute - try both direct and shadow DOM
-    let layoutItem = document.querySelector(`records-record-layout-item[field-label="${label}"]`);
+    // Get all candidates and filter by visibility
+    const candidates = document.querySelectorAll(`records-record-layout-item[field-label="${label}"]`);
+    let layoutItem = null;
     
-    // If not found, try shadow DOM traversal
+    // Check visibility of direct matches first
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      layoutItem = CaseDomUtils.getFirstVisibleElement(candidates);
+    }
+    
+    // If no visible direct match, try shadow DOM traversal
     if (!layoutItem) {
-      layoutItem = this.queryShadowDOM(`records-record-layout-item[field-label="${label}"]`);
+      const shadowCandidates = [];
+      candidates.forEach((candidate) => {
+        const shadowMatch = this.queryShadowDOM(`records-record-layout-item[field-label="${label}"]`, candidate);
+        if (shadowMatch) {
+          shadowCandidates.push(shadowMatch);
+        }
+      });
+      if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+        layoutItem = CaseDomUtils.getFirstVisibleElement(shadowCandidates);
+      } else if (shadowCandidates.length > 0) {
+        layoutItem = shadowCandidates[0];
+      }
+    }
+    
+    // If still not found, try partial match
+    if (!layoutItem) {
+      const partialCandidates = document.querySelectorAll(`records-record-layout-item[field-label*="${label}"]`);
+      if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+        layoutItem = CaseDomUtils.getFirstVisibleElement(partialCandidates);
+      } else if (partialCandidates.length > 0) {
+        layoutItem = partialCandidates[0];
+      }
+      
+      // Try shadow DOM for partial match
+      if (!layoutItem) {
+        const shadowPartialCandidates = [];
+        partialCandidates.forEach((candidate) => {
+          const shadowMatch = this.queryShadowDOM(`records-record-layout-item[field-label*="${label}"]`, candidate);
+          if (shadowMatch) {
+            shadowPartialCandidates.push(shadowMatch);
+          }
+        });
+        if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+          layoutItem = CaseDomUtils.getFirstVisibleElement(shadowPartialCandidates);
+        } else if (shadowPartialCandidates.length > 0) {
+          layoutItem = shadowPartialCandidates[0];
+        }
+      }
     }
     
     if (!layoutItem) {
-      // Try partial match
-      const partialMatch = document.querySelector(`records-record-layout-item[field-label*="${label}"]`);
-      if (!partialMatch) {
-        // Try shadow DOM for partial match
-        const shadowPartialMatch = this.queryShadowDOM(`records-record-layout-item[field-label*="${label}"]`);
-        if (!shadowPartialMatch) {
-          console.warn(`[CasePageDataExtractor] Could not find layout item for label: "${label}"`);
-          return null;
-        }
-        const value = this.extractRecordLayoutValue(shadowPartialMatch);
-        console.log(`[CasePageDataExtractor] Extracted "${label}" from shadow DOM (partial match):`, value);
-        return value;
-      }
-      const value = this.extractRecordLayoutValue(partialMatch);
-      console.log(`[CasePageDataExtractor] Extracted "${label}" (partial match):`, value);
-      return value;
+      console.warn(`[CasePageDataExtractor] Could not find visible layout item for label: "${label}"`);
+      return null;
     }
 
     const value = this.extractRecordLayoutValue(layoutItem);
-    console.log(`[CasePageDataExtractor] Extracted "${label}":`, value);
+    console.log(`[CasePageDataExtractor] Extracted "${label}" from visible element:`, value);
     return value;
   },
 
@@ -354,6 +1023,14 @@ const CasePageDataExtractor = {
    */
   extractRecordLayoutValue(layoutItem) {
     if (!layoutItem) return null;
+    
+    // Skip extraction if layout item is not visible
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      if (!CaseDomUtils.isElementVisible(layoutItem)) {
+        console.warn('[CasePageDataExtractor] Skipping extraction from non-visible layout item');
+        return null;
+      }
+    }
 
     // Common paths to the value:
     // 1. lightning-formatted-text (try both direct query and shadow DOM)
@@ -439,21 +1116,67 @@ const CasePageDataExtractor = {
 
   /**
    * Extract value from flexipage-field by data-field-id
+   * Always reselects visible elements fresh on each call
+   * Prefers fields within visible tab container
    * @param {string} fieldId - The data-field-id value
    * @param {boolean} isAnchored - Whether the field contains anchor elements (lookup fields)
    * @returns {string|null}
    */
   getFlexipageField(fieldId, isAnchored = false) {
-    let field = document.querySelector(`flexipage-field[data-field-id="${fieldId}"]`);
+    // Get all candidates
+    const candidates = document.querySelectorAll(`flexipage-field[data-field-id="${fieldId}"]`);
+    let field = null;
     
-    // If not found, try shadow DOM traversal
+    // Prefer fields within visible tab container
+    const visibleTabContainer = document.querySelector('section.tabContent.active .forcegenerated-record-layout2[style*="display: block"]');
+    const visibleTabRoot = visibleTabContainer || document.body;
+    
+    // First, try to find visible field within active tab
+    if (visibleTabContainer) {
+      const tabCandidates = visibleTabContainer.querySelectorAll(`flexipage-field[data-field-id="${fieldId}"]`);
+      if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+        field = CaseDomUtils.getFirstVisibleElement(tabCandidates);
+      } else if (tabCandidates.length > 0) {
+        field = tabCandidates[0];
+      }
+    }
+    
+    // If not found in visible tab, check all candidates for visibility
     if (!field) {
-      field = this.queryShadowDOM(`flexipage-field[data-field-id="${fieldId}"]`);
+      if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+        field = CaseDomUtils.getFirstVisibleElement(candidates);
+      } else if (candidates.length > 0) {
+        field = candidates[0];
+      }
+    }
+    
+    // If still not found, try shadow DOM traversal
+    if (!field) {
+      const shadowCandidates = [];
+      candidates.forEach((candidate) => {
+        const shadowMatch = this.queryShadowDOM(`flexipage-field[data-field-id="${fieldId}"]`, candidate);
+        if (shadowMatch) {
+          shadowCandidates.push(shadowMatch);
+        }
+      });
+      if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+        field = CaseDomUtils.getFirstVisibleElement(shadowCandidates);
+      } else if (shadowCandidates.length > 0) {
+        field = shadowCandidates[0];
+      }
     }
     
     if (!field) {
-      console.warn(`[CasePageDataExtractor] Could not find flexipage-field with data-field-id: "${fieldId}"`);
+      console.warn(`[CasePageDataExtractor] Could not find visible flexipage-field with data-field-id: "${fieldId}"`);
       return null;
+    }
+    
+    // Double-check visibility of the selected field
+    if (typeof CaseDomUtils !== 'undefined' && CaseDomUtils.isElementVisible) {
+      if (!CaseDomUtils.isElementVisible(field)) {
+        console.warn(`[CasePageDataExtractor] Selected flexipage-field "${fieldId}" is not visible`);
+        return null;
+      }
     }
 
     if (isAnchored) {
@@ -600,16 +1323,84 @@ const CasePageDataExtractor = {
 
   /**
    * Dispatch custom event with extracted data
+   * Validates data before dispatching (async if waiting for title update)
    * @param {Object} data - Extracted case data
+   * @returns {Promise<void>}
    */
-  dispatchDataExtractedEvent(data) {
+  async dispatchDataExtractedEvent(data) {
+    // Validate before dispatching
+    // Note: validatePageContextBeforeDisplay may return a Promise if waiting for title update
+    if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.validatePageContextBeforeDisplay === 'function') {
+      let validation = PageContextValidator.validatePageContextBeforeDisplay(data.caseId, data.caseNumber);
+      
+      // Handle async validation (when waiting for title update)
+      if (validation instanceof Promise) {
+        validation = await validation;
+      }
+      
+      if (!validation.valid) {
+        console.warn(`[CasePageDataExtractor] Cannot dispatch event: ${validation.reason}`);
+        return;
+      }
+    }
+    
     const event = new CustomEvent('casePageDataExtracted', {
       detail: data,
       bubbles: true,
       composed: true
     });
     document.dispatchEvent(event);
-    console.log('[CasePageDataExtractor] Dispatched casePageDataExtracted event');
+    console.log('[CasePageDataExtractor] Dispatched casePageDataExtracted event (validated)');
+  },
+
+  /**
+   * Extract case ID from current URL
+   * @returns {string|null}
+   */
+  getCaseIdFromUrl() {
+    if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.getCaseIdFromUrl === 'function') {
+      return PageContextValidator.getCaseIdFromUrl();
+    }
+    // Fallback implementation
+    const match = window.location.pathname.match(/\/Case\/([a-zA-Z0-9]{15,18})\//);
+    return match ? match[1] : null;
+  },
+
+  /**
+   * Cleanup method to clear timeouts and reset state
+   */
+  cleanup(reason = 'manual') {
+    // Clear retry timeout if active
+    if (this.retryTimeoutId) {
+      clearTimeout(this.retryTimeoutId);
+      this.retryTimeoutId = null;
+    }
+    
+    // Reset state
+    this.currentCaseId = null;
+    this.lastExtractedData = null;
+    this.isExtracting = false;
+    this.extractionQueue = [];
+    this.currentExtractionToken = null;
+
+    // Clear CaseDataStore
+    if (typeof CaseDataStore !== 'undefined') {
+      CaseDataStore.clear(`casepage-cleanup:${reason}`);
+    }
+    
+    // Clear cached data in window.ExLibrisExtension to prevent stale data
+    if (window.ExLibrisExtension) {
+      if (window.ExLibrisExtension.caseToolkit) {
+        window.ExLibrisExtension.caseToolkit.caseData = null;
+      }
+      window.ExLibrisExtension.apiCaseData = null;
+      window.ExLibrisExtension.apiCaseDataTimestamp = null;
+      if (reason === 'case-switch' || reason === 'context-switch') {
+        window.ExLibrisExtension.currentCaseId = null;
+      }
+    }
+    
+    console.log(`[CasePageDataExtractor] Cleanup completed: ${reason}`);
   },
 
   /**
@@ -622,20 +1413,58 @@ const CasePageDataExtractor = {
 
   /**
    * Manually trigger data extraction for the current page
+   * @param {boolean} force - If true, bypass cache and force re-extraction
    * @returns {Promise<Object|null>}
    */
-  async extractNow() {
+  async extractNow(force = false) {
+    this.currentCaseId = this.getCaseIdFromUrl();
     if (!this.currentCaseId) {
       console.warn('[CasePageDataExtractor] No case page currently loaded');
       return null;
     }
 
-    console.log('[CasePageDataExtractor] Manual extraction triggered for case:', this.currentCaseId);
+    if (force) {
+      console.log('[CasePageDataExtractor] Force extraction triggered for case:', this.currentCaseId);
+      this.lastExtractedData = null; // Clear cache
+    } else {
+      console.log('[CasePageDataExtractor] Manual extraction triggered for case:', this.currentCaseId);
+    }
+
     await this.waitForPageLoad();
     const data = await this.extractAllCaseData();
     this.lastExtractedData = data;
-    this.dispatchDataExtractedEvent(data);
+    await this.dispatchDataExtractedEvent(data);
     return data;
+  },
+
+  /**
+   * Reset extraction state - clears cached values and forces fresh extraction
+   */
+  resetExtractionState() {
+    console.log('[CasePageDataExtractor] Resetting extraction state');
+    
+    // Clear cached extraction data
+    this.lastExtractedData = null;
+    
+    // Clear current case ID to force re-detection
+    this.currentCaseId = null;
+    
+    // Clear extraction flags
+    this.isExtracting = false;
+    
+    // Clear extraction queue
+    this.extractionQueue = [];
+    
+    // Clear retry timeout
+    if (this.retryTimeoutId) {
+      clearTimeout(this.retryTimeoutId);
+      this.retryTimeoutId = null;
+    }
+    
+    // Clear extraction token
+    this.currentExtractionToken = null;
+    
+    console.log('[CasePageDataExtractor] Extraction state reset complete');
   }
 };
 

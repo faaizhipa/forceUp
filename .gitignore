@@ -1,89 +1,44 @@
-# Node.js dependencies
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Build outputs
+# Build artifacts
 dist/
-build/
-out/
+releases/
 
-# Chrome extension specific
-*.crx
-*.pem
-key.pem
+# Node modules
+node_modules/
 
 # IDE and editor files
-.vscode/
 .idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temporary files
+*.tmp
+*.temp
 *.swp
 *.swo
 *~
-.gitignore/
 
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# Environment files
+.env
+.env.local
+.env.*.local
 
-# Logs
-logs/
-*.log
+# Package lock (use npm ci in CI)
+# package-lock.json
 
-# Runtime data
-pids/
-*.pid
-*.seed
-*.pid.lock
-
-# Coverage directory used by tools like istanbul
+# Debug and test outputs
 coverage/
-*.lcov
-
-# nyc test coverage
 .nyc_output/
 
-# Dependency directories
-jspm_packages/
+# Build info
+build-info.json
 
-# Optional npm cache directory
-.npm
-
-# Optional REPL history
-.node_repl_history
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
-.yarn-integrity
-
-# parcel-bundler cache (https://parceljs.org/)
-.cache
-.parcel-cache
-
-# webpack build output
-.webpack/
-
-# Temporary files
-tmp/
-temp/
-
-# Package files
-*.zip
-*.tar.gz
-
-# Chrome extension development
-manifest.json.bak

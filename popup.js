@@ -35,8 +35,20 @@ async function loadSettings() {
 
 /**
  * Saves settings to storage
+ * Ensures all feature values are explicit booleans
  */
 async function saveSettings(settings) {
+  // Normalize feature values to explicit booleans before saving
+  if (settings.exlibris?.features) {
+    for (const featureName in settings.exlibris.features) {
+      const value = settings.exlibris.features[featureName];
+      // Ensure it's a boolean (not undefined, null, or other type)
+      if (typeof value !== 'boolean') {
+        settings.exlibris.features[featureName] = Boolean(value);
+      }
+    }
+  }
+  
   return new Promise((resolve, reject) => {
     chrome.storage.sync.set(settings, () => {
       if (chrome.runtime.lastError) {
@@ -53,6 +65,7 @@ async function saveSettings(settings) {
 
 /**
  * Gets default settings
+ * Must match SettingsManager.DEFAULT_SETTINGS exactly
  */
 function getDefaultSettings() {
   return {
@@ -64,7 +77,10 @@ function getDefaultSettings() {
         multiTabSync: true,
         caseCommentMemory: true,
         characterCounter: true,
-        dynamicMenu: true
+        dynamicMenu: true,
+        persistentBanner: true,
+        highlighterEnabled: true,
+        bannerMessages: true
       },
       ui: {
         buttonLabelStyle: 'casual',
@@ -76,6 +92,107 @@ function getDefaultSettings() {
       },
       shortcuts: {
         enabled: true
+      },
+      persistentBanner: {
+        messages: {
+          enabled: true,
+          defaultMessages: {
+            enabled: true,
+            items: [
+              { 
+                id: 'default_1', 
+                text: 'Field Highlighting', 
+                enabled: true,
+                description: {
+                  what: 'Highlights key case fields with color-coded backgrounds for quick visual identification',
+                  how: 'Automatically applied when viewing case pages; colors indicate field importance and status',
+                  where: 'Case detail pages - Status, Priority, Category, and other configurable fields',
+                  scope: 'Active on all Salesforce case pages'
+                }
+              },
+              { 
+                id: 'default_2', 
+                text: 'Context Menu Formatting', 
+                enabled: true,
+                description: {
+                  what: 'Right-click menu to format selected text with Unicode styles (bold, italic, etc.)',
+                  how: 'Select text → Right-click → Choose "Case Comment Formatter" → Pick style',
+                  where: 'Any text input field or selected text on the page',
+                  scope: 'Works in case comments, emails, and any editable text area'
+                }
+              },
+              { 
+                id: 'default_3', 
+                text: 'Multi-Tab Warning', 
+                enabled: true,
+                description: {
+                  what: 'Alerts when the same case is open in multiple browser tabs to prevent conflicts',
+                  how: 'Automatically monitors open tabs and shows warning banner if duplicate detected',
+                  where: 'Top of the case page when duplicate tabs are found',
+                  scope: 'Monitors all Salesforce tabs in current browser session'
+                }
+              },
+              { 
+                id: 'default_4', 
+                text: 'Auto-Save Comments', 
+                enabled: true,
+                description: {
+                  what: 'Automatically saves draft case comments to prevent data loss',
+                  how: 'Comments are saved locally as you type; restored if browser crashes or tab closes',
+                  where: 'Case comment input area - saves in background',
+                  scope: 'Per-case comment drafts, stored locally'
+                }
+              },
+              { 
+                id: 'default_5', 
+                text: 'Character Counter', 
+                enabled: true,
+                description: {
+                  what: 'Shows real-time character count for text fields with limits',
+                  how: 'Counter appears below text fields; changes color as you approach limits',
+                  where: 'Case comment fields and other text areas with character limits',
+                  scope: 'Automatically enabled for Salesforce text fields'
+                }
+              },
+              { 
+                id: 'default_6', 
+                text: 'Dynamic Buttons', 
+                enabled: true,
+                description: {
+                  what: 'Adds quick-action buttons based on case context (customer env, wiki links, tools)',
+                  how: 'Buttons appear in case header; click to access customer environments and tools',
+                  where: 'Case page header area - customizable via extension popup',
+                  scope: 'Buttons adapt based on account and case type'
+                }
+              },
+              { 
+                id: 'default_7', 
+                text: 'Persistent Banner', 
+                enabled: true,
+                description: {
+                  what: 'Fixed banner showing case metadata, status, and navigation across all pages',
+                  how: 'Banner stays visible while scrolling; displays case number, status, and product info',
+                  where: 'Top of every Salesforce page when viewing a case',
+                  scope: 'Persists across page navigation within Salesforce'
+                }
+              },
+              { 
+                id: 'default_8', 
+                text: 'Text Highlighter & Sticky Notes', 
+                enabled: true,
+                description: {
+                  what: 'Highlight text on any webpage and add persistent sticky notes',
+                  how: 'Select text → Click highlight color; Click sticky icon → Add note',
+                  where: 'Any webpage - highlights and notes are saved per URL',
+                  scope: 'Works on knowledge base sites and external documentation'
+                }
+              }
+            ]
+          },
+          customMessages: [],
+          rotationInterval: 5000,
+          autoRotate: true
+        }
       }
     },
     userPreferences: {
@@ -134,6 +251,44 @@ function mergeWithDefaults(settings) {
       shortcuts: { ...defaults.exlibris.shortcuts, ...(settings.exlibris.shortcuts || {}) }
     };
     
+    // Migrate undefined/null feature values to explicit booleans (matching SettingsManager)
+    if (merged.exlibris.features) {
+      const defaultFeatures = defaults.exlibris.features;
+      for (const featureName in defaultFeatures) {
+        const currentValue = merged.exlibris.features[featureName];
+        // If value is undefined or null, use default
+        if (currentValue === undefined || currentValue === null) {
+          merged.exlibris.features[featureName] = defaultFeatures[featureName];
+        }
+        // Ensure it's a boolean
+        else if (typeof currentValue !== 'boolean') {
+          merged.exlibris.features[featureName] = Boolean(currentValue);
+        }
+      }
+    }
+    
+    // Merge persistentBanner.messages if it exists
+    if (settings.exlibris.persistentBanner) {
+      merged.exlibris.persistentBanner = {
+        ...defaults.exlibris.persistentBanner,
+        ...settings.exlibris.persistentBanner,
+        messages: {
+          ...defaults.exlibris.persistentBanner.messages,
+          ...(settings.exlibris.persistentBanner.messages || {}),
+          defaultMessages: {
+            ...defaults.exlibris.persistentBanner.messages.defaultMessages,
+            ...(settings.exlibris.persistentBanner.messages?.defaultMessages || {}),
+            items: settings.exlibris.persistentBanner.messages?.defaultMessages?.items || 
+                   defaults.exlibris.persistentBanner.messages.defaultMessages.items
+          },
+          customMessages: settings.exlibris.persistentBanner.messages?.customMessages || []
+        }
+      };
+    } else {
+      // Ensure persistentBanner structure exists
+      merged.exlibris.persistentBanner = defaults.exlibris.persistentBanner;
+    }
+    
     if (settings.exlibris.ui?.menuLocations) {
       merged.exlibris.ui.menuLocations = {
         ...defaults.exlibris.ui.menuLocations,
@@ -166,6 +321,7 @@ function populateUI(settings) {
   document.getElementById('selectionDropdown').value = settings.savedSelection || 'EndNote';
   
   // Ex Libris features
+  // Use consistent check logic: !== false (undefined/true = enabled, false = disabled)
   if (settings.exlibris?.features) {
     document.getElementById('featureHighlighting').checked = settings.exlibris.features.fieldHighlighting !== false;
     document.getElementById('featureContextMenu').checked = settings.exlibris.features.contextMenu !== false;
@@ -173,6 +329,34 @@ function populateUI(settings) {
     document.getElementById('featureCommentMemory').checked = settings.exlibris.features.caseCommentMemory !== false;
     document.getElementById('featureCharCounter').checked = settings.exlibris.features.characterCounter !== false;
     document.getElementById('featureDynamicMenu').checked = settings.exlibris.features.dynamicMenu !== false;
+    document.getElementById('featurePersistentBanner').checked = settings.exlibris.features.persistentBanner !== false;
+    document.getElementById('featureHighlighter').checked = settings.exlibris.features.highlighterEnabled !== false;
+    document.getElementById('featureBannerMessages').checked = settings.exlibris.features.bannerMessages !== false;
+  }
+  
+  // Banner Messages settings
+  if (settings.exlibris?.persistentBanner?.messages) {
+    const messages = settings.exlibris.persistentBanner.messages;
+    document.getElementById('bannerMessagesEnabled').checked = messages.enabled !== false;
+    document.getElementById('messageRotationInterval').value = messages.rotationInterval || 5000;
+    document.getElementById('messageAutoRotate').checked = messages.autoRotate !== false;
+    document.getElementById('defaultMessagesEnabled').checked = messages.defaultMessages?.enabled !== false;
+    
+    // Toggle settings panel visibility
+    toggleBannerMessagesSettings(messages.enabled !== false);
+    
+    // Populate default messages
+    if (messages.defaultMessages?.items) {
+      renderDefaultMessages(messages.defaultMessages.items);
+    }
+    
+    // Populate custom messages
+    if (messages.customMessages) {
+      renderCustomMessages(messages.customMessages);
+    }
+  } else {
+    // Default state
+    toggleBannerMessagesSettings(true);
   }
   
   // UI preferences
@@ -233,6 +417,503 @@ function populateUI(settings) {
   document.getElementById('useTeamDefaults').addEventListener('change', (e) => {
     document.getElementById('customIRT').disabled = e.target.checked;
   });
+  
+  // Add listener for banner messages enabled toggle
+  document.getElementById('bannerMessagesEnabled').addEventListener('change', (e) => {
+    toggleBannerMessagesSettings(e.target.checked);
+  });
+}
+
+/**
+ * Toggle banner messages settings panel visibility
+ * @param {boolean} enabled
+ */
+function toggleBannerMessagesSettings(enabled) {
+  const panel = document.getElementById('bannerMessagesSettings');
+  if (panel) {
+    panel.style.display = enabled ? 'block' : 'none';
+  }
+}
+
+/**
+ * Get message settings from UI
+ * @returns {Object} Message settings object
+ */
+function getMessageSettingsFromUI() {
+  const defaultMessagesList = document.getElementById('defaultMessagesList');
+  const customMessagesList = document.getElementById('customMessagesList');
+  
+  // Collect default messages state
+  const defaultItems = [];
+  if (defaultMessagesList) {
+    defaultMessagesList.querySelectorAll('[data-message-id]').forEach(item => {
+      const id = item.dataset.messageId;
+      const checkbox = item.querySelector('input[type="checkbox"]');
+      const text = item.querySelector('.message-text')?.textContent || '';
+      if (id && id.startsWith('default_')) {
+        defaultItems.push({
+          id: id,
+          text: text,
+          enabled: checkbox ? checkbox.checked : true
+        });
+      }
+    });
+  }
+  
+  // Collect custom messages
+  const customMessages = [];
+  if (customMessagesList) {
+    customMessagesList.querySelectorAll('[data-message-id]').forEach(item => {
+      const id = item.dataset.messageId;
+      const textarea = item.querySelector('.message-textarea');
+      const descriptionArea = item.querySelector('.message-description');
+      const enabledCheckbox = item.querySelector('input[type="checkbox"]');
+      const imagePreview = item.querySelector('.image-preview');
+      
+      if (id && id.startsWith('custom_') && textarea) {
+        const message = {
+          id: id,
+          text: textarea.value.trim(),
+          enabled: enabledCheckbox ? enabledCheckbox.checked : true,
+          description: descriptionArea ? descriptionArea.value.trim() : '',
+          hoverImage: imagePreview ? imagePreview.src : null,
+          pinnedCaseNumber: item.dataset.pinnedCaseNumber || null,
+          pinnedCaseId: item.dataset.pinnedCaseId || null,
+          pinnedCaseUrl: item.dataset.pinnedCaseUrl || null
+        };
+        customMessages.push(message);
+      }
+    });
+  }
+  
+  return {
+    enabled: document.getElementById('bannerMessagesEnabled').checked,
+    defaultMessages: {
+      enabled: document.getElementById('defaultMessagesEnabled').checked,
+      items: defaultItems
+    },
+    customMessages: customMessages,
+    rotationInterval: parseInt(document.getElementById('messageRotationInterval').value, 10), // Value is already in milliseconds
+    autoRotate: document.getElementById('messageAutoRotate').checked
+  };
+}
+
+/**
+ * Render default messages (toggle only, cannot edit text)
+ * @param {Array} messages - Array of default message objects
+ */
+function renderDefaultMessages(messages) {
+  const container = document.getElementById('defaultMessagesList');
+  if (!container) return;
+  
+  if (!messages || messages.length === 0) {
+    container.innerHTML = '<p class="info-text">No default messages available</p>';
+    return;
+  }
+  
+  container.innerHTML = messages.map(msg => `
+    <div class="message-item" data-message-id="${msg.id}">
+      <label class="message-toggle">
+        <input type="checkbox" ${msg.enabled !== false ? 'checked' : ''}>
+        <span class="message-text">${escapeHtml(msg.text)}</span>
+      </label>
+    </div>
+  `).join('');
+}
+
+/**
+ * Render custom messages (editable)
+ * @param {Array} messages - Array of custom message objects
+ */
+function renderCustomMessages(messages) {
+  const container = document.getElementById('customMessagesList');
+  if (!container) return;
+  
+  if (!messages || messages.length === 0) {
+    container.innerHTML = '<p class="info-text">No custom messages. Click "Add Message" to create one.</p>';
+    return;
+  }
+  
+  container.innerHTML = messages.map(msg => {
+    const charCount = (msg.text || '').length;
+    const hasImage = msg.hoverImage ? true : false;
+    const isPinned = msg.pinnedCaseNumber ? true : false;
+    
+    return `
+    <div class="message-item custom-message" data-message-id="${msg.id}" style="border: 2px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 15px; margin-bottom: 15px; background: rgba(255,255,255,0.05);">
+      <div class="message-controls" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <label class="message-toggle" style="display: flex; align-items: center; gap: 8px;">
+          <input type="checkbox" ${msg.enabled !== false ? 'checked' : ''}>
+          <span>Enabled</span>
+        </label>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          ${isPinned ? `<span style="font-size: 12px; padding: 2px 8px; background: rgba(224,120,0,0.2); border-radius: 4px; color: #ffa500;">📌 ${escapeHtml(msg.pinnedCaseNumber)}</span>` : ''}
+          <button class="button-small delete-message-btn" data-message-id="${msg.id}" title="Delete message">Delete</button>
+        </div>
+      </div>
+      
+      <label style="display: block; margin-bottom: 5px; font-size: 12px; opacity: 0.9;">Message Text (4000 chars max)</label>
+      <textarea class="message-textarea" rows="4" maxlength="4000" placeholder="Enter message text..." style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); color: white; font-family: inherit; resize: vertical;">${escapeHtml(msg.text || '')}</textarea>
+      <div class="char-counter" style="text-align: right; font-size: 11px; margin-top: 3px; opacity: 0.7;">${charCount}/4000</div>
+      
+      <label style="display: block; margin: 10px 0 5px 0; font-size: 12px; opacity: 0.9;">Description (optional)</label>
+      <textarea class="message-description" rows="2" placeholder="Add a description for this message..." style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); color: white; font-family: inherit; resize: vertical;">${escapeHtml(msg.description || '')}</textarea>
+      
+      <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.2);">
+        <label style="display: block; margin-bottom: 5px; font-size: 12px; opacity: 0.9;">Hover Image</label>
+        ${hasImage ? `
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+            <img class="image-preview" src="${msg.hoverImage}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px; border: 2px solid rgba(255,255,255,0.3);">
+            <div style="flex: 1; font-size: 12px; opacity: 0.8;">
+              <div>Image attached</div>
+              <div style="font-size: 10px; margin-top: 2px;">${Math.round(msg.hoverImage.length * 0.75 / 1024)} KB</div>
+            </div>
+            <button class="button-small remove-image-btn" data-message-id="${msg.id}" style="background: rgba(200,0,0,0.3); border: 1px solid rgba(255,255,255,0.3);">Remove</button>
+          </div>
+        ` : ''}
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <input type="file" class="image-upload" data-message-id="${msg.id}" accept="image/*" style="display: none;">
+          <button class="button-small upload-image-btn" data-message-id="${msg.id}" style="font-size: 11px; padding: 4px 8px;">📤 Upload</button>
+          <input type="text" class="image-url-input" data-message-id="${msg.id}" placeholder="Or paste image URL..." style="flex: 1; padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); color: white; font-size: 11px; min-width: 150px;">
+          <button class="button-small load-url-btn" data-message-id="${msg.id}" style="font-size: 11px; padding: 4px 8px;">Load URL</button>
+        </div>
+        <div class="image-status" data-message-id="${msg.id}" style="font-size: 11px; margin-top: 5px; opacity: 0.7;"></div>
+      </div>
+    </div>
+  `;
+  }).join('');
+  
+  // Attach event handlers
+  attachMessageEventHandlers(container);
+}
+
+/**
+ * Add new custom message
+ */
+function addCustomMessage() {
+  const container = document.getElementById('customMessagesList');
+  if (!container) return;
+  
+  const newId = 'custom_' + Date.now();
+  const newMessage = {
+    id: newId,
+    text: '',
+    enabled: true,
+    description: '',
+    hoverImage: null,
+    pinnedCaseNumber: null,
+    pinnedCaseId: null,
+    pinnedCaseUrl: null
+  };
+  
+  // Get current messages from UI
+  const currentMessages = getCurrentMessagesFromUI();
+  
+  // Add new message
+  currentMessages.push(newMessage);
+  renderCustomMessages(currentMessages);
+  
+  // Focus on the new textarea
+  const newItem = container.querySelector(`[data-message-id="${newId}"]`);
+  if (newItem) {
+    const textarea = newItem.querySelector('textarea');
+    if (textarea) {
+      textarea.focus();
+    }
+  }
+}
+
+/**
+ * Delete custom message
+ * @param {string} messageId - ID of message to delete
+ */
+function deleteCustomMessage(messageId) {
+  if (!confirm('Delete this custom message?')) return;
+  
+  const container = document.getElementById('customMessagesList');
+  if (!container) return;
+  
+  const item = container.querySelector(`[data-message-id="${messageId}"]`);
+  if (item) {
+    item.remove();
+  }
+  
+  // Update placeholder if no messages left
+  if (container.querySelectorAll('[data-message-id]').length === 0) {
+    container.innerHTML = '<p class="info-text">No custom messages. Click "Add Message" to create one.</p>';
+  }
+}
+
+/**
+ * Validate message text
+ * @param {string} text - Message text to validate
+ * @returns {Object} { valid: boolean, error: string|null }
+ */
+function validateMessageText(text) {
+  if (!text || !text.trim()) {
+    return { valid: false, error: 'Message cannot be empty' };
+  }
+  
+  if (text.length > 4000) {
+    return { valid: false, error: 'Message cannot exceed 4000 characters' };
+  }
+  
+  return { valid: true, error: null, length: text.length };
+}
+
+/**
+ * Escape HTML to prevent XSS
+ * @param {string} text - Text to escape
+ * @returns {string} Escaped text
+ */
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+/**
+ * Attach event handlers for message items
+ * @param {HTMLElement} container - Container element
+ */
+function attachMessageEventHandlers(container) {
+  // Delete buttons
+  container.querySelectorAll('.delete-message-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const id = e.target.dataset.messageId;
+      deleteCustomMessage(id);
+    });
+  });
+
+  // Character counters for textareas
+  container.querySelectorAll('.message-textarea').forEach(textarea => {
+    const item = textarea.closest('[data-message-id]');
+    const counter = item.querySelector('.char-counter');
+    
+    textarea.addEventListener('input', () => {
+      if (counter) {
+        counter.textContent = `${textarea.value.length}/4000`;
+      }
+    });
+  });
+
+  // Upload image buttons
+  container.querySelectorAll('.upload-image-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const messageId = btn.dataset.messageId;
+      const fileInput = container.querySelector(`.image-upload[data-message-id="${messageId}"]`);
+      if (fileInput) {
+        fileInput.click();
+      }
+    });
+  });
+
+  // File input handlers
+  container.querySelectorAll('.image-upload').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const messageId = input.dataset.messageId;
+      const file = e.target.files[0];
+      if (file) {
+        handleImageUpload(file, messageId);
+      }
+    });
+  });
+
+  // Load URL buttons
+  container.querySelectorAll('.load-url-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const messageId = btn.dataset.messageId;
+      const urlInput = container.querySelector(`.image-url-input[data-message-id="${messageId}"]`);
+      if (urlInput && urlInput.value.trim()) {
+        handleImageUrl(urlInput.value.trim(), messageId);
+      }
+    });
+  });
+
+  // Remove image buttons
+  container.querySelectorAll('.remove-image-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const messageId = btn.dataset.messageId;
+      removeMessageImage(messageId);
+    });
+  });
+}
+
+/**
+ * Handle image file upload
+ * @param {File} file - Image file
+ * @param {string} messageId - Message ID
+ */
+function handleImageUpload(file, messageId) {
+  const statusEl = document.querySelector(`.image-status[data-message-id="${messageId}"]`);
+  
+  if (!file.type.startsWith('image/')) {
+    if (statusEl) statusEl.textContent = '❌ Please select an image file';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      if (statusEl) statusEl.textContent = '⏳ Compressing...';
+      const compressed = await compressImage(e.target.result);
+      updateMessageImage(messageId, compressed);
+      if (statusEl) statusEl.textContent = '✅ Image added successfully';
+      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+    } catch (error) {
+      console.error('Image upload error:', error);
+      if (statusEl) statusEl.textContent = '❌ Failed to process image';
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+/**
+ * Handle image URL load
+ * @param {string} url - Image URL
+ * @param {string} messageId - Message ID
+ */
+async function handleImageUrl(url, messageId) {
+  const statusEl = document.querySelector(`.image-status[data-message-id="${messageId}"]`);
+  
+  try {
+    if (statusEl) statusEl.textContent = '⏳ Loading...';
+    
+    const response = await fetch(url);
+    const blob = await response.blob();
+    
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        if (statusEl) statusEl.textContent = '⏳ Compressing...';
+        const compressed = await compressImage(e.target.result);
+        updateMessageImage(messageId, compressed);
+        if (statusEl) statusEl.textContent = '✅ Image added successfully';
+        setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+      } catch (error) {
+        console.error('Image compression error:', error);
+        if (statusEl) statusEl.textContent = '❌ Failed to compress image';
+      }
+    };
+    reader.readAsDataURL(blob);
+    
+  } catch (error) {
+    console.error('Image URL error:', error);
+    if (statusEl) statusEl.textContent = '❌ Failed to load image from URL';
+  }
+}
+
+/**
+ * Compress image to meet size requirements
+ * @param {string} base64 - Base64 image data
+ * @returns {Promise<string>} Compressed base64 image
+ */
+function compressImage(base64) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Calculate dimensions (max 700px width)
+      let width = img.width;
+      let height = img.height;
+      const maxWidth = 700;
+      
+      if (width > maxWidth) {
+        height = (height / width) * maxWidth;
+        width = maxWidth;
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // Export as JPEG with 0.85 quality
+      const compressed = canvas.toDataURL('image/jpeg', 0.85);
+      
+      // Check size (200KB limit)
+      const sizeKB = Math.round(compressed.length * 0.75 / 1024);
+      if (sizeKB > 200) {
+        reject(new Error(`Image too large: ${sizeKB} KB (max 200 KB)`));
+        return;
+      }
+      
+      resolve(compressed);
+    };
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = base64;
+  });
+}
+
+/**
+ * Update message with new image
+ * @param {string} messageId - Message ID
+ * @param {string} imageData - Base64 image data
+ */
+function updateMessageImage(messageId, imageData) {
+  const container = document.getElementById('customMessagesList');
+  if (!container) return;
+  
+  const item = container.querySelector(`[data-message-id="${messageId}"]`);
+  if (!item) return;
+  
+  // Store image data temporarily
+  item.dataset.tempImage = imageData;
+  
+  // Re-render to show preview
+  const allMessages = getCurrentMessagesFromUI();
+  const message = allMessages.find(m => m.id === messageId);
+  if (message) {
+    message.hoverImage = imageData;
+    renderCustomMessages(allMessages);
+  }
+}
+
+/**
+ * Remove image from message
+ * @param {string} messageId - Message ID
+ */
+function removeMessageImage(messageId) {
+  const allMessages = getCurrentMessagesFromUI();
+  const message = allMessages.find(m => m.id === messageId);
+  if (message) {
+    message.hoverImage = null;
+    renderCustomMessages(allMessages);
+  }
+}
+
+/**
+ * Get current messages from UI
+ * @returns {Array} Array of message objects
+ */
+function getCurrentMessagesFromUI() {
+  const container = document.getElementById('customMessagesList');
+  if (!container) return [];
+  
+  const messages = [];
+  container.querySelectorAll('[data-message-id]').forEach(item => {
+    const id = item.dataset.messageId;
+    const textarea = item.querySelector('.message-textarea');
+    const descriptionArea = item.querySelector('.message-description');
+    const enabledCheckbox = item.querySelector('input[type="checkbox"]');
+    const imagePreview = item.querySelector('.image-preview');
+    
+    if (id && textarea) {
+      messages.push({
+        id: id,
+        text: textarea.value.trim(),
+        enabled: enabledCheckbox ? enabledCheckbox.checked : true,
+        description: descriptionArea ? descriptionArea.value.trim() : '',
+        hoverImage: imagePreview ? imagePreview.src : (item.dataset.tempImage || null),
+        pinnedCaseNumber: item.dataset.pinnedCaseNumber || null,
+        pinnedCaseId: item.dataset.pinnedCaseId || null,
+        pinnedCaseUrl: item.dataset.pinnedCaseUrl || null
+      });
+    }
+  });
+  
+  return messages;
 }
 
 /**
@@ -256,7 +937,10 @@ function getSettingsFromUI() {
         multiTabSync: document.getElementById('featureMultiTab').checked,
         caseCommentMemory: document.getElementById('featureCommentMemory').checked,
         characterCounter: document.getElementById('featureCharCounter').checked,
-        dynamicMenu: document.getElementById('featureDynamicMenu').checked
+        dynamicMenu: document.getElementById('featureDynamicMenu').checked,
+        persistentBanner: document.getElementById('featurePersistentBanner').checked,
+        highlighterEnabled: document.getElementById('featureHighlighter').checked,
+        bannerMessages: document.getElementById('featureBannerMessages').checked
       },
       ui: {
         buttonLabelStyle: document.getElementById('labelStyleSelect').value,
@@ -268,6 +952,9 @@ function getSettingsFromUI() {
       },
       shortcuts: {
         enabled: document.getElementById('shortcutsEnabled').checked
+      },
+      persistentBanner: {
+        messages: getMessageSettingsFromUI()
       }
     },
     userPreferences: {
@@ -347,6 +1034,476 @@ function showSuccess(message) {
   setTimeout(() => successDiv.remove(), 2000);
 }
 
+/**
+ * Load highlighter banner activation UI
+ * Shows current URL dismissal status and allows reactivation
+ */
+async function loadHighlighterBannerActivationUI() {
+  const urlEl = document.getElementById('highlighter-banner-url');
+  const statusEl = document.getElementById('highlighter-banner-status');
+  const toggleBtn = document.getElementById('toggle-highlighter-banner-btn');
+
+  if (!urlEl || !statusEl || !toggleBtn) {
+    console.warn('[Popup] Highlighter banner UI elements not found');
+    return;
+  }
+
+  try {
+    const activeTab = await getActiveTabURL();
+    const currentUrl = activeTab.url || '';
+
+    // Display URL (truncated if too long)
+    if (currentUrl.length > 60) {
+      urlEl.textContent = currentUrl.substring(0, 57) + '...';
+      urlEl.title = currentUrl; // Full URL on hover
+    } else {
+      urlEl.textContent = currentUrl || 'N/A';
+      urlEl.title = currentUrl || '';
+    }
+
+    // Check if banner should be shown (using new logic)
+    // We need to check: default domains, whitelist, and dismissals
+    const isDefaultDomain = await new Promise((resolve) => {
+      try {
+        const hostname = new URL(currentUrl).hostname.toLowerCase().replace(/^www\./, '');
+        const defaultDomains = [
+          'support.clarivate.com',
+          'developers.exlibrisgroup.com',
+          'knowledge.exlibrisgroup.com',
+          'wiki.clarivate.io'
+        ];
+        resolve(defaultDomains.some(domain => {
+          const checkDomain = domain.toLowerCase().replace(/^www\./, '');
+          return hostname === checkDomain || hostname.endsWith('.' + checkDomain);
+        }));
+      } catch (e) {
+        resolve(false);
+      }
+    });
+
+    const isInWhitelist = await new Promise((resolve) => {
+      chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
+        const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
+        try {
+          const urlObj = new URL(currentUrl);
+          const hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
+          const urlPath = urlObj.href;
+          
+          if (whitelist.urls.includes(urlPath)) {
+            resolve(true);
+            return;
+          }
+          
+          if (whitelist.domains.some(domain => {
+            const checkDomain = domain.toLowerCase().replace(/^www\./, '');
+            return hostname === checkDomain || hostname.endsWith('.' + checkDomain);
+          })) {
+            resolve(true);
+            return;
+          }
+          
+          resolve(false);
+        } catch (e) {
+          resolve(false);
+        }
+      });
+    });
+
+    // Check if dismissed
+    const domain = new URL(currentUrl).hostname.toLowerCase().replace(/^www\./, '');
+    const isDismissed = await new Promise((resolve) => {
+      chrome.storage.local.get(['exl_hl_banner_dismissals', 'exl_hl_banner_page_dismissals'], (result) => {
+        const dismissals = result.exl_hl_banner_dismissals || {};
+        const pageDismissals = result.exl_hl_banner_page_dismissals || {};
+        
+        // Check URL dismissal
+        if (pageDismissals[currentUrl]) {
+          resolve(true);
+          return;
+        }
+        
+        // Check domain dismissal
+        if (dismissals[domain] && dismissals[domain].dismissed) {
+          resolve(true);
+          return;
+        }
+        
+        resolve(false);
+      });
+    });
+
+    // Banner should show if: (isDefault OR inWhitelist) AND not dismissed
+    const shouldShow = (isDefaultDomain || isInWhitelist) && !isDismissed;
+
+    // Update UI based on status
+    updateHighlighterBannerUI(shouldShow);
+
+    // Attach toggle button handler
+    toggleBtn.onclick = async () => {
+      const showBanner = !shouldShow; // Toggle: if not showing, show it; if showing, hide it
+
+      try {
+        // Send message to content script to toggle banner
+        chrome.tabs.sendMessage(activeTab.id, {
+          action: 'toggleBanner',
+          url: currentUrl,
+          show: showBanner
+        }, async (response) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[Popup] Could not send message to highlighter content script:', chrome.runtime.lastError);
+            // Still update storage even if message fails
+            if (showBanner) {
+              // Clear dismissals to show banner
+              await clearBannerDismissals(domain, currentUrl);
+              updateHighlighterBannerUI(true);
+            } else {
+              // Dismiss banner
+              await dismissBannerInPopup(domain, currentUrl);
+              updateHighlighterBannerUI(false);
+            }
+            showSuccess(showBanner ? 'Banner will be shown when you navigate or refresh' : 'Banner will be hidden when you navigate or refresh');
+            return;
+          }
+          
+          if (response && response.success) {
+            if (showBanner) {
+              // Clear dismissals
+              clearBannerDismissals(domain, currentUrl);
+            } else {
+              // Dismiss banner
+              dismissBannerInPopup(domain, currentUrl);
+            }
+            updateHighlighterBannerUI(showBanner);
+            showSuccess(showBanner ? 'Banner restored!' : 'Banner hidden');
+          }
+        });
+      } catch (error) {
+        console.error('[Popup] Error toggling highlighter banner:', error);
+        showSuccess('Error: ' + error.message);
+      }
+    };
+
+  } catch (error) {
+    console.error('[Popup] Error loading highlighter banner activation UI:', error);
+    if (urlEl) urlEl.textContent = 'Error';
+    if (statusEl) {
+      statusEl.textContent = '●Error';
+      statusEl.className = 'status-badge status-inactive';
+    }
+    if (toggleBtn) toggleBtn.disabled = true;
+  }
+}
+
+/**
+ * Update highlighter banner activation UI elements
+ * @param {boolean} visible - Whether banner is visible (not dismissed)
+ */
+function updateHighlighterBannerUI(visible) {
+  const statusEl = document.getElementById('highlighter-banner-status');
+  const toggleBtn = document.getElementById('toggle-highlighter-banner-btn');
+
+  if (!statusEl || !toggleBtn) return;
+
+  if (visible) {
+    statusEl.textContent = '●Visible';
+    statusEl.className = 'status-badge status-active';
+    toggleBtn.textContent = 'Hide Banner';
+    toggleBtn.setAttribute('data-enabled', 'true');
+  } else {
+    statusEl.textContent = '●Hidden';
+    statusEl.className = 'status-badge status-inactive';
+    toggleBtn.textContent = 'Show Banner';
+    toggleBtn.setAttribute('data-enabled', 'false');
+  }
+}
+
+/**
+ * Load and display banner whitelist UI
+ */
+async function loadBannerWhitelistUI() {
+  const listContainer = document.getElementById('whitelistedSitesList');
+  const addBtn = document.getElementById('addSiteBtn');
+  const addCurrentBtn = document.getElementById('addCurrentSiteBtn');
+  const addInput = document.getElementById('addSiteInput');
+  const addTypeSelect = document.getElementById('addSiteType');
+
+  if (!listContainer || !addBtn || !addCurrentBtn || !addInput || !addTypeSelect) {
+    console.warn('[Popup] Banner whitelist UI elements not found');
+    return;
+  }
+
+  // Load and render whitelist
+  await renderBannerWhitelist();
+
+  // Add site button handler
+  addBtn.addEventListener('click', async () => {
+    const value = addInput.value.trim();
+    const type = addTypeSelect.value;
+
+    if (!value) {
+      showSuccess('Please enter a domain or URL');
+      return;
+    }
+
+    // Validate and add
+    const success = await addToBannerWhitelist(type, value);
+    if (success) {
+      addInput.value = '';
+      await renderBannerWhitelist();
+      showSuccess(`Added ${type}: ${value}`);
+    } else {
+      showSuccess('Error adding site');
+    }
+  });
+
+  // Add current site button handler
+  addCurrentBtn.addEventListener('click', async () => {
+    try {
+      const activeTab = await getActiveTabURL();
+      const currentUrl = activeTab.url || '';
+
+      if (!currentUrl) {
+        showSuccess('Could not get current URL');
+        return;
+      }
+
+      // Ask user if they want to add as domain or URL
+      const choice = confirm(
+        `Add current site?\n\n` +
+        `OK = Add as Domain (all pages on ${new URL(currentUrl).hostname})\n` +
+        `Cancel = Add as URL (only this page)`
+      );
+
+      const type = choice ? 'domain' : 'url';
+      const value = choice ? new URL(currentUrl).hostname.replace(/^www\./, '') : currentUrl;
+
+      const success = await addToBannerWhitelist(type, value);
+      if (success) {
+        await renderBannerWhitelist();
+        showSuccess(`Added current site as ${type}`);
+      } else {
+        showSuccess('Error adding current site');
+      }
+    } catch (error) {
+      console.error('[Popup] Error adding current site:', error);
+      showSuccess('Error: ' + error.message);
+    }
+  });
+
+  // Allow Enter key to add
+  addInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      addBtn.click();
+    }
+  });
+}
+
+/**
+ * Render banner whitelist
+ */
+async function renderBannerWhitelist() {
+  const listContainer = document.getElementById('whitelistedSitesList');
+  if (!listContainer) return;
+
+  try {
+    const whitelist = await new Promise((resolve) => {
+      chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
+        resolve(result.exl_hl_banner_whitelist || { domains: [], urls: [] });
+      });
+    });
+
+    if (whitelist.domains.length === 0 && whitelist.urls.length === 0) {
+      listContainer.innerHTML = '<p class="info-text" style="font-size: 11px; margin: 0;">No sites added yet. Add domains or URLs to enable the banner on those sites.</p>';
+      return;
+    }
+
+    let html = '';
+
+    // Render domains
+    if (whitelist.domains.length > 0) {
+      html += '<div style="margin-bottom: 12px;"><strong style="font-size: 12px; color: rgba(255,255,255,0.9);">Domains:</strong>';
+      whitelist.domains.forEach(domain => {
+        html += `
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; margin-top: 6px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+            <span style="font-size: 11px; font-family: monospace; color: rgba(255,255,255,0.9);">${domain}</span>
+            <button class="button-small" data-type="domain" data-value="${domain}" style="padding: 4px 8px; font-size: 11px;">Remove</button>
+          </div>
+        `;
+      });
+      html += '</div>';
+    }
+
+    // Render URLs
+    if (whitelist.urls.length > 0) {
+      html += '<div><strong style="font-size: 12px; color: rgba(255,255,255,0.9);">URLs:</strong>';
+      whitelist.urls.forEach(url => {
+        const displayUrl = url.length > 60 ? url.substring(0, 57) + '...' : url;
+        html += `
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; margin-top: 6px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+            <span style="font-size: 11px; font-family: monospace; color: rgba(255,255,255,0.9);" title="${url}">${displayUrl}</span>
+            <button class="button-small" data-type="url" data-value="${url}" style="padding: 4px 8px; font-size: 11px;">Remove</button>
+          </div>
+        `;
+      });
+      html += '</div>';
+    }
+
+    listContainer.innerHTML = html;
+
+    // Attach remove handlers
+    listContainer.querySelectorAll('button[data-type]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const type = btn.dataset.type;
+        const value = btn.dataset.value;
+        
+        const success = await removeFromBannerWhitelist(type, value);
+        if (success) {
+          await renderBannerWhitelist();
+          showSuccess(`Removed ${type}: ${value}`);
+        } else {
+          showSuccess('Error removing site');
+        }
+      });
+    });
+  } catch (error) {
+    console.error('[Popup] Error rendering whitelist:', error);
+    listContainer.innerHTML = '<p class="info-text" style="font-size: 11px; margin: 0; color: rgba(255,0,0,0.7);">Error loading whitelist</p>';
+  }
+}
+
+/**
+ * Add site to banner whitelist
+ * @param {string} type - 'domain' or 'url'
+ * @param {string} value - Domain or URL to add
+ * @returns {Promise<boolean>} True if successful
+ */
+async function addToBannerWhitelist(type, value) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
+      const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
+      
+      try {
+        if (type === 'domain') {
+          const domain = value.toLowerCase().replace(/^www\./, '').replace(/^https?:\/\//, '').split('/')[0];
+          if (!domain) {
+            resolve(false);
+            return;
+          }
+          if (!whitelist.domains.includes(domain)) {
+            whitelist.domains.push(domain);
+          }
+        } else if (type === 'url') {
+          let url = value.trim();
+          // Ensure URL has protocol
+          if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            url = 'https://' + url;
+          }
+          try {
+            new URL(url); // Validate URL
+            if (!whitelist.urls.includes(url)) {
+              whitelist.urls.push(url);
+            }
+          } catch (e) {
+            resolve(false); // Invalid URL
+            return;
+          }
+        }
+        
+        chrome.storage.local.set({ exl_hl_banner_whitelist: whitelist }, () => {
+          resolve(true);
+        });
+      } catch (error) {
+        console.error('[Popup] Error adding to whitelist:', error);
+        resolve(false);
+      }
+    });
+  });
+}
+
+/**
+ * Remove site from banner whitelist
+ * @param {string} type - 'domain' or 'url'
+ * @param {string} value - Domain or URL to remove
+ * @returns {Promise<boolean>} True if successful
+ */
+async function removeFromBannerWhitelist(type, value) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
+      const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
+      
+      try {
+        if (type === 'domain') {
+          whitelist.domains = whitelist.domains.filter(d => d !== value);
+        } else if (type === 'url') {
+          whitelist.urls = whitelist.urls.filter(u => u !== value);
+        }
+        
+        chrome.storage.local.set({ exl_hl_banner_whitelist: whitelist }, () => {
+          resolve(true);
+        });
+      } catch (error) {
+        console.error('[Popup] Error removing from whitelist:', error);
+        resolve(false);
+      }
+    });
+  });
+}
+
+/**
+ * Clear banner dismissals (reactivate banner)
+ * @param {string} domain - Domain
+ * @param {string} url - Full URL
+ */
+async function clearBannerDismissals(domain, url) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['exl_hl_banner_page_dismissals', 'exl_hl_banner_dismissals'], (result) => {
+      const pageDismissals = result.exl_hl_banner_page_dismissals || {};
+      const dismissals = result.exl_hl_banner_dismissals || {};
+      
+      // Remove URL dismissal
+      delete pageDismissals[url];
+      
+      // Remove domain permanent dismissal
+      if (dismissals[domain]) {
+        dismissals[domain].dismissed = false;
+        dismissals[domain].count = 0;
+        dismissals[domain].modalShown = false;
+      }
+      
+      chrome.storage.local.set({
+        exl_hl_banner_page_dismissals: pageDismissals,
+        exl_hl_banner_dismissals: dismissals
+      }, () => {
+        resolve();
+      });
+    });
+  });
+}
+
+/**
+ * Dismiss banner (for popup toggle)
+ * @param {string} domain - Domain
+ * @param {string} url - Full URL
+ */
+async function dismissBannerInPopup(domain, url) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['exl_hl_banner_dismissals'], (result) => {
+      const dismissals = result.exl_hl_banner_dismissals || {};
+      
+      if (!dismissals[domain]) {
+        dismissals[domain] = {};
+      }
+      
+      dismissals[domain].dismissed = true;
+      dismissals[domain].count = 0;
+      
+      chrome.storage.local.set({ exl_hl_banner_dismissals: dismissals }, () => {
+        resolve();
+      });
+    });
+  });
+}
+
 // Initialize on load
 document.addEventListener("DOMContentLoaded", async () => {
   const activeTab = await getActiveTabURL();
@@ -362,21 +1519,59 @@ document.addEventListener("DOMContentLoaded", async () => {
     // ignore if not available
   }
   
-  // Check if on Salesforce
-  const isSalesforce = activeTab.url.includes("clarivateanalytics.lightning.force.com") || 
-                      activeTab.url.includes("clarivateanalytics--preprod.sandbox.lightning.force.com") || 
-                      activeTab.url.includes("proquestllc.lightning.force.com");
-  
-  if (!isSalesforce) {
-    document.getElementById('notInSFDC').style.display = 'block';
-    document.getElementById('settingsContainer').style.display = 'none';
-    return;
-  }
-  
   // Load and populate settings
   const settings = await loadSettings();
   populateUI(settings);
   updateStorageInfo();
+  
+  // Load highlighter banner activation UI
+  await loadHighlighterBannerActivationUI();
+  
+  // Load banner whitelist management UI
+  await loadBannerWhitelistUI();
+  
+  // Setup storage change listener for cross-tab synchronization
+  chrome.storage.onChanged.addListener(async (changes, areaName) => {
+    // Listen for banner messages changes from other tabs
+    if (areaName === 'local' && changes.exl_bannerMessages) {
+      console.log('[Popup] Banner messages changed in another tab, updating UI...');
+      
+      // Debounced UI update to prevent rapid-fire
+      if (window.debouncedPopupUpdate) {
+        window.debouncedPopupUpdate();
+      } else {
+        // Create debounced function
+        window.debouncedPopupUpdate = (() => {
+          let timeout;
+          return () => {
+            clearTimeout(timeout);
+            timeout = setTimeout(async () => {
+              // Reload custom messages section
+              const newValue = changes.exl_bannerMessages.newValue;
+              if (newValue && newValue.customMessages) {
+                // Update the UI with new messages
+                const container = document.getElementById('customMessagesContainer');
+                if (container) {
+                  renderCustomMessages(newValue.customMessages);
+                  console.log('[Popup] UI updated with messages from another tab');
+                }
+              }
+            }, 250);
+          };
+        })();
+        window.debouncedPopupUpdate();
+      }
+    }
+    
+    // Listen for settings changes (sync storage)
+    if (areaName === 'sync') {
+      console.log('[Popup] Settings changed in another tab, reloading...');
+      const newSettings = await loadSettings();
+      populateUI(newSettings);
+    }
+  });
+  
+  console.log('[Popup] Storage change listener registered for cross-tab sync');
   
   // Tab switching
   document.querySelectorAll('.tab').forEach(tab => {
@@ -424,6 +1619,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     showSuccess('Ex Libris settings saved! Please refresh Salesforce.');
   });
   
+  // Add custom message button
+  const addCustomMessageBtn = document.getElementById('addCustomMessageBtn');
+  if (addCustomMessageBtn) {
+    addCustomMessageBtn.addEventListener('click', () => {
+      addCustomMessage();
+    });
+  }
+  
   // Save shortcuts button
   document.getElementById('saveShortcutsButton').addEventListener('click', async () => {
     const settings = getSettingsFromUI();
@@ -461,8 +1664,24 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   
   // Export button
-  document.getElementById('exportButton').addEventListener('click', () => {
-    const json = JSON.stringify(currentSettings, null, 2);
+  document.getElementById('exportButton').addEventListener('click', async () => {
+    const manifest = chrome.runtime.getManifest();
+    const syncData = currentSettings;
+
+    let workspacePayload = null;
+    if (typeof DataMigration !== 'undefined' && DataMigration.exportAllData) {
+      workspacePayload = await DataMigration.exportAllData({ includeBackups: true });
+    }
+
+    const exportData = {
+      version: manifest?.version || 'unknown',
+      exportDate: new Date().toISOString(),
+      settings: syncData,
+      workspace: workspacePayload?.data || {},
+      workspaceBackupCount: workspacePayload?.backupCount || 0
+    };
+
+    const json = JSON.stringify(exportData, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -470,7 +1689,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     a.download = 'cforce-extension-settings.json';
     a.click();
     URL.revokeObjectURL(url);
-    showSuccess('Settings exported');
+    showSuccess('Workspace data exported (highlights, notes, bookmarks, layers).');
   });
   
   // Import button
@@ -485,10 +1704,26 @@ document.addEventListener("DOMContentLoaded", async () => {
       const reader = new FileReader();
       reader.onload = async (event) => {
         try {
-          const settings = JSON.parse(event.target.result);
-          await saveSettings(settings);
-          populateUI(settings);
-          showSuccess('Settings imported successfully');
+          const importData = JSON.parse(event.target.result);
+
+          const settingsPayload = importData.settings || (importData.exlibris ? importData : null);
+          if (settingsPayload) {
+            await saveSettings(settingsPayload);
+            populateUI(settingsPayload);
+          }
+
+          const workspacePayload = importData.workspace || importData.data;
+          if (workspacePayload && Object.keys(workspacePayload).length > 0) {
+            if (typeof DataMigration !== 'undefined' && DataMigration.clearWorkspaceData) {
+              await DataMigration.clearWorkspaceData({ includeBackups: true });
+            }
+            await new Promise((resolve) => {
+              chrome.storage.local.set(workspacePayload, () => resolve());
+            });
+            showSuccess('Workspace data imported. Refresh Salesforce to reload highlights.');
+          } else if (!importData.settings) {
+            alert('Import file does not contain workspace or settings data.');
+          }
         } catch (error) {
           alert('Error importing settings: Invalid JSON file');
           console.error('Import error:', error);

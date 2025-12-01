@@ -6,31 +6,38 @@
 
 const NavigationObserver = {
     callbacks: [],
+    priorityCallbacks: [], // Callbacks that should run first (e.g., PageIdentifier)
     currentUrl: null,
+    currentTitle: null,
+    currentCaseId: null,
+    currentCaseNumber: null,
     debounceTimer: null,
     debounceDelay: 250,
     titleObserver: null,
+    urlObserver: null,
     isRunning: false,
     originalPushState: null,
     originalReplaceState: null,
 
     /**
-     * Start observing navigation changes
+     * Start observing navigation changes with enhanced detection
      */
     start() {
         if (this.isRunning) {
-            console.warn('[EXL] NavigationObserver: Already running');
+            // Already initialized - this is expected when multiple modules try to start it
             return;
         }
 
         this.currentUrl = window.location.href;
+        this.currentTitle = document.title;
+        this.updateCaseContext();
         this.isRunning = true;
 
-        // Watch title changes (Lightning updates title on navigation)
+        // Signal 1: Watch title changes (Lightning updates title on navigation)
         const titleElement = document.querySelector('title');
         if (titleElement) {
             this.titleObserver = new MutationObserver(() => {
-                this.checkUrlChange();
+                this.checkNavigation();
             });
 
             this.titleObserver.observe(titleElement, {
@@ -40,7 +47,7 @@ const NavigationObserver = {
             });
         }
 
-        // Intercept history API
+        // Signal 2: Intercept history API
         this.originalPushState = history.pushState;
         this.originalReplaceState = history.replaceState;
 
@@ -48,49 +55,171 @@ const NavigationObserver = {
 
         history.pushState = function(...args) {
             self.originalPushState.apply(history, args);
-            self.checkUrlChange();
+            self.checkNavigation();
         };
 
         history.replaceState = function(...args) {
             self.originalReplaceState.apply(history, args);
-            self.checkUrlChange();
+            self.checkNavigation();
         };
 
-        // Watch popstate (back/forward)
-        window.addEventListener('popstate', () => this.checkUrlChange());
+        // Signal 3: Watch popstate (back/forward)
+        window.addEventListener('popstate', () => this.checkNavigation());
 
-        // Watch hash changes
-        window.addEventListener('hashchange', () => this.checkUrlChange());
+        // Signal 4: Watch hash changes
+        window.addEventListener('hashchange', () => this.checkNavigation());
 
-        console.log('[EXL] NavigationObserver: Started');
+        // Signal 5: DOM mutations (fallback for missed navigations)
+        this.urlObserver = new MutationObserver(() => {
+            // Check if URL or title changed via DOM mutation
+            const newUrl = window.location.href;
+            const newTitle = document.title;
+            
+            if (newUrl !== this.currentUrl || newTitle !== this.currentTitle) {
+                this.checkNavigation();
+            }
+        });
+        
+        // Observe document body for changes (lightweight, debounced)
+        if (document.body) {
+            this.urlObserver.observe(document.body, {
+                childList: true,
+                subtree: false, // Only direct children to reduce overhead
+                attributes: false
+            });
+        } else {
+            // Wait for body to be available
+            const bodyObserver = new MutationObserver(() => {
+                if (document.body) {
+                    bodyObserver.disconnect();
+                    this.urlObserver.observe(document.body, {
+                        childList: true,
+                        subtree: false,
+                        attributes: false
+                    });
+                }
+            });
+            bodyObserver.observe(document.documentElement, {
+                childList: true,
+                subtree: true
+            });
+        }
+
+        console.log('[EXL] NavigationObserver: Started with enhanced detection');
     },
 
     /**
-     * Check if URL has changed
+     * Update case context from current page
      */
-    checkUrlChange() {
-        const newUrl = window.location.href;
+    updateCaseContext() {
+        if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.getCurrentCaseContext === 'function') {
+            const context = PageContextValidator.getCurrentCaseContext();
+            if (context) {
+                this.currentCaseId = context.caseId;
+                this.currentCaseNumber = context.caseNumber;
+            } else {
+                this.currentCaseId = null;
+                this.currentCaseNumber = null;
+            }
+        } else {
+            // Fallback: extract from URL only
+            const match = window.location.href.match(/\/Case\/([a-zA-Z0-9]{15,18})\//);
+            this.currentCaseId = match ? match[1] : null;
+            this.currentCaseNumber = null;
+        }
+    },
 
-        if (newUrl !== this.currentUrl) {
-            console.log(`[EXL] NavigationObserver: URL changed from ${this.currentUrl} to ${newUrl}`);
+    /**
+     * Check if navigation occurred (enhanced with multiple signals)
+     */
+    checkNavigation() {
+        const newUrl = window.location.href;
+        const newTitle = document.title;
+        
+        // Get new case context
+        let newContext = null;
+        if (typeof PageContextValidator !== 'undefined' && typeof PageContextValidator.getCurrentCaseContext === 'function') {
+            newContext = PageContextValidator.getCurrentCaseContext();
+        }
+        
+        // Check URL change
+        const urlChanged = newUrl !== this.currentUrl ? newUrl !== window.ExLibrisExtension.lastUrl : false;
+        
+        if (!urlChanged) {
+            return;
+        }
+
+        // Check title change
+        const titleChanged = this.currentTitle !== null && newTitle !== this.currentTitle;
+        
+        // Check case context change
+        const caseIdChanged = newContext?.caseId !== this.currentCaseId;
+        const caseNumberChanged = newContext?.caseNumber !== this.currentCaseNumber;
+        
+        // Navigation detected if any indicator changed
+        if (urlChanged || titleChanged || caseIdChanged || caseNumberChanged) {
+            console.log('[EXL] NavigationObserver: Navigation detected:', {
+                urlChanged,
+                titleChanged,
+                caseIdChanged,
+                caseNumberChanged,
+                from: { url: this.currentUrl, caseId: this.currentCaseId },
+                to: { url: newUrl, caseId: newContext?.caseId }
+            });
+            
             this.currentUrl = newUrl;
+            this.currentTitle = newTitle;
+            this.updateCaseContext();
             this.triggerCallbacks();
         }
     },
 
     /**
-     * Trigger all registered callbacks (debounced)
+     * Trigger all registered callbacks with context information (debounced)
      */
     triggerCallbacks() {
         // Debounce to avoid rapid-fire during complex navigations
         clearTimeout(this.debounceTimer);
 
         this.debounceTimer = setTimeout(() => {
-            console.log(`[EXL] NavigationObserver: Triggering ${this.callbacks.length} callback(s)`);
+            // Create a fresh context object for each callback to avoid mutation issues
+            const baseContext = {
+                url: this.currentUrl,
+                title: this.currentTitle,
+                caseId: this.currentCaseId,
+                caseNumber: this.currentCaseNumber
+            };
             
+            const totalCallbacks = this.priorityCallbacks.length + this.callbacks.length;
+            console.log(`[EXL] NavigationObserver: Triggering ${totalCallbacks} callback(s) (${this.priorityCallbacks.length} priority, ${this.callbacks.length} regular)`);
+            
+            // Execute priority callbacks first (e.g., PageIdentifier)
+            this.priorityCallbacks.forEach((cb, index) => {
+                try {
+                    // Support both old signature (url only) and new signature (url, context)
+                    // Create a copy of context for each callback to prevent mutation
+                    if (cb.length === 2) {
+                        const contextCopy = { ...baseContext };
+                        cb(this.currentUrl, contextCopy);
+                    } else {
+                        cb(this.currentUrl);
+                    }
+                } catch (err) {
+                    console.error(`[EXL] NavigationObserver: Priority callback ${index} error:`, err);
+                }
+            });
+            
+            // Then execute regular callbacks
             this.callbacks.forEach((cb, index) => {
                 try {
-                    cb(this.currentUrl);
+                    // Support both old signature (url only) and new signature (url, context)
+                    // Create a copy of context for each callback to prevent mutation
+                    if (cb.length === 2) {
+                        const contextCopy = { ...baseContext };
+                        cb(this.currentUrl, contextCopy);
+                    } else {
+                        cb(this.currentUrl);
+                    }
                 } catch (err) {
                     console.error(`[EXL] NavigationObserver: Callback ${index} error:`, err);
                 }
@@ -101,15 +230,27 @@ const NavigationObserver = {
     /**
      * Register callback for route changes
      * @param {Function} callback - Function to call on route change
+     * @param {boolean} priority - If true, callback will be executed before regular callbacks (default: false)
      */
-    onRouteChange(callback) {
+    onRouteChange(callback, priority = false) {
         if (typeof callback !== 'function') {
             console.error('[EXL] NavigationObserver: Callback must be a function');
             return;
         }
 
-        this.callbacks.push(callback);
-        console.log(`[EXL] NavigationObserver: Registered callback (total: ${this.callbacks.length})`);
+        if (priority) {
+            // Check if already registered to avoid duplicates
+            if (this.priorityCallbacks.indexOf(callback) === -1) {
+                this.priorityCallbacks.push(callback);
+                console.log(`[EXL] NavigationObserver: Registered priority callback (total priority: ${this.priorityCallbacks.length}, regular: ${this.callbacks.length})`);
+            }
+        } else {
+            // Check if already registered to avoid duplicates
+            if (this.callbacks.indexOf(callback) === -1) {
+                this.callbacks.push(callback);
+                console.log(`[EXL] NavigationObserver: Registered callback (priority: ${this.priorityCallbacks.length}, total regular: ${this.callbacks.length})`);
+            }
+        }
     },
 
     /**
@@ -117,10 +258,19 @@ const NavigationObserver = {
      * @param {Function} callback - Callback to remove
      */
     offRouteChange(callback) {
+        // Try to remove from priority callbacks first
+        const priorityIndex = this.priorityCallbacks.indexOf(callback);
+        if (priorityIndex !== -1) {
+            this.priorityCallbacks.splice(priorityIndex, 1);
+            console.log(`[EXL] NavigationObserver: Removed priority callback (remaining priority: ${this.priorityCallbacks.length}, regular: ${this.callbacks.length})`);
+            return;
+        }
+        
+        // Try to remove from regular callbacks
         const index = this.callbacks.indexOf(callback);
         if (index !== -1) {
             this.callbacks.splice(index, 1);
-            console.log(`[EXL] NavigationObserver: Removed callback (remaining: ${this.callbacks.length})`);
+            console.log(`[EXL] NavigationObserver: Removed callback (priority: ${this.priorityCallbacks.length}, remaining regular: ${this.callbacks.length})`);
         }
     },
 
@@ -136,6 +286,12 @@ const NavigationObserver = {
         if (this.titleObserver) {
             this.titleObserver.disconnect();
             this.titleObserver = null;
+        }
+
+        // Disconnect URL observer
+        if (this.urlObserver) {
+            this.urlObserver.disconnect();
+            this.urlObserver = null;
         }
 
         // Restore history methods

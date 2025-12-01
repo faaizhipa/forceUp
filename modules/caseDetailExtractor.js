@@ -32,45 +32,137 @@ const CaseDetailExtractor = (() => {
     async function extractCaseDetails() {
         const details = {};
         
+        // Extract Case ID from URL FIRST (before checking cache)
+        const urlMatch = window.location.pathname.match(/\/(?:Case|lightning\/r\/Case)\/([a-zA-Z0-9]{15,18})/i);
+        const currentCaseId = urlMatch?.[1] || null;
+        details.caseId = currentCaseId;
+        
         // Try to get already-processed case data from the main extension
+        // BUT validate it matches the current case to prevent stale data
         let caseData = null;
         if (typeof window.ExLibrisExtension !== 'undefined' && 
             window.ExLibrisExtension.caseToolkit?.caseData) {
-            caseData = window.ExLibrisExtension.caseToolkit.caseData;
-            console.log('[CaseDetailExtractor] Using cached case data from ExLibrisExtension');
             
-            // Check if cached data is missing server information
-            if (!caseData.server) {
-                console.log('[CaseDetailExtractor] Cache incomplete (missing server). Triggering prepareTools...');
+            const cachedData = window.ExLibrisExtension.caseToolkit.caseData;
+            
+            // GUARDRAIL: Validate cached data using shared validation function
+            if (typeof PageContextValidator !== 'undefined' && 
+                typeof PageContextValidator.validateExtractedData === 'function') {
                 
-                // Trigger prepareTools to get complete data
-                if (typeof window.ExLibrisExtension.handlePrepareToolsAction === 'function') {
-                    try {
-                        await window.ExLibrisExtension.handlePrepareToolsAction();
-                        
-                        // Re-read the cache after prepareTools completes
-                        if (window.ExLibrisExtension.caseToolkit?.caseData) {
-                            caseData = window.ExLibrisExtension.caseToolkit.caseData;
-                            console.log('[CaseDetailExtractor] Cache updated after prepareTools. Server:', caseData.server);
+                try {
+                    const validatedData = await PageContextValidator.validateExtractedData(cachedData, {
+                        waitForTitle: false, // Don't wait during extraction
+                        requireCaseId: true,
+                        requireCaseNumber: false
+                    });
+                    
+                    if (validatedData) {
+                        caseData = cachedData; // Use cached data (it's validated)
+                        console.log('[CaseDetailExtractor] Cached data validated by PageContextValidator');
+                    } else {
+                        console.warn('[CaseDetailExtractor] Cached data validation failed, will extract fresh');
+                    }
+                } catch (error) {
+                    console.error('[CaseDetailExtractor] Error during cache validation:', error);
+                    // Fall through to extract fresh data
+                }
+            } else {
+                // Fallback: Simple case ID validation if PageContextValidator not available
+                if (currentCaseId && 
+                    cachedData.caseId === currentCaseId &&
+                    window.ExLibrisExtension.currentCaseId === currentCaseId) {
+                    caseData = cachedData;
+                    console.log('[CaseDetailExtractor] Cached data validated by case ID match');
+                } else {
+                    console.warn('[CaseDetailExtractor] Cached data case ID mismatch:', {
+                        cachedCaseId: cachedData.caseId,
+                        currentCaseId: currentCaseId,
+                        globalCaseId: window.ExLibrisExtension.currentCaseId
+                    });
+                }
+            }
+            
+            if (caseData) {
+                console.log('[CaseDetailExtractor] Using validated cached case data from ExLibrisExtension');
+                
+                // Check if cached data is missing server information
+                if (!caseData.server) {
+                    console.log('[CaseDetailExtractor] Cache incomplete (missing server). Triggering prepareTools...');
+                    
+                    // Trigger prepareTools to get complete data
+                    if (typeof window.ExLibrisExtension.handlePrepareToolsAction === 'function') {
+                        try {
+                            await window.ExLibrisExtension.handlePrepareToolsAction();
+                            
+                            // Re-read the cache after prepareTools completes
+                            if (window.ExLibrisExtension.caseToolkit?.caseData) {
+                                const updatedData = window.ExLibrisExtension.caseToolkit.caseData;
+                                
+                                // Re-validate after prepareTools (case might have changed)
+                                if (typeof PageContextValidator !== 'undefined' && 
+                                    typeof PageContextValidator.validateExtractedData === 'function') {
+                                    const reValidated = await PageContextValidator.validateExtractedData(updatedData, {
+                                        waitForTitle: false,
+                                        requireCaseId: true,
+                                        requireCaseNumber: false
+                                    });
+                                    
+                                    if (reValidated) {
+                                        caseData = updatedData;
+                                        console.log('[CaseDetailExtractor] Cache updated after prepareTools. Server:', caseData.server);
+                                    } else {
+                                        console.warn('[CaseDetailExtractor] Case changed during prepareTools, ignoring updated cache');
+                                    }
+                                } else {
+                                    // Fallback validation
+                                    if (currentCaseId && updatedData.caseId === currentCaseId) {
+                                        caseData = updatedData;
+                                        console.log('[CaseDetailExtractor] Cache updated after prepareTools. Server:', caseData.server);
+                                    } else {
+                                        console.warn('[CaseDetailExtractor] Case changed during prepareTools, ignoring updated cache');
+                                    }
+                                }
+                            }
+                        } catch (error) {
+                            console.warn('[CaseDetailExtractor] prepareTools failed, continuing with available data:', error);
                         }
-                    } catch (error) {
-                        console.warn('[CaseDetailExtractor] prepareTools failed, continuing with available data:', error);
                     }
                 }
             }
-        } else if (typeof CaseDataExtractor !== 'undefined') {
+        }
+        
+        // If no valid cached data, extract fresh
+        if (!caseData && typeof CaseDataExtractor !== 'undefined') {
             // Fallback: extract fresh data
             try {
-                console.log('[CaseDetailExtractor] No cached data, extracting fresh...');
+                console.log('[CaseDetailExtractor] No valid cached data, extracting fresh...');
                 caseData = await CaseDataExtractor.getData();
+                
+                // GUARDRAIL: Validate extracted fresh data
+                if (caseData && typeof PageContextValidator !== 'undefined' && 
+                    typeof PageContextValidator.validateExtractedData === 'function') {
+                    const validatedData = await PageContextValidator.validateExtractedData(caseData, {
+                        waitForTitle: false,
+                        requireCaseId: true,
+                        requireCaseNumber: false
+                    });
+                    
+                    if (validatedData) {
+                        caseData = validatedData; // Use validated data
+                    } else {
+                        console.warn('[CaseDetailExtractor] Extracted fresh data validation failed');
+                        // Still use the data but log the warning
+                    }
+                }
             } catch (error) {
                 console.warn('[CaseDetailExtractor] Could not extract case data:', error);
             }
         }
         
-        // Extract Case ID from URL
-        const urlMatch = window.location.pathname.match(/\/(?:Case|lightning\/r\/Case)\/([a-zA-Z0-9]{15,18})/i);
-        details.caseId = urlMatch?.[1] || caseData?.caseId || null;
+        // Ensure caseId is set (use URL as source of truth)
+        if (!details.caseId && caseData?.caseId) {
+            details.caseId = caseData.caseId;
+        }
         
         // Use case data if available, otherwise extract from DOM
         details.caseNumber = caseData?.caseNumber || null;
@@ -134,7 +226,7 @@ const CaseDetailExtractor = (() => {
         // Extract Account Code (try from case data first, then DOM)
         details.accountCode = caseData?.exLibrisAccountNumber || null;
         if (!details.accountCode) {
-            const accountCodeElement = document.querySelector('div[data-target-selection-name*="Account_Code"] lightning-formatted-text[slot="outputField"]');
+            const accountCodeElement = document.querySelector('div[data-target-selection-name*="Ex_Libris_Account_Number"] lightning-formatted-text[slot="outputField"]');
             details.accountCode = accountCodeElement?.textContent.trim() || null;
         }
         
@@ -147,12 +239,12 @@ const CaseDetailExtractor = (() => {
         details.server = caseData?.server || null;
         
         // FALLBACK: If we have accountCode or institutionCode but missing server/IDs, 
-        // look up customer data directly
+        // look up customer data directly via CustomerMasterManager
         let customerRecord = null;
-        if (typeof CustomerDataManager !== 'undefined') {
+        if (typeof CustomerMasterManager !== 'undefined') {
             // Try to find customer by institution code
             if (details.institutionCode) {
-                customerRecord = await CustomerDataManager.findByInstitutionCode(details.institutionCode);
+                customerRecord = CustomerMasterManager.findByInstitutionCode(details.institutionCode);
             }
             // If not found, try deriving from account code
             else if (details.accountCode) {
@@ -166,21 +258,14 @@ const CaseDetailExtractor = (() => {
                 if (!formattedCode.includes('_')) {
                     formattedCode = `${formattedCode}_INST`;
                 }
-                customerRecord = await CustomerDataManager.findByInstitutionCode(formattedCode);
+                customerRecord = CustomerMasterManager.findByInstitutionCode(formattedCode);
                 if (customerRecord) {
                     details.institutionCode = customerRecord.institutionCode;
                 }
             }
             // If still not found, try searching by account name
             else if (details.accountName) {
-                const allCustomers = CustomerDataManager.getAllCustomers();
-                const normalizedSearch = details.accountName.trim().toLowerCase();
-                customerRecord = allCustomers.find(c => {
-                    const customerName = (c.name || '').trim().toLowerCase();
-                    return customerName === normalizedSearch || 
-                           customerName.includes(normalizedSearch) || 
-                           normalizedSearch.includes(customerName);
-                });
+                customerRecord = CustomerMasterManager.findByAccountName(details.accountName);
                 if (customerRecord) {
                     details.institutionCode = customerRecord.institutionCode;
                 }
@@ -188,19 +273,16 @@ const CaseDetailExtractor = (() => {
             
             // Apply customer record data to fill in missing fields
             if (customerRecord) {
-                console.log(`[CaseDetailExtractor] Found customer record: ${customerRecord.name || 'unknown'}`);
+                console.log(`[CaseDetailExtractor] Found customer record: ${customerRecord.accountName || 'unknown'}`);
                 
-                if (!details.institutionId && customerRecord.instID) {
-                    details.institutionId = customerRecord.instID;
+                if (!details.institutionId && customerRecord.institutionId) {
+                    details.institutionId = customerRecord.institutionId;
                 }
-                if (!details.customerId && customerRecord.custID) {
-                    details.customerId = customerRecord.custID;
+                if (!details.customerId && customerRecord.customerId) {
+                    details.customerId = customerRecord.customerId;
                 }
-                if (!details.customerPrefix && customerRecord.name) {
-                    details.customerPrefix = customerRecord.name;
-                }
-                if (!details.esploroEdition && customerRecord.esploroEdition) {
-                    details.esploroEdition = customerRecord.esploroEdition;
+                if (!details.customerPrefix && customerRecord.accountName) {
+                    details.customerPrefix = customerRecord.accountName;
                 }
                 if (!details.server && customerRecord.server) {
                     details.server = customerRecord.server.toLowerCase();

@@ -21,10 +21,17 @@
   const ExLibrisExtension = {
     currentPage: null,
     currentCaseId: null,
-    lastUrl: null, // Track last URL for navigation detection
+    lastUrl: window.location.href, // Track last URL for navigation detection
     isInitialized: false,
     initializationDebounceTimer: null,
     isInitializing: false,
+    
+    // Legacy API data (deprecated - kept for backwards compatibility)
+    // New data flow uses InterceptorCacheManager via EXLIBRIS_DATA_UPDATED event
+    apiCaseData: null,
+    apiCaseDataTimestamp: null,
+    apiCaseDataRaw: null,
+    
     caseToolkit: {
       metadata: null,
       caseData: null,
@@ -56,6 +63,13 @@
         Logger.info('Logger initialized');
       }
 
+      // NOTE: Legacy _pendingApiCaseData pattern removed
+      // New data flow uses InterceptorCacheManager via EXLIBRIS_DATA_UPDATED event
+
+      // NOTE: window._pendingFectchedCaseData pattern removed
+      // interceptor.js runs in MAIN world, content scripts in ISOLATED world
+      // Cross-world window access doesn't work - use event-based communication instead
+
       // Initialize SettingsManager first
       if (typeof SettingsManager !== 'undefined') {
         await SettingsManager.init();
@@ -65,20 +79,12 @@
         console.warn('[ExLibris Extension] SettingsManager not loaded, using defaults');
       }
 
-      // Initialize CustomerDataManager
-      if (typeof CustomerDataManager !== 'undefined') {
-        await CustomerDataManager.init();
-        console.log('[ExLibris Extension] CustomerDataManager initialized');
+      // Initialize CustomerMasterManager (unified customer data and timezone resolution)
+      if (typeof CustomerMasterManager !== 'undefined') {
+        await CustomerMasterManager.init();
+        console.log('[ExLibris Extension] CustomerMasterManager initialized');
       } else {
-        console.warn('[ExLibris Extension] CustomerDataManager not loaded');
-      }
-
-      // Initialize CacheManager
-      if (typeof CacheManager !== 'undefined') {
-        await CacheManager.init();
-        console.log('[ExLibris Extension] CacheManager initialized');
-      } else {
-        console.warn('[ExLibris Extension] CacheManager not loaded');
+        console.warn('[ExLibris Extension] CustomerMasterManager not loaded');
       }
 
       // Initialize NavigationObserver for SPA navigation
@@ -91,6 +97,117 @@
         });
         Logger?.info('NavigationObserver initialized');
       }
+
+      // Listen for pageInfoInitializer updates (from document_start initialization)
+      // This provides early page identification before DOM is fully ready
+      document.addEventListener('exLibrisPageInfoUpdated', (event) => {
+        const { pageInfo, source, previousPageInfo } = event.detail || {};
+        Logger?.info('Received exLibrisPageInfoUpdated event:', {
+          type: pageInfo?.type,
+          source,
+          changed: previousPageInfo?.type !== pageInfo?.type
+        });
+        
+        // Only trigger page change if page type actually changed
+        if (pageInfo && (!previousPageInfo || previousPageInfo.type !== pageInfo.type)) {
+          this.handlePageChange(pageInfo);
+        }
+      });
+
+      // Initialize CaseContextWatcher (depends on NavigationObserver signals)
+      if (typeof CaseContextWatcher !== 'undefined') {
+        CaseContextWatcher.init();
+        console.log('[ExLibris Extension] CaseContextWatcher initialized');
+      } else {
+        console.warn('[ExLibris Extension] CaseContextWatcher not loaded');
+      }
+
+      if (typeof CaseDataStore !== 'undefined') {
+        CaseDataStore.init();
+        console.log('[ExLibris Extension] CaseDataStore initialized');
+      } else {
+        console.warn('[ExLibris Extension] CaseDataStore not loaded');
+      }
+
+      // Legacy caseDataFromApi listener (deprecated - kept for backwards compatibility)
+      document.addEventListener('caseDataFromApi', (event) => {
+        const { data, timestamp } = event.detail;
+        this.apiCaseData = data;
+        this.apiCaseDataTimestamp = timestamp;
+        console.log('[ExLibris Extension] Received legacy API case data via event:', {
+          caseNumber: data?.CaseNumber,
+          fieldCount: Object.keys(data || {}).length
+        });
+      });
+
+      // Listen for EXLIBRIS_DATA_UPDATED events from interceptor.js (MAIN world)
+      // IMPORTANT: interceptor.js dispatches on window, so we must listen on window
+      window.addEventListener('EXLIBRIS_DATA_UPDATED', async (event) => {
+        const rawCaseData = event.detail;
+        console.log('[ExLibris Extension] Received interceptor data:', rawCaseData?.CaseNumber);
+
+        // Store and enrich via InterceptorCacheManager
+        if (rawCaseData?.CaseNumber && typeof InterceptorCacheManager !== 'undefined') {
+          try {
+            const enrichedData = await InterceptorCacheManager.store(rawCaseData.CaseNumber, rawCaseData);
+            console.log('[ExLibris Extension] Cached enriched interceptor data for case:', rawCaseData.CaseNumber);
+          } catch (error) {
+            console.error('[ExLibris Extension] Failed to cache interceptor data:', error);
+          }
+        }
+
+        // Send to popup/background script
+        try {
+          chrome.runtime.sendMessage({
+            type: "CASE_DATA_CAPTURED",
+            payload: rawCaseData
+          });
+        } catch (error) {
+          // Ignore if popup is not open
+        }
+      });
+
+      // Listen for caseDataMismatch events to trigger re-extraction
+      document.addEventListener('caseDataMismatch', async (event) => {
+        const { reason, dataCaseId, dataCaseNumber, extractedCaseId, extractedCaseNumber } = event.detail;
+        console.warn('[ExLibris Extension] caseDataMismatch event received:', {
+          reason,
+          dataCaseId,
+          dataCaseNumber,
+          extractedCaseId,
+          extractedCaseNumber
+        });
+
+        // Reset extraction state in extractors
+        if (typeof CaseDataExtractor !== 'undefined' && CaseDataExtractor.resetExtractionState) {
+          CaseDataExtractor.resetExtractionState();
+        }
+
+        if (typeof CasePageDataExtractor !== 'undefined' && CasePageDataExtractor.resetExtractionState) {
+          CasePageDataExtractor.resetExtractionState();
+        }
+
+        // Trigger automatic re-extraction
+        if (typeof CasePageDataExtractor !== 'undefined' && CasePageDataExtractor.extractNow) {
+          console.log('[ExLibris Extension] Triggering automatic re-extraction after mismatch');
+          // Small delay to allow state reset
+          setTimeout(async () => {
+            try {
+              await CasePageDataExtractor.extractNow(true); // Force re-extraction
+            } catch (error) {
+              console.error('[ExLibris Extension] Error during re-extraction:', error);
+            }
+          }, 500);
+        } else {
+          // Fallback: dispatch event for modules to handle
+          const reextractionEvent = new CustomEvent('caseDataReextractionRequested', {
+            detail: { reason, extractedCaseId, extractedCaseNumber },
+            bubbles: true,
+            composed: true
+          });
+          document.dispatchEvent(reextractionEvent);
+        }
+      });
 
       // Initialize ContextMenuHandler
       if (typeof ContextMenuHandler !== 'undefined' && 
@@ -112,8 +229,12 @@
         console.warn('[ExLibris Extension] KeyboardShortcuts not loaded');
       }
 
-      // Initialize PersistentBanner
-      if (typeof PersistentBanner !== 'undefined') {
+      // Initialize PersistentBanner - use Cforce version for Clarivate domains
+      const isClarivate = window.location.hostname.includes('clarivateanalytics');
+      if (isClarivate && typeof PersistentBannerCforce !== 'undefined') {
+        await PersistentBannerCforce.init();
+        console.log('[ExLibris Extension] PersistentBannerCforce initialized (Clarivate domain)');
+      } else if (typeof PersistentBanner !== 'undefined') {
         PersistentBanner.init();
         console.log('[ExLibris Extension] PersistentBanner initialized');
       } else {
@@ -132,12 +253,6 @@
       if (typeof UserPreferences !== 'undefined') {
         const userPrefs = await UserPreferences.load();
         console.log('[ExLibris Extension] UserPreferences initialized');
-
-        // Initialize TimezoneUtils with user preferences
-        if (typeof TimezoneUtils !== 'undefined') {
-          await TimezoneUtils.init(userPrefs);
-          console.log('[ExLibris Extension] TimezoneUtils initialized');
-        }
 
         // Check if configuration warning banner should be shown
         if (typeof ConfigurationWarningBanner !== 'undefined') {
@@ -247,6 +362,10 @@
       this.isInitializing = true;
       
       try {
+        if (pageInfo.url === this.lastUrl) {
+          console.log('[ExLibris Extension] Page same as last URL, skipping initialization');
+          return;
+        }
         console.log('[ExLibris Extension] Page changed:', pageInfo);
 
         // Track URL to detect actual navigation
@@ -257,30 +376,43 @@
         this.currentPage = pageInfo;
         this.currentCaseId = pageInfo.caseId;
 
-        // Update persistent banner with initial info
-        if (typeof PersistentBanner !== 'undefined') {
-          // Convert internal page type to friendly display name
-          const displayType = PersistentBanner.getPageTypeDisplayName(pageInfo.type);
+        // Update persistent banner with initial info (don't cleanup - it persists)
+        // Use Cforce version for Clarivate domains
+        const isClarivate = window.location.hostname.includes('clarivateanalytics');
+        const BannerModule = isClarivate && typeof PersistentBannerCforce !== 'undefined' 
+          ? PersistentBannerCforce 
+          : (typeof PersistentBanner !== 'undefined' ? PersistentBanner : null);
+        
+        if (BannerModule) {
+          // Ensure banner is initialized if not already
+          if (!BannerModule.isInitialized) {
+            await BannerModule.init();
+          }
           
-          PersistentBanner.updateCurrentPage({
-            type: displayType,
-            caseNumber: null, // Will be updated when case data is extracted
-            subject: null,
-            status: null,
-            subStatus: null
-          });
-        }
+          // Convert internal page type to friendly display name (PersistentBanner only)
+          if (BannerModule.getPageTypeDisplayName && BannerModule.updateCurrentPage) {
+            const displayType = BannerModule.getPageTypeDisplayName(pageInfo.type);
+            await BannerModule.updateCurrentPage({
+              type: displayType,
+              caseNumber: null, // Will be updated when case data is extracted
+              subject: null,
+              status: null,
+              subStatus: null
+            });
+          }
+          
+          if (urlChanged) {
+            console.log('[ExLibris Extension] URL changed, waiting for page to settle...');
+            // Clear any existing features (but NOT PersistentBanner - it persists)
+            console.log('[ExLibris Extension] Cleaning up previous page features (URL changed: ' + urlChanged + ')');
+            this.cleanup();
+            await new Promise(resolve => setTimeout(resolve, 800));
+          }
 
-        // Clear any existing features
-        console.log('[ExLibris Extension] Cleaning up previous page features (URL changed: ' + urlChanged + ')');
-        this.cleanup();
+        }
 
         // If URL changed, add a delay to allow DOM to settle
-        if (urlChanged) {
-          console.log('[ExLibris Extension] URL changed, waiting for page to settle...');
-          await new Promise(resolve => setTimeout(resolve, 800));
-        }
-
+      
         // Initialize features based on page type
         console.log('[ExLibris Extension] Checking page type:', pageInfo.type);
         console.log('[ExLibris Extension] CASES_LIST constant:', PageIdentifier.pageTypes.CASES_LIST);
@@ -303,9 +435,16 @@
 
     /**
      * Initializes features for case pages
+     * Note: Clarivate domains use limited feature set (no FieldHighlighter, DynamicMenu, etc.)
      */
     async initializeCasePageFeatures() {
       console.log('[ExLibris Extension] Initializing case page features...');
+
+      // Check if this is a Clarivate domain (limited feature set)
+      const isClarivate = window.location.hostname.includes('clarivateanalytics');
+      if (isClarivate) {
+        console.log('[ExLibris Extension] Clarivate domain detected - using limited feature set');
+      }
 
       await this.waitForElements();
 
@@ -338,115 +477,106 @@
       // Panel will only be injected when user clicks "Show Panel" button in banner
       console.log('[ExLibris Extension] Panel injection disabled on page load. Use banner "Show Panel" button to inject panel.');
 
-      // Initialize field highlighting
-      const highlightingEnabled = this.settings?.exlibris?.features?.fieldHighlighting !== false && this.settings?.highlightingEnabled !== false;
-      console.log('[ExLibris Extension] FieldHighlighter initialization check:', {
-        highlightingEnabled: highlightingEnabled,
-        moduleLoaded: typeof FieldHighlighter !== 'undefined',
-        featureEnabled: SettingsManager.isFeatureEnabled('fieldHighlighting')
-      });
-      
-      if (highlightingEnabled &&
-          typeof FieldHighlighter !== 'undefined' &&
-          SettingsManager.isFeatureEnabled('fieldHighlighting')) {
-        console.log('[ExLibris Extension] Initializing FieldHighlighter...');
-        FieldHighlighter.init();
+      // Initialize field highlighting (ProQuest only - skip for Clarivate)
+      if (!isClarivate) {
+        const highlightingEnabled = this.settings?.exlibris?.features?.fieldHighlighting !== false && this.settings?.highlightingEnabled !== false;
+        console.log('[ExLibris Extension] FieldHighlighter initialization check:', {
+          highlightingEnabled: highlightingEnabled,
+          moduleLoaded: typeof FieldHighlighter !== 'undefined',
+          featureEnabled: SettingsManager.isFeatureEnabled('fieldHighlighting')
+        });
+        
+        if (highlightingEnabled &&
+            typeof FieldHighlighter !== 'undefined' &&
+            SettingsManager.isFeatureEnabled('fieldHighlighting')) {
+          console.log('[ExLibris Extension] Initializing FieldHighlighter...');
+          FieldHighlighter.init();
+        } else {
+          console.log('[ExLibris Extension] FieldHighlighter NOT initialized - condition failed');
+        }
       } else {
-        console.log('[ExLibris Extension] FieldHighlighter NOT initialized - condition failed');
+        console.log('[ExLibris Extension] FieldHighlighter skipped for Clarivate domain');
       }
 
-      if (typeof handleAnchors === 'function') {
+      // Anchor handling (ProQuest only)
+      if (!isClarivate && typeof handleAnchors === 'function') {
         handleAnchors();
         this.observeCommunicationTab();
       }
 
-      // Fetch full case data
-      const caseData = await this.getCaseData(this.currentCaseId);
-      if (!caseData) {
-        console.warn('[ExLibris Extension] Could not extract case data');
-        if (typeof FlexipagePanelInjector !== 'undefined') {
-          FlexipagePanelInjector.setPreparationState('error', {
-            message: 'Unable to gather case data. Reload the page and try again.'
+      // Fetch full case data (ProQuest only - Clarivate doesn't have data extractors)
+      if (!isClarivate) {
+        const caseData = await this.getCaseData(this.currentCaseId);
+        if (!caseData) {
+          console.warn('[ExLibris Extension] Could not extract case data');
+          return;
+        }
+
+        this.caseToolkit.metadata = initialMetadata;
+        this.caseToolkit.caseData = caseData;
+
+        // Update persistent banner with case data (ProQuest PersistentBanner only)
+        if (typeof PersistentBanner !== 'undefined') {
+          await PersistentBanner.updateCurrentPage({
+            type: 'Case',
+            caseNumber: caseData.caseNumber,
+            subject: caseData.subject,
+            status: caseData.status,
+            subStatus: caseData.subStatus
           });
         }
-        return;
       }
 
-      this.caseToolkit.metadata = initialMetadata;
-      this.caseToolkit.caseData = caseData;
-
-      // Update persistent banner with case data
-      if (typeof PersistentBanner !== 'undefined') {
-        PersistentBanner.updateCurrentPage({
-          type: 'Case',
-          caseNumber: caseData.caseNumber,
-          subject: caseData.subject,
-          status: caseData.status,
-          subStatus: caseData.subStatus
-        });
-      }
-
-      if (typeof FlexipagePanelInjector !== 'undefined') {
-        FlexipagePanelInjector.updateContext({
-          caseNumber: caseData.caseNumber,
-          subject: caseData.subject,
-          status: caseData.status,
-          subStatus: caseData.subStatus,
-          category: caseData.category,
-          subCategory: caseData.subCategory,
-          analysisNote: caseData.analysisNote,
-          customerId: caseData.custID,
-          institutionId: caseData.instID,
-          server: caseData.server,
-          timezone: resolvedTimezone || '—'
-        });
-        FlexipagePanelInjector.setCaseSummary(caseData);
-        FlexipagePanelInjector.setSlot2Message('Prepare tools to populate the reference workspace.');
-      }
-
-      // Initialize case comment memory (handles its own initialization via URL monitoring)
+      // Initialize case comment memory (both domains)
       if (typeof CaseCommentMemory !== 'undefined' &&
           SettingsManager.isFeatureEnabled('caseCommentMemory')) {
         CaseCommentMemory.init();
+        console.log('[ExLibris Extension] CaseCommentMemory initialized');
       }
 
+      // Initialize character counter (both domains)
       if (typeof CharacterCounter !== 'undefined' &&
           SettingsManager.isFeatureEnabled('characterCounter')) {
         CharacterCounter.init();
+        console.log('[ExLibris Extension] CharacterCounter initialized');
       }
 
-      if (typeof MultiTabSync !== 'undefined' &&
+      // Initialize MultiTabSync (ProQuest only)
+      if (!isClarivate && typeof MultiTabSync !== 'undefined' &&
           SettingsManager.isFeatureEnabled('multiTabSync')) {
         MultiTabSync.init(this.currentCaseId);
         console.log('[ExLibris Extension] MultiTabSync initialized');
       }
 
-      // NOTE: CaseTimezoneResolver is now initialized from the banner button
-      // after panel injection is complete, not on page load
-      console.log('[ExLibris Extension] CaseTimezoneResolver will be initialized when panel is injected via banner');
-
-      console.log('[ExLibris Extension] Case page features initialized');
+      console.log('[ExLibris Extension] Case page features initialized', isClarivate ? '(Clarivate limited set)' : '(full set)');
     },
 
     /**
      * Initializes features for case comments page
+     * Both domains support: CaseCommentMemory, CharacterCounter, ContextMenuHandler
      */
     async initializeCaseCommentsFeatures() {
       console.log('[ExLibris Extension] Initializing case comments page features...');
 
+      const isClarivate = window.location.hostname.includes('clarivateanalytics');
+      
       await this.waitForElements();
 
-      // Initialize case comment memory (handles its own initialization via URL monitoring)
+      // Initialize case comment memory (both domains)
       if (typeof CaseCommentMemory !== 'undefined' &&
           SettingsManager.isFeatureEnabled('caseCommentMemory')) {
         CaseCommentMemory.init();
+        console.log('[ExLibris Extension] CaseCommentMemory initialized');
       }
 
-      // Initialize character counter
+      // Initialize character counter (both domains)
       if (typeof CharacterCounter !== 'undefined' &&
           SettingsManager.isFeatureEnabled('characterCounter')) {
         CharacterCounter.init();
+        console.log('[ExLibris Extension] CharacterCounter initialized');
       }
+
+      console.log('[ExLibris Extension] Case comments features initialized', isClarivate ? '(Clarivate)' : '(ProQuest)');
     },
 
     /**
@@ -570,18 +700,18 @@
     async getCaseData(caseId, options = {}) {
       const { forceRefresh = false } = options;
 
-      // Check CacheManager first unless forcing refresh
-      if (!forceRefresh && typeof CacheManager !== 'undefined') {
-        // CacheManager internally validates last-modified; only pass caseId
-        const cached = await CacheManager.get(caseId);
-
-        if (cached) {
-          console.log('[ExLibris Extension] Using cached case data from CacheManager');
-          return cached;
+      if (!forceRefresh && typeof CaseDataStore !== 'undefined') {
+        const stored = CaseDataStore.getCurrentData();
+        if (stored && (!caseId || stored.caseId === caseId)) {
+          console.log('[ExLibris Extension] Using CaseDataStore data');
+          return stored;
         }
       }
 
-      // Extract fresh data
+      if (typeof CaseContextWatcher !== 'undefined') {
+        await CaseContextWatcher.getStableContext?.({ requireCase: true, timeout: 4000 });
+      }
+
       if (typeof CaseDataExtractor === 'undefined') {
         console.warn('[ExLibris Extension] CaseDataExtractor module not loaded');
         return null;
@@ -590,9 +720,8 @@
       console.log('[ExLibris Extension] Extracting case data...');
       const caseData = await CaseDataExtractor.getData();
 
-      // Cache it in CacheManager
-      if (typeof CacheManager !== 'undefined' && caseData) {
-        await CacheManager.set(caseId, caseData);
+      if (caseData && typeof CaseDataStore !== 'undefined') {
+        await CaseDataStore.setCurrentData(caseData, 'content-script');
       }
 
       return caseData;
@@ -650,156 +779,6 @@
       }
     },
 
-    /**
-     * Handle panel actions registered through FlexipagePanelInjector
-     * @param {string} action
-     * @returns {Promise<boolean>} true if handled
-     */
-    async handlePanelAction(action) {
-      switch (action) {
-        case 'prepare-tools':
-          return this.handlePrepareToolsAction();
-        case 'enable-full':
-          return this.handleEnableFullAction();
-        default:
-          return false;
-      }
-    },
-
-    /**
-     * Execute the Prepare Tools workflow for staged enablement
-     * @returns {Promise<boolean>}
-     */
-    async handlePrepareToolsAction() {
-      if (typeof FlexipagePanelInjector === 'undefined') {
-        return true;
-      }
-
-      if (this.caseToolkit.prepared) {
-        FlexipagePanelInjector.setPreparationState('ready', {
-          message: 'Toolkit already prepared. Use Enable Full Feature to view the workspace.'
-        });
-        return true;
-      }
-
-      const menuConfig = this.caseToolkit.menuConfig || {};
-      const timezonePreference = this.resolveActiveTimezone(menuConfig.timezone);
-      const originalScrollTop = window.pageYOffset || document.documentElement.scrollTop || 0;
-
-      FlexipagePanelInjector.setPreparationState('working', {
-        message: 'Preparing toolkit...',
-        buttonLabel: 'Preparing...'
-      });
-      FlexipagePanelInjector.setSlot2Message('Preparing toolkit. Scanning the case to load metadata and workspace resources.');
-
-      let caseData = null;
-      let buttonGroups = null;
-      let scrollStats = null;
-
-      try {
-        const hasScrollController = typeof ScrollController !== 'undefined' && typeof ScrollController.ensureFullPageLoad === 'function';
-        if (hasScrollController) {
-          FlexipagePanelInjector.setStatusMessage('Preparing toolkit. Scrolling through the case to load all sections.', 'warning');
-          scrollStats = await ScrollController.ensureFullPageLoad();
-        } else {
-          console.warn('[ExLibris Extension] ScrollController module not available; skipping automated scroll.');
-        }
-
-        FlexipagePanelInjector.setStatusMessage('Preparing toolkit. Extracting updated case data.', 'warning');
-        caseData = await this.getCaseData(this.currentCaseId, { forceRefresh: true });
-
-        if (!caseData) {
-          throw new Error('Missing case data.');
-        }
-
-        if (typeof CaseDataExtractor !== 'undefined' && typeof CaseDataExtractor.getInitialMetadata === 'function') {
-          const freshMetadata = CaseDataExtractor.getInitialMetadata();
-          if (freshMetadata) {
-            this.caseToolkit.metadata = freshMetadata;
-            if (typeof FlexipagePanelInjector.setInitialMetadata === 'function') {
-              FlexipagePanelInjector.setInitialMetadata(freshMetadata);
-            }
-          }
-        }
-
-        const canInjectMenu =
-          typeof URLBuilder !== 'undefined' &&
-          typeof DynamicMenu !== 'undefined' &&
-          typeof SettingsManager !== 'undefined' &&
-          SettingsManager.isFeatureEnabled &&
-          SettingsManager.isFeatureEnabled('dynamicMenu');
-
-        if (canInjectMenu) {
-          buttonGroups = URLBuilder.buildAllButtons(
-            caseData,
-            menuConfig.buttonStyle || 'casual',
-            timezonePreference
-          );
-
-          DynamicMenu.setSettings(menuConfig.menuLocations || this.settings.menuLocations);
-          if (buttonGroups) {
-            DynamicMenu.refresh(buttonGroups, caseData);
-          }
-        } else {
-          console.warn('[ExLibris Extension] Dynamic menu injection skipped (module unavailable or disabled).');
-        }
-
-        const preparedAtDate = new Date();
-
-        this.caseToolkit.caseData = caseData;
-        this.caseToolkit.buttonGroups = buttonGroups;
-        this.caseToolkit.prepared = true;
-        this.caseToolkit.preparedAt = preparedAtDate.toISOString();
-        this.caseToolkit.scrollStats = scrollStats;
-
-        FlexipagePanelInjector.updateContext({
-          category: caseData.category,
-          subCategory: caseData.subCategory,
-          analysisNote: caseData.analysisNote,
-          customerId: caseData.custID,
-          institutionId: caseData.instID,
-          server: caseData.server,
-          timezone: timezonePreference || '—'
-        });
-        FlexipagePanelInjector.setCaseSummary(caseData);
-
-        const preparedDisplay = preparedAtDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-        FlexipagePanelInjector.setSlot2Message(`Toolkit ready. Last prepared at ${preparedDisplay}. Toggle Enable Full Feature to reveal workspace resources.`);
-        FlexipagePanelInjector.setPreparationState('ready', {
-          message: 'Toolkit prepared. Toggle Enable Full Feature to reveal the workspace.'
-        });
-      } catch (error) {
-        console.error('[ExLibris Extension] Prepare Tools action failed.', error);
-        this.caseToolkit.prepared = false;
-        this.caseToolkit.preparedAt = null;
-        this.caseToolkit.scrollStats = null;
-        FlexipagePanelInjector.setPreparationState('error', {
-          message: 'Toolkit preparation failed. Check console for details and try again.'
-        });
-      } finally {
-        window.scrollTo({ top: originalScrollTop, behavior: 'auto' });
-      }
-
-      return true;
-    },
-
-    /**
-     * Gate Enable Full Feature action until preparation completes
-     * @returns {Promise<boolean>} true when handled
-     */
-    async handleEnableFullAction() {
-      if (typeof FlexipagePanelInjector === 'undefined') {
-        return true;
-      }
-
-      if (!this.caseToolkit.prepared) {
-        FlexipagePanelInjector.setStatusMessage('Prepare tools before enabling the full workspace.', 'warning');
-        return true;
-      }
-
-      // Allow default panel handler to toggle Slot 2
-      return false;
-    },
 
     /**
      * Handles messages from popup or background script
@@ -847,12 +826,29 @@
     async handleNavigationChange(url) {
       Logger?.info('Handling navigation to:', url);
       
+      // Clear legacy API data on navigation (for backwards compatibility)
+      // New data flow uses InterceptorCacheManager which handles its own cache
+      this.apiCaseData = null;
+      this.apiCaseDataTimestamp = null;
+      console.log('[ExLibris Extension] Cleared legacy API case data on navigation');
+      
       // Teardown existing features
       this.cleanup();
       
       // Re-identify page type
-      if (typeof PageIdentifier !== 'undefined') {
-        const pageInfo = PageIdentifier.identifyPage(url);
+      // Priority 1: Use window.exLibrisPageInfo if available (from pageInfoInitializer.js)
+      // Priority 2: Fall back to PageIdentifier.identifyPage()
+      let pageInfo = null;
+      
+      if (window.exLibrisPageInfo?.ready && window.exLibrisPageInfo?.current) {
+        pageInfo = window.exLibrisPageInfo.current;
+        Logger?.info('Using window.exLibrisPageInfo:', pageInfo?.type);
+      } else if (typeof PageIdentifier !== 'undefined') {
+        pageInfo = PageIdentifier.identifyPage(url);
+        Logger?.info('Using PageIdentifier.identifyPage():', pageInfo?.type);
+      }
+      
+      if (pageInfo) {
         await this.handlePageChange(pageInfo);
       }
     },
@@ -888,10 +884,6 @@
         FieldHighlighter.cleanup();
       }
 
-      // Remove menus
-      if (typeof DynamicMenu !== 'undefined') {
-        DynamicMenu.removeAllMenus();
-      }
 
       // Remove character counter
       if (typeof CharacterCounter !== 'undefined') {
@@ -913,15 +905,12 @@
         MultiTabSync.cleanup();
       }
 
-      // Cleanup FlexipagePanelInjector
-      if (typeof FlexipagePanelInjector !== 'undefined' && FlexipagePanelInjector.teardown) {
-        FlexipagePanelInjector.teardown();
-      }
 
-      // Cleanup CaseTimezoneResolver
-      if (typeof CaseTimezoneResolver !== 'undefined' && CaseTimezoneResolver.cleanup) {
-        CaseTimezoneResolver.cleanup();
-      }
+      // NOTE: Do NOT cleanup PersistentBanner here - it should persist across SPA navigation
+      // PersistentBanner is only cleaned up when:
+      // 1. Feature is disabled (via settings listener)
+      // 2. Extension is destroyed (via destroy() method)
+
     },
 
     /**
@@ -933,11 +922,8 @@
       this.cleanup();
 
       // Cleanup all modules
-      if (typeof CustomerDataManager !== 'undefined' && CustomerDataManager.cleanup) {
-        CustomerDataManager.cleanup();
-      }
-      if (typeof CacheManager !== 'undefined' && CacheManager.cleanup) {
-        CacheManager.cleanup();
+      if (typeof CustomerMasterManager !== 'undefined' && CustomerMasterManager.cleanup) {
+        CustomerMasterManager.cleanup();
       }
       if (typeof CaseCommentMemory !== 'undefined' && CaseCommentMemory.cleanup) {
         CaseCommentMemory.cleanup();
@@ -953,6 +939,12 @@
       }
       if (typeof FlexipagePanelInjector !== 'undefined' && FlexipagePanelInjector.teardown) {
         FlexipagePanelInjector.teardown();
+      }
+      
+      // Cleanup PersistentBanner (only on extension destroy/unload)
+      // This will restore layout adjustments properly
+      if (typeof PersistentBanner !== 'undefined' && PersistentBanner.cleanup) {
+        PersistentBanner.cleanup();
       }
       
       this.isInitialized = false;

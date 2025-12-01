@@ -1,3 +1,5 @@
+importScripts('modules/dataMigration.js');
+
 // ========== CONTEXT MENU MANAGEMENT ==========
 
 let contextMenusCreated = false;
@@ -15,7 +17,7 @@ function createContextMenus() {
     // Parent menu - show on both selection and editable fields
     chrome.contextMenus.create({
       id: 'exlibris-text-format',
-      title: 'Ex Libris Format',
+      title: 'Case Comment Formatter',
       contexts: ['selection', 'editable']
     });
 
@@ -149,23 +151,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // ========== MESSAGE HANDLING ==========
 
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-    if (request.message === 'saveSelection') {
-      // Save the selection to storage
-      chrome.storage.sync.set({ 'savedSelection': request.data }, function() {
-        console.log('Selection saved: ' + request.data);
-      });
-    } else if (request.message === 'getSavedSelection') {
-      // Send the saved selection to the content script
-      chrome.storage.sync.get('savedSelection', function(items) {
-        if (chrome.runtime.lastError) {
-          sendResponse({ status: false, error: chrome.runtime.lastError });
-        } else {
-          sendResponse({ status: true, data: items.savedSelection });
-        }
-      });
-      // Return true to indicate you wish to send a response asynchronously
-      return true;
-    } else if (request.action === 'createContextMenus') {
+    if (request.action === 'createContextMenus') {
       createContextMenus();
       sendResponse({ success: true });
       return true;
@@ -191,8 +177,41 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     }
   });
 
-// Create context menus on installation
-chrome.runtime.onInstalled.addListener(() => {
+// ========== EXTENSION UPDATE HANDLING ==========
+
+/**
+ * Handle extension installation and updates
+ */
+chrome.runtime.onInstalled.addListener((details) => {
   console.log('[Background] Extension installed/updated');
   createContextMenus();
+  
+  // Show landing page on update (but not on first install)
+  if (details.reason === 'update') {
+    const previousVersion = details.previousVersion;
+    const currentVersion = chrome.runtime.getManifest().version;
+    
+    console.log(`[Background] Updated from ${previousVersion} to ${currentVersion}`);
+    
+    if (typeof DataMigration !== 'undefined') {
+      DataMigration.createBackup?.().catch((error) => {
+        console.error('[Background] Workspace backup failed:', error);
+      });
+
+      DataMigration.restoreLatestBackupIfMissing?.().then((result) => {
+        if (result?.restored) {
+          console.log('[Background] Workspace data restored from backup', result.backupKey);
+        } else {
+          console.log('[Background] Workspace restore skipped:', result?.reason || 'unknown');
+        }
+      }).catch((error) => {
+        console.error('[Background] Workspace restore failed:', error);
+      });
+    }
+
+    // Open the landing page
+    chrome.tabs.create({
+      url: chrome.runtime.getURL('updated.html')
+    });
+  }
 });

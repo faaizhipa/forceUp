@@ -27,6 +27,7 @@ const KeyboardShortcuts = (function() {
     // UI shortcuts
     'Escape': { action: 'closeModal', description: 'Close preview modal' },
     'Ctrl+Shift+R': { action: 'restoreComment', description: 'Open restore menu' },
+    'Ctrl+Shift+S': { action: 'screenshot', description: 'Take screenshot (non-Salesforce pages only)' },
     
     // Remove formatting
     'Ctrl+Shift+N': { action: 'normal', description: 'Remove formatting' }
@@ -135,6 +136,15 @@ const KeyboardShortcuts = (function() {
         return !!document.querySelector('.case-comment-restore-button');
       }
 
+      // Screenshot shortcut - only on non-Salesforce pages
+      if (action === 'screenshot') {
+        // Check if ScreenshotManager exists and is not on restricted domain
+        if (typeof ScreenshotManager !== 'undefined') {
+          return !ScreenshotManager.isRestrictedDomain();
+        }
+        return false;
+      }
+
       // Text formatting shortcuts - only when textarea is focused
       const isTextFormatting = ['bold', 'italic', 'code', 'boldserif', 'bolditalic', 
                                 'uppercase', 'lowercase', 'togglecase', 'normal'].includes(action);
@@ -197,6 +207,9 @@ const KeyboardShortcuts = (function() {
           break;
         case 'restoreComment':
           this.openRestoreMenu();
+          break;
+        case 'screenshot':
+          this.takeScreenshot();
           break;
 
         default:
@@ -291,6 +304,18 @@ const KeyboardShortcuts = (function() {
     },
 
     /**
+     * Takes screenshot (non-Salesforce pages only)
+     */
+    takeScreenshot() {
+      if (typeof ScreenshotManager !== 'undefined') {
+        ScreenshotManager.startCapture();
+        console.log('[KeyboardShortcuts] Started screenshot capture');
+      } else {
+        console.warn('[KeyboardShortcuts] ScreenshotManager not available');
+      }
+    },
+
+    /**
      * Enables keyboard shortcuts
      */
     enable() {
@@ -323,7 +348,7 @@ const KeyboardShortcuts = (function() {
       const categories = {
         formatting: ['bold', 'italic', 'code', 'boldserif', 'bolditalic', 'normal'],
         case: ['uppercase', 'lowercase', 'togglecase'],
-        ui: ['closeModal', 'restoreComment']
+        ui: ['closeModal', 'restoreComment', 'screenshot']
       };
 
       const actions = categories[category] || [];

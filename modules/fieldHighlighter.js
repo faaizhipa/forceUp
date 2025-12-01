@@ -4,6 +4,8 @@
  */
 
 const FieldHighlighter = {
+  navigationListenerRegistered: false,
+
   // Color schemes
   colors: {
     emptyInput: 'rgba(163, 22, 55, 1)',
@@ -65,6 +67,30 @@ const FieldHighlighter = {
     }
   },
 
+  isElementVisible(element) {
+    if (!element) return false;
+    let node = element;
+    while (node && node !== document.body) {
+      const style = window.getComputedStyle(node);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+        return false;
+      }
+      node = node.parentElement;
+    }
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  },
+
+  findVisibleElement(selector, within = null) {
+    if (!selector) return null;
+    const elements = document.querySelectorAll(selector);
+    for (const el of elements) {
+      if (within && !within.contains(el)) continue;
+      if (this.isElementVisible(el)) return el;
+    }
+    return null;
+  },
+
   /**
    * Checks if a field value is empty
    * @param {HTMLElement} element
@@ -96,14 +122,14 @@ const FieldHighlighter = {
    * @param {Object} fieldSelector - Object with container and input selectors
    */
   highlightField(fieldSelector) {
-    const container = document.querySelector(fieldSelector.container);
+    const container = this.findVisibleElement(fieldSelector.container);
     if (!container) {
       console.log('[FieldHighlighter] Container not found for selector:', fieldSelector.container);
       return;
     }
 
-    const input = document.querySelector(fieldSelector.input);
-    const label = fieldSelector.label ? document.querySelector(fieldSelector.label) : null;
+    const input = this.findVisibleElement(fieldSelector.input, container);
+    const label = fieldSelector.label ? this.findVisibleElement(fieldSelector.label, container) : null;
     const isEmpty = this.isEmpty(input);
 
     if (isEmpty) {
@@ -124,30 +150,31 @@ const FieldHighlighter = {
    * @param {Object} fieldSelector
    */
   removeHighlight(fieldSelector) {
-    const container = document.querySelector(fieldSelector.container);
-    const input = document.querySelector(fieldSelector.input);
-    const label = fieldSelector.label ? document.querySelector(fieldSelector.label) : null;
-
-    if (container) {
+    const containers = document.querySelectorAll(fieldSelector.container);
+    containers.forEach(container => {
       container.style.backgroundColor = '';
       container.style.padding = '';
       container.style.borderRadius = '';
       container.style.border = '';
-    }
+    });
 
-    if (input) {
+    const inputs = document.querySelectorAll(fieldSelector.input);
+    inputs.forEach(input => {
       input.style.backgroundColor = '';
       input.style.color = '';
       input.style.padding = '';
       input.style.borderRadius = '';
-    }
+    });
 
-    if (label) {
+    if (fieldSelector.label) {
+      const labels = document.querySelectorAll(fieldSelector.label);
+      labels.forEach(label => {
       label.style.color = '';
       label.style.backgroundColor = '';
       label.style.fontWeight = '';
       label.style.padding = '';
       label.style.borderRadius = '';
+      });
     }
   },
 
@@ -188,6 +215,7 @@ const FieldHighlighter = {
   init() {
     // Initial highlight
     this.highlightAllFields();
+    this.setupNavigationListeners();
 
     // Debounced highlight function
     let debounceTimer = null;
@@ -197,7 +225,7 @@ const FieldHighlighter = {
       }
       debounceTimer = setTimeout(() => {
         this.highlightAllFields();
-      }, 300); // 300ms debounce
+      }, 1500); // 1500ms debounce - reduced frequency to avoid excessive DOM queries
     };
 
     // Observer for dynamic content changes
@@ -212,6 +240,26 @@ const FieldHighlighter = {
     this.debounceTimer = debounceTimer;
 
     console.log('[FieldHighlighter] Initialized with debouncing');
+  },
+
+  setupNavigationListeners() {
+    if (this.navigationListenerRegistered) return;
+
+    const handleNavigation = () => {
+      this.removeAllHighlights();
+      this.highlightAllFields();
+    };
+
+    if (typeof PageIdentifier !== 'undefined' && typeof PageIdentifier.monitorPageChanges === 'function') {
+      PageIdentifier.monitorPageChanges(() => handleNavigation());
+      this.navigationListenerRegistered = true;
+      return;
+    }
+
+    if (typeof NavigationObserver !== 'undefined' && typeof NavigationObserver.onRouteChange === 'function') {
+      NavigationObserver.onRouteChange(() => handleNavigation());
+      this.navigationListenerRegistered = true;
+    }
   },
 
   /**

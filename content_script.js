@@ -372,13 +372,37 @@ const teamConfigs = {
     keywords: emailKeywordsLifeSciencePS,
     responseTimeTarget: 90, // minutes - adjust as needed
     workingHours: { start: 14, end: 23 }
+  },
+  'Alma': {
+    email: 'alma.support@exlibrisgroup.com',
+    keywords: ['alma'],
+    responseTimeTarget: 90, // minutes
+    workingHours: { start: 14, end: 23 } // 2PM to 11PM MYT
+  },
+  'Pivot-RP': {
+    email: 'pivot.support@exlibrisgroup.com',
+    keywords: ['pivot', 'pivot-rp'],
+    responseTimeTarget: 90, // minutes
+    workingHours: { start: 20, end: 5, isOvernightShift: true } // 8PM to 5AM MYT (overnight)
+  },
+  'RefWorks': {
+    email: 'refworks.support@exlibrisgroup.com',
+    keywords: ['refworks'],
+    responseTimeTarget: 90, // minutes
+    workingHours: { start: 14, end: 23 } // 2PM to 11PM MYT
+  },
+  'InCites': {
+    email: 'incites.support@clarivate.com',
+    keywords: ['incites'],
+    responseTimeTarget: 90, // minutes
+    workingHours: { start: 14, end: 23 } // 2PM to 11PM MYT
   }
 };
 
 let desiredTextSelection, emailKeywordsSelection, currentTeamConfig;
 
 chrome.runtime.sendMessage({ message: 'getSavedSelection' }, function (response) {
-  if (response.status) {
+  if (response?.status) {
     const savedSelection = response.data;
     currentTeamConfig = teamConfigs[savedSelection];
     
@@ -409,7 +433,7 @@ chrome.runtime.sendMessage({ message: 'getSavedSelection' }, function (response)
 }
  */
 
-// > For SFDC Classic (ScholarOne)
+// > For SFDC Classic (ScholarOne) AMIR
 
 function emailPageCheck() {
   let h1Elements = document.getElementsByTagName('h1');
@@ -506,15 +530,33 @@ function unhighlightAnchor(anchor) {
 }
 
 // Main function to check and handle anchor elements
-function handleAnchors() {
+async function handleAnchors() {
   const fromFieldDiv = document.getElementsByClassName("standardField uiMenu");
+  
+  // Load color configuration
+  const config = await loadColorConfig();
+  const defaultConfig = (typeof ColorHandlerConfig !== 'undefined') ? ColorHandlerConfig.getDefaultConfig() : null;
+  const anchorConfig = config?.handleAnchor || (defaultConfig ? defaultConfig.handleAnchor : null);
+  
+  // Default colors as fallback
+  const clarivateColor = anchorConfig?.clarivateEmail?.bg || "#ffe8b5";
+  const nonClarivateColor = anchorConfig?.nonClarivateEmail?.bg || "#ffdac8";
+  const clarivateTextColor = anchorConfig?.clarivateEmail?.text || "rgb(0, 0, 0)";
+  const nonClarivateTextColor = anchorConfig?.nonClarivateEmail?.text || "rgb(0, 0, 0)";
+  
   for (const fromDiv of fromFieldDiv) {
     const anchor = fromDiv.querySelector("a.select");
     if (!isEndNoteSupportAnchor(anchor)) {
       if (!isClarivateEmailList(anchor)) {
-        highlightAnchorWithSpecificContent(anchor, "#ffdac8");
+        highlightAnchorWithSpecificContent(anchor, nonClarivateColor);
+        if (anchorConfig?.nonClarivateEmail?.text) {
+          anchor.style.color = nonClarivateTextColor;
+        }
       } else {
-        highlightAnchorWithSpecificContent(anchor, "#ffe8b5");
+        highlightAnchorWithSpecificContent(anchor, clarivateColor);
+        if (anchorConfig?.clarivateEmail?.text) {
+          anchor.style.color = clarivateTextColor;
+        }
       }
     } else {
       unhighlightAnchor(anchor);
@@ -791,24 +833,47 @@ function calculateWorkingMinutes(startDate, endDate, workingHours = { start: 14,
     return 0;
   }
   
+  // Check if this is an overnight shift (end < start or isOvernightShift flag)
+  const isOvernight = workingHours.isOvernightShift || (workingHours.end < workingHours.start);
+  
   let currentDate = new Date(start);
   
   while (currentDate < end) {
-    // Create working hours boundaries in MYT
-    const dayStart = new Date(currentDate);
-    dayStart.setHours(workingHours.start, 0, 0, 0);
-    
-    const dayEnd = new Date(currentDate);
-    dayEnd.setHours(workingHours.end, 0, 0, 0);
-    
-    // Find the effective start and end times for this day
-    const effectiveStart = currentDate < dayStart ? dayStart : currentDate;
-    const effectiveEnd = end > dayEnd ? dayEnd : end;
-    
-    // If there's overlap with working hours on this day
-    if (effectiveStart < effectiveEnd && effectiveStart < dayEnd && effectiveEnd > dayStart) {
-      const dailyWorkingMinutes = (effectiveEnd - effectiveStart) / (1000 * 60);
-      totalWorkingMinutes += dailyWorkingMinutes;
+    if (isOvernight) {
+      // Overnight shift: spans from start hour to end hour next day
+      const dayStart = new Date(currentDate);
+      dayStart.setHours(workingHours.start, 0, 0, 0);
+      
+      const dayEnd = new Date(currentDate);
+      dayEnd.setDate(dayEnd.getDate() + 1); // Next day
+      dayEnd.setHours(workingHours.end, 0, 0, 0);
+      
+      // Find the effective start and end times for this shift period
+      const effectiveStart = currentDate < dayStart ? dayStart : currentDate;
+      const effectiveEnd = end > dayEnd ? dayEnd : end;
+      
+      // If there's overlap with working hours
+      if (effectiveStart < effectiveEnd && effectiveStart < dayEnd && effectiveEnd > dayStart) {
+        const dailyWorkingMinutes = (effectiveEnd - effectiveStart) / (1000 * 60);
+        totalWorkingMinutes += dailyWorkingMinutes;
+      }
+    } else {
+      // Regular shift: same day
+      const dayStart = new Date(currentDate);
+      dayStart.setHours(workingHours.start, 0, 0, 0);
+      
+      const dayEnd = new Date(currentDate);
+      dayEnd.setHours(workingHours.end, 0, 0, 0);
+      
+      // Find the effective start and end times for this day
+      const effectiveStart = currentDate < dayStart ? dayStart : currentDate;
+      const effectiveEnd = end > dayEnd ? dayEnd : end;
+      
+      // If there's overlap with working hours on this day
+      if (effectiveStart < effectiveEnd && effectiveStart < dayEnd && effectiveEnd > dayStart) {
+        const dailyWorkingMinutes = (effectiveEnd - effectiveStart) / (1000 * 60);
+        totalWorkingMinutes += dailyWorkingMinutes;
+      }
     }
     
     // Move to next day in MYT
@@ -861,9 +926,29 @@ function determineTeamFromCase(rowElement) {
 }
 
 // --- Get highlight color based on elapsed time vs target ---
-function getHighlightColor(elapsedMinutes, targetMinutes) {
+async function getHighlightColor(elapsedMinutes, targetMinutes) {
   const ratio = elapsedMinutes / targetMinutes;
   
+  // Load color configuration
+  const config = await loadColorConfig();
+  const defaultConfig = (typeof ColorHandlerConfig !== 'undefined') ? ColorHandlerConfig.getDefaultConfig() : null;
+  const caseConfig = config?.handleCase || (defaultConfig ? defaultConfig.handleCase : null);
+  
+  // Use configured thresholds if available
+  if (caseConfig && caseConfig.thresholds && caseConfig.thresholds.length > 0) {
+    // Sort thresholds by ratio (descending)
+    const sortedThresholds = [...caseConfig.thresholds].sort((a, b) => b.ratio - a.ratio);
+    
+    for (const threshold of sortedThresholds) {
+      if (ratio >= threshold.ratio) {
+        return threshold.color;
+      }
+    }
+    // Fallback to last threshold if ratio is less than all thresholds
+    return sortedThresholds[sortedThresholds.length - 1].color;
+  }
+  
+  // Fallback to original hardcoded logic
   if (ratio > 1.5) { // 150% of target
     return "rgb(255, 220, 230)"; // Light red - very overdue
   } else if (ratio > 1.0) { // Over target but less than 150%
@@ -878,7 +963,7 @@ function getHighlightColor(elapsedMinutes, targetMinutes) {
 }
 
 // Main function to check and handle anchor elements
-function handleCases() {
+async function handleCases() {
   let webTables = document.querySelectorAll('table');
 
   for (let table of webTables) {
@@ -927,9 +1012,10 @@ function handleCases() {
           const caseMinutes = calculateWorkingTimeDifferenceInMinutes(earlierDate, caseTeamConfig);
           const targetMinutes = caseTeamConfig.responseTimeTarget;
 
-          // highlight the row based on elapsed time vs target
-          const highlightColor = getHighlightColor(caseMinutes, targetMinutes);
-          highlightAnchorWithSpecificContent(row, highlightColor);
+          // highlight the row based on elapsed time vs target (async)
+          getHighlightColor(caseMinutes, targetMinutes).then(highlightColor => {
+            highlightAnchorWithSpecificContent(row, highlightColor);
+          });
         }
       } else {
         unhighlightAnchor(row);
@@ -975,106 +1061,161 @@ function findElementsWithIdContainingText() {
 
 // return the right colour for ScholarOne statuses
 
-function casePageCheck() {
-  var titleElement = document.querySelector("head > title");
-  if (titleElement && titleElement.textContent === "Cases - Console") {
-    console.log("cases true");
-    return true;
+// function casePageCheck() {
+//   var titleElement = document.querySelector("head > title");
+//   if (titleElement && titleElement.textContent === "Cases - Console") {
+//     console.log("cases true");
+//     return true;
 
-  } else {
-    return false;
-  }
-}
+//   } else {
+//     return false;
+//   }
+// }
 
-function scholarOneStatusColors(statusText) {
-  if (statusText === "New" || statusText === "Assigned" || statusText === "Failed QA") {
-    return "rgb(191, 39, 75)";
-  } else if (statusText === "Waiting" || statusText === "Updated") {
-    return "rgb(247, 114, 56)";
-  } else if (statusText === "Escalated" || statusText === "On Hold" || statusText === "Pending Approval" || statusText === "Pending QA Review") {
-    return "rgb(140, 77, 253)";
-  } else if (statusText === "Released" || statusText === "Passed QA" || statusText === "Closed") {
-    return "rgb(45, 200, 64)";
-  } else if (statusText === "Ready for QA" || statusText === "Ready for DBA" || statusText === "Ready for Data Architect") {
-    return "rgb(251, 178, 22)";
-  }
-}
+// function scholarOneStatusColors(statusText) {
+//   if (statusText === "New" || statusText === "Assigned" || statusText === "Failed QA") {
+//     return "rgb(191, 39, 75)";
+//   } else if (statusText === "Waiting" || statusText === "Updated") {
+//     return "rgb(247, 114, 56)";
+//   } else if (statusText === "Escalated" || statusText === "On Hold" || statusText === "Pending Approval" || statusText === "Pending QA Review") {
+//     return "rgb(140, 77, 253)";
+//   } else if (statusText === "Released" || statusText === "Passed QA" || statusText === "Closed") {
+//     return "rgb(45, 200, 64)";
+//   } else if (statusText === "Ready for QA" || statusText === "Ready for DBA" || statusText === "Ready for Data Architect") {
+//     return "rgb(251, 178, 22)";
+//   }
+// }
 
-// find all elements containing CASES_STATUS ids and convert the div element
+// // find all elements containing CASES_STATUS ids and convert the div element
 
-function divElementChangerScholarOne() {
-  // Get all div elements in the document
-  var divElements = document.getElementsByTagName("div");
+// function divElementChangerScholarOne() {
+//   // Get all div elements in the document
+//   var divElements = document.getElementsByTagName("div");
 
-  // Loop through all div elements
-  for (var i = 0; i < divElements.length; i++) {
-    // If the id of the current div element contains "CASES_STATUS"
+//   // Loop through all div elements
+//   for (var i = 0; i < divElements.length; i++) {
+//     // If the id of the current div element contains "CASES_STATUS"
 
-    if (divElements[i].id.includes("CASES_STATUS")) {
-      // Create a new span element
-      console.log(i);
-      var span = document.createElement("span");
-      console.log(divElements[i].textContent.trim());
-
-
-      // Set the style of the span element
-      span.style.backgroundColor = scholarOneStatusColors(divElements[i].textContent.trim());
-      span.style.borderRadius = "6px";
-      span.style.padding = "3px 6px";
-      span.style.color = "white";
-      span.style.fontWeight = "500";
-
-      // Set the text of the span element to the current text of the div element
-      span.textContent = divElements[i].textContent.trim();
-
-      // Clear the current content of the div element
-      divElements[i].textContent = "";
-
-      // Append the span element to the div element
-      divElements[i].appendChild(span);
-    }
-  }
-}
-
-function scholarOneHandleStatus() {
-  if (casePageCheck()) {
-
-    console.log("main function started");
-
-    // runs the backgroundcolourchange for ScholarOne SFDC once initially.
-    divElementChangerScholarOne();
-
-    document.querySelector("form").addEventListener('change', function () {
-
-      console.log('The TABLE ELEMENT has changed.');
-
-      divElementChangerScholarOne();
+//     if (divElements[i].id.includes("CASES_STATUS")) {
+//       // Create a new span element
+//       console.log(i);
+//       var span = document.createElement("span");
+//       console.log(divElements[i].textContent.trim());
 
 
+//       // Set the style of the span element
+//       span.style.backgroundColor = scholarOneStatusColors(divElements[i].textContent.trim());
+//       span.style.borderRadius = "6px";
+//       span.style.padding = "3px 6px";
+//       span.style.color = "white";
+//       span.style.fontWeight = "500";
 
-    });
+//       // Set the text of the span element to the current text of the div element
+//       span.textContent = divElements[i].textContent.trim();
 
-    setTimeout(function () {
-      // Your function goes here
-      divElementChangerScholarOne();
-      console.log("This function runs after 1 second");
-    }, 1000);
+//       // Clear the current content of the div element
+//       divElements[i].textContent = "";
 
-    console.log("main function finished");
-  }
-}
+//       // Append the span element to the div element
+//       divElements[i].appendChild(span);
+//     }
+//   }
+// }
+
+// function scholarOneHandleStatus() {
+//   if (casePageCheck()) {
+
+//     console.log("main function started");
+
+//     // runs the backgroundcolourchange for ScholarOne SFDC once initially.
+//     divElementChangerScholarOne();
+
+//     document.querySelector("form").addEventListener('change', function () {
+
+//       console.log('The TABLE ELEMENT has changed.');
+
+//       divElementChangerScholarOne();
+
+
+
+//     });
+
+//     setTimeout(function () {
+//       // Your function goes here
+//       divElementChangerScholarOne();
+//       console.log("This function runs after 1 second");
+//     }, 1000);
+
+//     console.log("main function finished");
+//   }
+// }
 
 
 // > Lightning SFDC
 
 // --- Generate the style declaration for the handleStatus function ---
-function generateStyle(color) {
-  return `background-color: ${color}; border-radius: 6px; padding: 3px 6px; color: white; font-weight: 500;`;
+// Color configuration loader
+let colorConfigCache = null;
+let colorConfigPromise = null;
+
+async function loadColorConfig() {
+  if (colorConfigCache) {
+    return colorConfigCache;
+  }
+  
+  if (colorConfigPromise) {
+    return colorConfigPromise;
+  }
+  
+  colorConfigPromise = new Promise((resolve) => {
+    if (typeof ColorHandlerConfig !== 'undefined') {
+      ColorHandlerConfig.loadConfig().then(config => {
+        colorConfigCache = config;
+        resolve(config);
+      }).catch(() => {
+        // Fallback to defaults if load fails
+        if (typeof ColorHandlerConfig !== 'undefined') {
+          colorConfigCache = ColorHandlerConfig.getDefaultConfig();
+        } else {
+          colorConfigCache = null;
+        }
+        resolve(colorConfigCache);
+      });
+    } else {
+      colorConfigCache = null;
+      resolve(null);
+    }
+  });
+  
+  return colorConfigPromise;
+}
+
+// Clear color config cache on changes
+window.addEventListener('exl-color-config-changed', () => {
+  colorConfigCache = null;
+  colorConfigPromise = null;
+  // Re-run handlers
+  if (isOnCasesListPage()) {
+    handleStatus();
+    handleCases();
+  }
+  if (isOnEmailComposerPage()) {
+    handleAnchors();
+  }
+});
+
+function generateStyle(bgColor, textColor = 'white') {
+  return `background-color: ${bgColor}; border-radius: 6px; padding: 3px 6px; color: ${textColor}; font-weight: 500;`;
 }
 
 // Main function to check and highlight status elements
-function handleStatus() {
+async function handleStatus() {
   let webTables = document.querySelectorAll('table');
+  
+  // Load color configuration
+  const config = await loadColorConfig();
+  const defaultConfig = (typeof ColorHandlerConfig !== 'undefined') ? ColorHandlerConfig.getDefaultConfig() : null;
+  const statusConfig = config?.handleStatus || (defaultConfig ? defaultConfig.handleStatus : null);
 
   for (let table of webTables) {
     const rows = table.querySelector('tbody').querySelectorAll('tr');
@@ -1082,43 +1223,36 @@ function handleStatus() {
       let cells = row.querySelectorAll('td span span');
       for (let cell of cells) {
         let cellText = cell.textContent.trim();
-        if (cellText === "New Email Received" || cellText === "Re-opened" || cellText === "Reopened" || cellText === "Completed by Resolver Group" || cellText === "New" || cellText === "Update Received") {
-          cell.setAttribute("style", generateStyle("rgb(191, 39, 75)"));
-          // Style the 3rd ancestor div element
-          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
-          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
-            thirdAncestor.style.overflow = 'visible';
+        let colors = null;
+        
+        // Get colors from config if available
+        if (config && typeof ColorHandlerConfig !== 'undefined') {
+          colors = ColorHandlerConfig.getStatusColors(config, cellText);
+        }
+        
+        // Fallback to default colors if config not available
+        if (!colors) {
+          // Use original hardcoded logic as fallback
+          if (cellText === "New Email Received" || cellText === "Re-opened" || cellText === "Reopened" || cellText === "Completed by Resolver Group" || cellText === "New" || cellText === "Update Received" || cellText === "Open") {
+            colors = { bg: "rgb(191, 39, 75)", text: "rgb(255, 255, 255)" };
+          } else if (cellText === "Pending Action" || cellText === "Initial Response Sent" || cellText === "In Progress") {
+            colors = { bg: "rgb(210, 72, 3)", text: "rgb(255, 255, 255)" };
+          } else if (cellText === "Assigned to Resolver Group" || cellText === "Pending Internal Response" || cellText === "Pending AM Response" || cellText === "Pending QA Review") {
+            colors = { bg: "rgb(140, 77, 253)", text: "rgb(255, 255, 255)" };
+          } else if (cellText === "Solution Delivered to Customer") {
+            colors = { bg: "rgb(45, 200, 64)", text: "rgb(255, 255, 255)" };
+          } else if (cellText === "Closed" || cellText === "Pending Customer Response") {
+            colors = { bg: "rgb(103, 103, 103)", text: "rgb(255, 255, 255)" };
+          } else if (cellText === "Pending System Update - Defect" || cellText === "Pending System Update - Enhancement" || cellText === "Pending System Update - Other" || cellText === "Awaiting Customer Confirmation" || cellText === "Pending") {
+            colors = { bg: "rgb(251, 178, 22)", text: "rgb(255, 255, 255)" };
           }
-        } else if (cellText === "Pending Action" || cellText === "Initial Response Sent" || cellText === "In Progress") {
-          cell.setAttribute("style", generateStyle("rgb(247, 114, 56)"));
-          // Style the 3rd ancestor div element
-          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
-          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
-            thirdAncestor.style.overflow = 'visible';
-          }
-        } else if (cellText === "Assigned to Resolver Group" || cellText === "Pending Internal Response" || cellText === "Pending AM Response" || cellText === "Pending QA Review") {
-          cell.setAttribute("style", generateStyle("rgb(140, 77, 253)"));
-          // Style the 3rd ancestor div element
-          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
-          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
-            thirdAncestor.style.overflow = 'visible';
-          }
-        } else if (cellText === "Solution Delivered to Customer") {
-          cell.setAttribute("style", generateStyle("rgb(45, 200, 64)"));
-          // Style the 3rd ancestor div element
-          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
-          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
-            thirdAncestor.style.overflow = 'visible';
-          }
-        } else if (cellText === "Closed" || cellText === "Pending Customer Response") {
-          cell.setAttribute("style", generateStyle("rgb(103, 103, 103)"));
-          // Style the 3rd ancestor div element
-          const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
-          if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
-            thirdAncestor.style.overflow = 'visible';
-          }
-        } else if (cellText === "Pending System Update - Defect" || cellText === "Pending System Update - Enhancement" || cellText === "Pending System Update - Other") {
-          cell.setAttribute("style", generateStyle("rgb(251, 178, 22)"));
+        }
+        
+        if (colors) {
+          cell.setAttribute("style", generateStyle(colors.bg, colors.text));
+          // Add data attributes for context menu
+          cell.dataset.statusText = cellText;
+          cell.classList.add('exl-status-cell');
           // Style the 3rd ancestor div element
           const thirdAncestor = cell.parentElement?.parentElement?.parentElement;
           if (thirdAncestor && thirdAncestor.tagName === 'DIV') {
@@ -1130,7 +1264,246 @@ function handleStatus() {
       }
     }
   }
+  
+  // Add context menu listeners for status cells
+  setupStatusContextMenu();
+}
 
+// Setup right-click context menu for status cells
+function setupStatusContextMenu() {
+  // Remove existing listeners to avoid duplicates
+  document.querySelectorAll('.exl-status-cell').forEach(cell => {
+    cell.removeEventListener('contextmenu', handleStatusContextMenu);
+  });
+  
+  // Add context menu listeners
+  document.querySelectorAll('.exl-status-cell').forEach(cell => {
+    cell.addEventListener('contextmenu', handleStatusContextMenu);
+  });
+}
+
+// Handle right-click context menu for status
+function handleStatusContextMenu(event) {
+  event.preventDefault();
+  const cell = event.target.closest('.exl-status-cell');
+  if (!cell) return;
+  
+  const statusText = cell.dataset.statusText;
+  if (!statusText) return;
+  
+  // Create context menu
+  const contextMenu = document.createElement('div');
+  contextMenu.className = 'exl-status-context-menu';
+  contextMenu.innerHTML = `
+    <div class="exl-context-menu-item" data-action="edit-bg-color">Edit Background Color</div>
+    <div class="exl-context-menu-item" data-action="edit-text-color">Edit Text Color</div>
+    <div class="exl-context-menu-item" data-action="edit-status-group">Edit Status Group</div>
+    <div class="exl-context-menu-divider"></div>
+    <div class="exl-context-menu-item" data-action="reset-default">Reset to Default</div>
+  `;
+  
+  contextMenu.style.position = 'fixed';
+  contextMenu.style.left = event.pageX + 'px';
+  contextMenu.style.top = event.pageY + 'px';
+  contextMenu.style.zIndex = '10000';
+  
+  document.body.appendChild(contextMenu);
+  
+  // Handle menu item clicks
+  contextMenu.querySelectorAll('.exl-context-menu-item').forEach(item => {
+    item.addEventListener('click', async (e) => {
+      const action = item.dataset.action;
+      contextMenu.remove();
+      
+      if (action === 'edit-bg-color' || action === 'edit-text-color') {
+        const currentColors = await getStatusColorsForText(statusText);
+        const colorType = action === 'edit-bg-color' ? 'bg' : 'text';
+        const currentColor = currentColors[colorType];
+        
+        // Use ColorPicker3D directly if available, otherwise fall back to showStatusColorPicker
+        const selectedColor = await showStatusColorPicker(currentColor, statusText, colorType);
+        if (selectedColor && typeof ColorHandlerConfig !== 'undefined') {
+          const config = await ColorHandlerConfig.loadConfig();
+          const statusGroup = ColorHandlerConfig.getStatusGroup(config, statusText);
+          
+          if (statusGroup) {
+            // Update group color
+            config.handleStatus.groupColors[statusGroup] = config.handleStatus.groupColors[statusGroup] || {};
+            config.handleStatus.groupColors[statusGroup][colorType] = selectedColor;
+          } else {
+            // Create status override
+            config.handleStatus.statusOverrides[statusText] = config.handleStatus.statusOverrides[statusText] || {};
+            config.handleStatus.statusOverrides[statusText][colorType] = selectedColor;
+          }
+          
+          await ColorHandlerConfig.saveConfig(config);
+          colorConfigCache = null;
+          handleStatus();
+        }
+      } else if (action === 'reset-default') {
+        if (typeof ColorHandlerConfig !== 'undefined') {
+          const config = await ColorHandlerConfig.loadConfig();
+          delete config.handleStatus.statusOverrides[statusText];
+          await ColorHandlerConfig.saveConfig(config);
+          colorConfigCache = null;
+          handleStatus();
+        }
+      } else if (action === 'edit-status-group') {
+        // Show status group editor (to be implemented)
+        alert('Status group editor coming soon');
+      }
+    });
+  });
+  
+  // Close menu on outside click
+  const closeMenu = (e) => {
+    if (!contextMenu.contains(e.target)) {
+      contextMenu.remove();
+      document.removeEventListener('click', closeMenu);
+    }
+  };
+  setTimeout(() => {
+    document.addEventListener('click', closeMenu);
+  }, 0);
+}
+
+// Helper to get current colors for a status text
+async function getStatusColorsForText(statusText) {
+  const config = await loadColorConfig();
+  if (config && typeof ColorHandlerConfig !== 'undefined') {
+    const colors = ColorHandlerConfig.getStatusColors(config, statusText);
+    if (colors) return colors;
+  }
+  // Return default fallback
+  return { bg: 'rgb(128, 128, 128)', text: 'rgb(255, 255, 255)' };
+}
+
+/**
+ * Show color picker for status colors
+ * Uses ColorPicker3D if available, otherwise creates inline color picker
+ * @param {string} currentColor - Current color in RGB format
+ * @param {string} statusText - The status text (for context)
+ * @param {string} colorType - 'bg' or 'text'
+ * @returns {Promise<string|null>} Selected color or null if cancelled
+ */
+function showStatusColorPicker(currentColor, statusText, colorType) {
+  return new Promise((resolve) => {
+    // Try ColorPicker3D first if available
+    if (typeof ColorPicker3D !== 'undefined' && ColorPicker3D.show) {
+      ColorPicker3D.show({
+        initialColor: currentColor,
+        title: `Edit ${colorType === 'bg' ? 'Background' : 'Text'} Color for "${statusText}"`,
+        onSelect: (color) => {
+          resolve(color);
+        },
+        onCancel: () => {
+          resolve(null);
+        }
+      });
+      return;
+    }
+    
+    // Fallback: Create simple color picker modal
+    const overlay = document.createElement('div');
+    overlay.className = 'exl-color-picker-overlay';
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 100000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `;
+    
+    const modal = document.createElement('div');
+    modal.className = 'exl-color-picker-modal';
+    modal.style.cssText = `
+      background: white;
+      padding: 24px;
+      border-radius: 8px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      min-width: 300px;
+    `;
+    
+    // Convert RGB to hex for native color input
+    const rgbToHex = (rgb) => {
+      if (rgb.startsWith('#')) return rgb;
+      const match = rgb.match(/\d+/g);
+      if (!match || match.length < 3) return '#808080';
+      return '#' + match.slice(0, 3).map(x => parseInt(x).toString(16).padStart(2, '0')).join('');
+    };
+    
+    // Convert hex to RGB
+    const hexToRgb = (hex) => {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result 
+        ? `rgb(${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)})`
+        : 'rgb(128, 128, 128)';
+    };
+    
+    modal.innerHTML = `
+      <h3 style="margin: 0 0 16px; font-size: 16px; color: #333;">
+        Edit ${colorType === 'bg' ? 'Background' : 'Text'} Color
+      </h3>
+      <p style="margin: 0 0 12px; color: #666; font-size: 13px;">Status: ${statusText}</p>
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
+        <input type="color" id="exl-status-color-input" value="${rgbToHex(currentColor)}" 
+               style="width: 60px; height: 40px; border: none; cursor: pointer;">
+        <div style="flex: 1;">
+          <input type="text" id="exl-status-color-text" value="${currentColor}" 
+                 style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace;">
+        </div>
+      </div>
+      <div style="display: flex; gap: 12px; justify-content: flex-end;">
+        <button id="exl-color-cancel" style="padding: 8px 20px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">Cancel</button>
+        <button id="exl-color-apply" style="padding: 8px 20px; border: none; background: #0070d2; color: white; border-radius: 4px; cursor: pointer; font-weight: 600;">Apply</button>
+      </div>
+    `;
+    
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    
+    const colorInput = modal.querySelector('#exl-status-color-input');
+    const colorText = modal.querySelector('#exl-status-color-text');
+    const cancelBtn = modal.querySelector('#exl-color-cancel');
+    const applyBtn = modal.querySelector('#exl-color-apply');
+    
+    // Sync color input and text
+    colorInput.addEventListener('input', () => {
+      colorText.value = hexToRgb(colorInput.value);
+    });
+    
+    colorText.addEventListener('change', () => {
+      const hex = rgbToHex(colorText.value);
+      if (hex !== '#NaNNaNNaN') {
+        colorInput.value = hex;
+      }
+    });
+    
+    // Cancel
+    cancelBtn.addEventListener('click', () => {
+      overlay.remove();
+      resolve(null);
+    });
+    
+    // Apply
+    applyBtn.addEventListener('click', () => {
+      overlay.remove();
+      resolve(colorText.value);
+    });
+    
+    // Close on overlay click
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+        resolve(null);
+      }
+    });
+  });
 }
 
 // EVENT LISTENERS FOR EXECUTING FUNCTIONS
@@ -1139,10 +1512,10 @@ function handleStatus() {
 function isOnCasesListPage() {
   const url = window.location.href;
   // Check if on Cases List View page
-  return url.includes('/lightning/o/Case/list') ||
-         url.includes('/lightning/o/Case/home') ||
-         // For Classic (ScholarOne) - check for Cases tab
-         (url.includes('/console#') && document.querySelector('title')?.textContent === 'Cases - Console');
+  return url.includes('/lightning/o/Case/list') || url.includes('/lightning/o/Case/home')
+        //  url.includes('/lightning/o/Case/home') ||
+        //  // For Classic (ScholarOne) - check for Cases tab
+        //  (url.includes('/console#') && document.querySelector('title')?.textContent === 'Cases - Console');
 }
 
 function isOnEmailComposerPage() {
@@ -1210,10 +1583,27 @@ const urlObserver = new MutationObserver(() => {
 });
 
 // Start observing for URL changes
-urlObserver.observe(document.body, {
-  childList: true,
-  subtree: true
-});
+// Use document.body if available, otherwise use document.documentElement
+const targetNode = document.body || document.documentElement;
+if (targetNode) {
+  urlObserver.observe(targetNode, {
+    childList: true,
+    subtree: true
+  });
+} else {
+  // If neither is available, wait for DOM to be ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      const node = document.body || document.documentElement;
+      if (node) {
+        urlObserver.observe(node, {
+          childList: true,
+          subtree: true
+        });
+      }
+    });
+  }
+}
 
 // Also listen to popstate event for back/forward navigation
 window.addEventListener('popstate', () => {

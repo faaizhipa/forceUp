@@ -1,0 +1,2200 @@
+/**
+ * Highlighter & Sticky Notes Stylesheet
+ * Uses unique prefix: exl-hl-* to avoid conflicts with host site CSS
+ * Adapted to match persistentBanner.js styling for consistency
+ */
+
+/* ========== PAGE LAYOUT ADJUSTMENT ========== */
+/* These styles ensure page content shifts down to accommodate banner */
+/* Applied early to prevent layout shifts */
+/* NOTE: Fixed header adjustments are handled via JavaScript for better compatibility */
+
+/* Primary strategy: Add padding to body only (not margin to avoid double spacing) */
+/* Only apply when banner is visible - removed when banner is hidden */
+body:not([data-exl-hl-banner-hidden]) {
+  padding-top: 48px !important;
+  margin-top: 0 !important;
+}
+
+/* Ensure body margin-top is removed when banner is hidden */
+body[data-exl-hl-banner-hidden] {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
+
+/* Also ensure html element has no top spacing when banner is hidden */
+html:has(body[data-exl-hl-banner-hidden]) {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Fallback for browsers without :has() support */
+body[data-exl-hl-banner-hidden] ~ * {
+  margin-top: 0 !important;
+}
+
+/* Ensure html element doesn't have conflicting margins */
+html {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Additional fix: ensure no gaps when banner is hidden */
+body[data-exl-hl-banner-hidden] > *:first-child {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Prevent white gaps - handle common first-child margin issues */
+body > *:first-child {
+  margin-top: 0 !important;
+}
+
+/* Prevent white overlay by ensuring body background extends */
+body {
+  background-attachment: fixed !important;
+}
+
+/* Ensure no double spacing from html margin */
+html, body {
+  margin: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* Only apply top padding to body, not html */
+html {
+  padding-top: 0 !important;
+}
+
+/* ========== STICKY BANNER ========== */
+/* Sticky mode: Banner overlays content with transparency */
+.exl-hl-banner.sticky-mode {
+  opacity: 0.3;
+  transition: opacity 0.3s ease;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 999999;
+}
+
+.exl-hl-banner.sticky-mode:hover {
+  opacity: 1;
+}
+
+/* Ensure sticky banner does not cause layout shifts */
+body:has(.exl-hl-banner.sticky-mode),
+.exl-hl-banner.sticky-mode ~ * {
+  /* No padding adjustments needed - banner overlays */
+}
+
+/* Fallback for browsers without :has() */
+.exl-hl-banner.sticky-mode ~ body {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
+
+/* Matches persistentBanner design patterns for consistency */
+.exl-hl-banner {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0;
+  right: 0;
+  width: 100%;
+  min-height: 48px !important;
+  height: 3rem;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  font-family: 'Salesforce Sans', Arial, sans-serif;
+  font-size: 11px;
+  border-bottom: 1px solid #0070d2;
+  z-index: 999999;
+  overflow: hidden;
+  animation: exl-hl-banner-slide-down 200ms ease-out;
+}
+
+@keyframes exl-hl-banner-slide-down {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Container - matches persistent banner pattern */
+.exl-hl-banner .exl-banner-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  max-width: 100%;
+  height: 100%;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Banner sections - matches persistent banner pattern */
+.exl-hl-banner .exl-banner-section {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-shrink: 0;
+  height: 100%;
+  padding: 0 8px;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-hl-banner .exl-banner-section:last-child {
+  border-right: none;
+}
+
+/* Banner label - matches persistent banner pattern */
+.exl-hl-banner .exl-banner-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #a0a0a0;
+  font-weight: 600;
+  white-space: nowrap;
+  margin-right: 4px;
+}
+
+/* Title section - matches persistent banner page type style */
+.exl-hl-banner-title {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 3px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-left: 3px solid #2e844a;
+  white-space: nowrap;
+  color: #ffffff;
+}
+
+/* Legacy left/right structure (for backward compatibility) */
+/* These styles ensure old structure still works while transitioning to section-based */
+.exl-hl-banner-left,
+.exl-hl-banner-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.exl-hl-banner-left {
+  flex: 0 0 auto;
+}
+
+.exl-hl-banner-right {
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+
+/* ========== BUTTONS ========== */
+/* Matches persistentBanner button styling for consistency */
+.exl-hl-btn {
+  background-color: #0070d2;
+  color: #ffffff;
+  border: none;
+  border-radius: 3px;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  height: 26px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'Salesforce Sans', Arial, sans-serif;
+}
+
+.exl-hl-btn:hover {
+  background-color: #005fb2;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-hl-btn:active {
+  background-color: #00396b;
+  transform: translateY(0);
+}
+
+.exl-hl-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.exl-hl-btn-secondary {
+  background-color: oklch(0.95 0.005 240);
+  color: oklch(0.35 0.01 240);
+  border: 1px solid oklch(0.85 0.01 240);
+}
+
+.exl-hl-btn-secondary:hover {
+  background-color: oklch(0.90 0.01 240);
+}
+
+.exl-hl-btn-primary {
+  background-color: #0070d2;
+  color: #ffffff;
+}
+
+/* ========== DIALOGS (Export/Import) ========== */
+.exl-hl-dialog {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000000;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.exl-hl-dialog-content {
+  background: oklch(0.99 0 0);
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  max-width: 28rem;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.exl-hl-dialog-title {
+  margin: 0 0 1.25rem 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: oklch(0.25 0.01 240);
+}
+
+.exl-hl-dialog-section {
+  margin-bottom: 1.25rem;
+}
+
+.exl-hl-dialog-label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: oklch(0.35 0.01 240);
+  margin-bottom: 0.5rem;
+}
+
+.exl-hl-dialog-hint {
+  font-size: 0.75rem;
+  color: oklch(0.55 0.01 240);
+  margin-top: 0.5rem;
+}
+
+.exl-hl-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.exl-hl-radio {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: oklch(0.25 0.01 240);
+}
+
+.exl-hl-radio input[type="radio"] {
+  accent-color: #0070d2;
+  margin: 0;
+}
+
+.exl-hl-radio input[type="radio"]:disabled + span {
+  opacity: 0.5;
+}
+
+.exl-hl-select {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid oklch(0.85 0.01 240);
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  background: oklch(0.99 0 0);
+  color: oklch(0.25 0.01 240);
+  cursor: pointer;
+}
+
+.exl-hl-select:focus {
+  outline: none;
+  border-color: #0070d2;
+  box-shadow: 0 0 0 2px rgba(0, 112, 210, 0.2);
+}
+
+.exl-hl-file-input-wrapper {
+  position: relative;
+}
+
+.exl-hl-file-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.exl-hl-file-label {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  background: oklch(0.95 0.005 240);
+  border: 1px solid oklch(0.85 0.01 240);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: oklch(0.35 0.01 240);
+  transition: background 100ms ease-out;
+}
+
+.exl-hl-file-label:hover {
+  background: oklch(0.90 0.01 240);
+}
+
+.exl-hl-file-name {
+  margin-left: 0.75rem;
+  font-size: 0.8125rem;
+  color: oklch(0.55 0.01 240);
+}
+
+.exl-hl-import-preview {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: oklch(0.97 0.005 240);
+  border-radius: 0.25rem;
+  border: 1px solid oklch(0.90 0.01 240);
+}
+
+.exl-hl-import-preview h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: oklch(0.35 0.01 240);
+}
+
+.exl-hl-preview-content p {
+  margin: 0.25rem 0;
+  font-size: 0.8125rem;
+  color: oklch(0.35 0.01 240);
+}
+
+.exl-hl-error {
+  color: #dc3545 !important;
+}
+
+.exl-hl-dialog-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid oklch(0.90 0.01 240);
+}
+
+.exl-hl-dialog-footer {
+  margin-top: 1rem;
+  text-align: center;
+}
+
+/* Cloud sync dialog specific styles */
+.exl-hl-cloud-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.exl-hl-status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.exl-hl-status-indicator.connected {
+  background: #2e844a;
+  box-shadow: 0 0 8px rgba(46, 132, 74, 0.5);
+}
+
+.exl-hl-status-indicator.disconnected {
+  background: #999;
+}
+
+.exl-hl-user-email {
+  font-size: 0.8125rem;
+  color: oklch(0.55 0.01 240);
+  margin: 0.5rem 0 0 0;
+}
+
+.exl-hl-sync-info {
+  padding: 0.75rem;
+  background: oklch(0.97 0.005 240);
+  border-radius: 0.25rem;
+  font-size: 0.8125rem;
+}
+
+.exl-hl-sync-info p {
+  margin: 0.25rem 0;
+  color: oklch(0.45 0.01 240);
+  transform: none;
+}
+
+.exl-hl-btn-secondary {
+  background-color: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.exl-hl-btn-secondary:hover {
+  background-color: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* ========== COLOR PALETTE ========== */
+/* Updated to work with dark banner background */
+.exl-hl-palette {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.exl-hl-color-chip {
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.exl-hl-color-chip:hover {
+  transform: scale(1.15);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.exl-hl-color-chip:active {
+  transform: scale(1.0);
+}
+
+.exl-hl-color-chip.exl-hl-selected {
+  border-color: #ffffff;
+  transform: scale(1.1);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+/* ========== LAYER DROPDOWN ========== */
+.exl-hl-layer-container {
+  position: relative;
+  display: inline-block;
+  z-index: 1000001;
+}
+
+.exl-hl-layer-btn {
+  /* Inherits from .exl-hl-btn - matches persistentBanner button style */
+  padding: 4px 12px;
+  font-size: 11px;
+  height: 26px;
+}
+
+.exl-hl-layer-dropdown {
+  position: fixed !important;
+  background: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  min-width: 14rem;
+  max-height: 20rem;
+  overflow-y: auto;
+  z-index: 9999999 !important;
+  animation: exl-hl-dropdown-slide-in 150ms ease-out;
+}
+
+@keyframes exl-hl-dropdown-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.exl-hl-layer-item {
+  padding: 0.625rem 1rem;
+  color: oklch(0.35 0 0);
+  font-size: 0.875rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: background-color 100ms ease-out;
+  position: relative;
+}
+
+.exl-hl-layer-item:hover {
+  background-color: oklch(0.97 0 0);
+}
+
+.exl-hl-layer-item:active {
+  background-color: oklch(0.95 0 0);
+}
+
+.exl-hl-new-layer {
+  font-weight: 500;
+  color: oklch(0.45 0.15 270);
+  border-bottom: 1px solid oklch(0.90 0 0);
+}
+
+.exl-hl-new-layer:hover {
+  background-color: oklch(0.98 0.02 270);
+}
+
+.exl-hl-layer-icon {
+  font-size: 1rem;
+}
+
+.exl-hl-layer-separator {
+  height: 1px;
+  background: oklch(0.90 0 0);
+  margin: 0.25rem 0;
+}
+
+.exl-hl-layer-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exl-hl-active-layer {
+  background-color: oklch(0.98 0.02 270);
+  font-weight: 500;
+}
+
+.exl-hl-layer-checkmark {
+  color: oklch(0.45 0.15 270);
+  font-weight: 600;
+  font-size: 1rem;
+  margin-right: 0.25rem;
+}
+
+.exl-hl-layer-context {
+  position: fixed;
+  background: white;
+  border-radius: 0.375rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  min-width: 9rem;
+  z-index: 1000003;
+  overflow: hidden;
+}
+
+.exl-hl-layer-context-item {
+  padding: 0.625rem 1rem;
+  color: oklch(0.35 0 0);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 100ms ease-out;
+}
+
+.exl-hl-layer-context-item:hover {
+  background-color: oklch(0.97 0 0);
+}
+
+.exl-hl-layer-delete {
+  color: oklch(0.50 0.15 25);
+}
+
+.exl-hl-layer-delete:hover {
+  background-color: oklch(0.98 0.05 25);
+}
+
+/* ========== HIGHLIGHT STYLES ========== */
+.exl-hl-highlight {
+  cursor: pointer;
+  transition: opacity 150ms ease-out;
+}
+
+.exl-hl-highlight:hover {
+  opacity: 0.8;
+}
+
+/* Individual highlight colors */
+.exl-hl-color-1 { background-color: rgb(191, 229, 255); } /* Sky Blue */
+.exl-hl-color-2 { background-color: rgb(166, 217, 255); } /* Light Blue */
+.exl-hl-color-3 { background-color: rgb(168, 224, 165); } /* Mint Green */
+.exl-hl-color-4 { background-color: rgb(255, 238, 163); } /* Light Yellow */
+.exl-hl-color-5 { background-color: rgb(255, 228, 168); } /* Soft Yellow */
+.exl-hl-color-6 { background-color: rgb(255, 212, 168); } /* Peach */
+.exl-hl-color-7 { background-color: rgb(255, 199, 194); } /* Coral */
+.exl-hl-color-8 { background-color: rgb(255, 199, 216); } /* Pink */
+.exl-hl-color-9 { background-color: rgb(238, 199, 255); } /* Lavender */
+.exl-hl-color-10 { background-color: rgb(212, 207, 255); } /* Periwinkle */
+.exl-hl-color-11 { background-color: rgb(204, 207, 216); } /* Light Gray */
+
+/* ========== SELECTION TOOLBAR ========== */
+.exl-hl-selection-toolbar {
+  position: absolute;
+  background: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.1);
+  padding: 0.5rem;
+  z-index: 1000001;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+  pointer-events: all;
+}
+
+.exl-hl-selection-palette {
+  display: flex;
+  gap: 0.375rem;
+  align-items: center;
+}
+
+.exl-hl-selection-color-chip {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.25rem;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 100ms ease-out;
+  position: relative;
+}
+
+.exl-hl-selection-color-chip:hover {
+  transform: scale(1.15);
+  border-color: rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.exl-hl-selection-color-chip:active {
+  transform: scale(1.0);
+}
+
+.exl-hl-selection-close {
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.6);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 100ms ease-out;
+  font-family: Inter, sans-serif;
+  padding: 0;
+  margin-left: 0.25rem;
+}
+
+.exl-hl-selection-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.8);
+}
+
+.exl-hl-selection-close:active {
+  transform: scale(0.95);
+}
+
+/* ========== STICKY NOTES ========== */
+.exl-hl-note {
+  position: fixed;
+  width: 16rem;
+  background: rgb(254, 252, 232); /* Default: Light Yellow */
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 999998;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  transition: box-shadow 150ms ease-out, transform 150ms ease-out;
+}
+
+.exl-hl-note:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.exl-hl-note.exl-hl-dragging {
+  transform: scale(1.05);
+  cursor: grabbing;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+}
+
+.exl-hl-note-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem;
+  cursor: grab;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.exl-hl-note-header:active {
+  cursor: grabbing;
+}
+
+.exl-hl-note-colors {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.exl-hl-note-color-chip {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+.exl-hl-note-color-chip:hover {
+  transform: scale(1.15);
+}
+
+.exl-hl-note-color-chip.exl-hl-selected {
+  border-color: oklch(0.45 0.15 270);
+}
+
+.exl-hl-note-delete {
+  background: transparent;
+  border: none;
+  color: oklch(0.35 0.01 240);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem;
+  transition: color 100ms ease-out;
+}
+
+.exl-hl-note-delete:hover {
+  color: oklch(0.50 0.20 25); /* Destructive red */
+}
+
+.exl-hl-note-textarea {
+  width: 100%;
+  height: 12rem;
+  border: none;
+  background: transparent;
+  padding: 0.75rem;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: oklch(0.25 0.01 240);
+  resize: none;
+  outline: none;
+}
+
+.exl-hl-note-textarea::placeholder {
+  color: oklch(0.65 0.01 240);
+}
+
+/* Note color variations */
+.exl-hl-note.exl-hl-note-yellow { background: rgb(254, 252, 232); }
+.exl-hl-note.exl-hl-note-blue { background: rgb(239, 246, 255); }
+.exl-hl-note.exl-hl-note-pink { background: rgb(253, 242, 248); }
+.exl-hl-note.exl-hl-note-green { background: rgb(240, 253, 244); }
+.exl-hl-note.exl-hl-note-purple { background: rgb(245, 243, 255); }
+.exl-hl-note.exl-hl-note-peach { background: rgb(254, 240, 236); }
+
+/* ========== TOAST NOTIFICATIONS ========== */
+.exl-hl-toast {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  background: oklch(0.25 0.01 240);
+  color: oklch(0.99 0 0);
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  z-index: 1000000;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.875rem;
+  animation: exl-hl-toast-slide-up 200ms ease-out;
+}
+
+@keyframes exl-hl-toast-slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ========== COLLECTIONS PANEL ========== */
+.exl-hl-collections-panel {
+  position: fixed;
+  top: 3rem;
+  right: 0;
+  width: 380px;
+  max-width: 90vw;
+  height: calc(100vh - 3rem);
+  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+  color: #ffffff;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.4);
+  z-index: 999997;
+  transform: translateX(100%);
+  transition: transform 250ms ease-out;
+  font-family: 'Salesforce Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+}
+
+.exl-hl-collections-panel.exl-hl-open {
+  transform: translateX(0);
+}
+
+.exl-hl-panel-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.exl-hl-panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.exl-hl-panel-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.exl-hl-panel-toolbar {
+  display: flex;
+  gap: 8px;
+}
+
+.exl-hl-collections-panel .exl-hl-toolbar-btn {
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.exl-hl-collections-panel .exl-hl-toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.exl-hl-panel-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.exl-hl-panel-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.exl-hl-panel-close:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 112, 210, 0.5);
+}
+
+.exl-hl-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.exl-hl-panel-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.exl-hl-panel-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.exl-hl-panel-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.exl-hl-panel-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.exl-hl-collection {
+  margin: 4px 12px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.exl-hl-collection-header {
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background 0.2s ease;
+}
+
+.exl-hl-collection-header:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.exl-hl-collection-name {
+  font-weight: 500;
+  color: #ffffff;
+  font-size: 14px;
+}
+
+.exl-hl-collection-count {
+  background: rgba(0, 112, 210, 0.6);
+  color: #ffffff;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.exl-hl-bookmark-list {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 200ms ease-out;
+}
+
+.exl-hl-collection.exl-hl-expanded .exl-hl-bookmark-list {
+  max-height: 1000px;
+}
+
+.exl-hl-bookmark {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.exl-hl-bookmark:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.exl-hl-bookmark-title {
+  font-weight: 500;
+  color: #ffffff;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.exl-hl-bookmark-desc {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.4;
+}
+
+.exl-hl-bookmark-url {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 4px;
+  font-family: 'Courier New', monospace;
+  word-break: break-all;
+}
+
+/* ========== BOOKMARK DRAG-DROP ========== */
+.exl-hl-bookmark-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.exl-hl-bookmark-actions {
+  display: none;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.exl-hl-bookmark:hover .exl-hl-bookmark-actions {
+  display: flex;
+}
+
+.exl-hl-bookmark-action-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #ffffff;
+  transition: all 0.2s ease;
+}
+
+.exl-hl-bookmark-action-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.exl-hl-bookmark-delete-btn:hover {
+  background: rgba(220, 53, 69, 0.4);
+  color: white;
+  border-color: rgba(220, 53, 69, 0.6);
+}
+
+.exl-hl-bookmark.exl-dragging {
+  opacity: 0.5;
+  cursor: move;
+}
+
+.exl-hl-collection.exl-drop-active {
+  background: rgba(0, 112, 210, 0.2);
+  border: 2px dashed rgba(0, 112, 210, 0.5);
+}
+
+.exl-hl-collection.exl-drop-active .exl-hl-collection-header {
+  background: rgba(0, 112, 210, 0.3);
+}
+
+.exl-hl-bookmark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ========== BANNER CLOSE BUTTON ========== */
+.exl-hl-banner-close-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+  opacity: 0.7;
+  font-weight: 400;
+  z-index: 10;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.exl-hl-banner-close-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: scale(1.1);
+}
+
+.exl-hl-banner-close-btn:active {
+  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* ========== UNDO NOTIFICATION ========== */
+.exl-hl-undo-notification {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: #ffffff;
+  padding: 12px 16px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 999998;
+  font-family: 'Salesforce Sans', Arial, sans-serif;
+  font-size: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  max-width: 300px;
+  animation: slideInUp 0.3s ease-out;
+}
+
+@keyframes slideInUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutDown {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+/* ========== FLOATING BUTTON ========== */
+.exl-hl-floating-btn {
+  position: fixed;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: #ffffff;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  cursor: grab;
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999997;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: opacity 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+  opacity: 0.7;
+  padding: 0;
+  line-height: 1;
+  user-select: none;
+  touch-action: none;
+}
+
+.exl-hl-floating-btn:hover {
+  opacity: 1;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.exl-hl-floating-btn:active:not(.dragging) {
+  transform: translateY(-50%) scale(0.95);
+}
+
+.exl-hl-floating-btn.dragging {
+  cursor: grabbing;
+  opacity: 0.8;
+  transition: none;
+}
+
+/* Expanded state for button when radial menu is open */
+.exl-hl-floating-btn.expanded {
+  opacity: 1;
+  border-color: #0070d2;
+  box-shadow: 0 0 20px rgba(0, 112, 210, 0.5);
+  animation: exl-hl-button-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes exl-hl-button-pulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(0, 112, 210, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(0, 112, 210, 0.8);
+  }
+}
+
+/* ========== RADIAL MENU ========== */
+.exl-hl-radial-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999996;
+  background: transparent;
+}
+
+.exl-hl-radial-menu {
+  position: fixed;
+  z-index: 999998;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.exl-hl-radial-menu.collapsing .exl-hl-radial-item,
+.exl-hl-radial-menu.collapsing .exl-hl-radial-color-chip {
+  animation: exl-hl-radial-collapse 150ms ease-in forwards;
+}
+
+/* Radial menu items (action buttons) */
+.exl-hl-radial-item {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  
+  /* Position at center initially */
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  
+  /* Animation */
+  animation: exl-hl-radial-expand 200ms ease-out forwards;
+  animation-delay: var(--animation-delay, 0ms);
+}
+
+.exl-hl-radial-item:hover {
+  transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1.15);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  border-color: #0070d2;
+  z-index: 10;
+}
+
+.exl-hl-radial-item:focus {
+  outline: none;
+  border-color: #0070d2;
+  box-shadow: 0 0 0 3px rgba(0, 112, 210, 0.4);
+}
+
+.exl-hl-radial-item:active {
+  transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(0.95);
+}
+
+/* Color palette chips in radial menu */
+.exl-hl-radial-color-chip {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  
+  /* Position at center initially */
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  
+  /* Animation */
+  animation: exl-hl-radial-expand 200ms ease-out forwards;
+}
+
+.exl-hl-radial-color-chip:hover {
+  transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 10;
+}
+
+.exl-hl-radial-color-chip:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.6);
+}
+
+.exl-hl-radial-color-chip.selected {
+  border-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(0, 112, 210, 0.8), 0 4px 12px rgba(0, 0, 0, 0.4);
+  transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1.1);
+}
+
+.exl-hl-radial-color-chip.selected::after {
+  content: '✓';
+  position: absolute;
+  font-size: 14px;
+  color: #1a1a2e;
+  font-weight: bold;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.8);
+}
+
+/* Radial expand animation */
+@keyframes exl-hl-radial-expand {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1);
+    opacity: 1;
+  }
+}
+
+/* Radial collapse animation */
+@keyframes exl-hl-radial-collapse {
+  0% {
+    transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+  }
+}
+
+/* Tooltip for radial items */
+.exl-hl-radial-item::before {
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.9);
+  color: #ffffff;
+  font-size: 11px;
+  font-family: 'Salesforce Sans', Arial, sans-serif;
+  white-space: nowrap;
+  border-radius: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.exl-hl-radial-item:hover::before {
+  opacity: 1;
+}
+
+/* Adjust tooltip position for items at bottom of arc */
+.exl-hl-radial-item[style*="--final-y: "][style*="px"]:hover::before {
+  /* Tooltip goes above by default, which works for most positions */
+}
+
+/* ========== FLOATING BANNER (SIDEBAR) ========== */
+.exl-hl-floating-banner {
+  position: fixed;
+  left: 0;
+  height: 48px;
+  min-width: fit-content;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: #ffffff;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.3);
+  font-family: 'Salesforce Sans', Arial, sans-serif;
+  font-size: 11px;
+  border-right: 1px solid #0070d2;
+  z-index: 999998;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  animation: exl-hl-floating-banner-expand 200ms ease-out;
+}
+
+@keyframes exl-hl-floating-banner-expand {
+  from {
+    width: 48px;
+    opacity: 0;
+  }
+  to {
+    width: auto;
+    opacity: 1;
+  }
+}
+
+.exl-hl-floating-banner .exl-banner-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  height: 100%;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-width: fit-content;
+}
+
+.exl-hl-floating-banner .exl-banner-section {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-shrink: 0;
+  height: 100%;
+  padding: 0 8px;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-hl-floating-banner .exl-banner-section:last-of-type {
+  border-right: none;
+}
+
+.exl-hl-floating-collapse-btn,
+.exl-hl-floating-pin-btn {
+  width: 32px;
+  height: 48px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+  flex-shrink: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-hl-floating-collapse-btn:hover,
+.exl-hl-floating-pin-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.exl-hl-floating-collapse-btn:active,
+.exl-hl-floating-pin-btn:active {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ========== STICKY TO FLOAT BUTTON ========== */
+.exl-hl-sticky-to-float-btn {
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 4px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.exl-hl-sticky-to-float-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.exl-hl-sticky-to-float-btn:active {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ========== DISMISSAL MODAL ========== */
+.exl-hl-dismissal-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.exl-hl-dismissal-modal {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  color: #ffffff;
+  animation: slideUp 0.3s ease-out;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.exl-hl-dismissal-modal-header {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: #ffffff;
+}
+
+.exl-hl-dismissal-modal-body {
+  margin-bottom: 16px;
+}
+
+.exl-hl-dismissal-modal-body p {
+  margin-bottom: 16px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.exl-hl-dismissal-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.exl-hl-dismissal-option {
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.exl-hl-dismissal-option:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.exl-hl-dismissal-option:active {
+  transform: translateY(0);
+}
+
+.exl-hl-dismissal-option strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.exl-hl-dismissal-option span {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.4;
+}
+
+.exl-hl-dismissal-footer {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* ========== BOOKMARK MODALS ========== */
+.exl-bookmark-modal {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.exl-bookmark-modal-content {
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.exl-bookmark-modal input,
+.exl-bookmark-modal textarea {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.875rem;
+  transition: border-color 150ms ease-out;
+}
+
+.exl-bookmark-modal input:focus,
+.exl-bookmark-modal textarea:focus {
+  outline: none;
+  border-color: oklch(0.55 0.15 240);
+  box-shadow: 0 0 0 3px oklch(0.55 0.15 240 / 0.1);
+}
+
+.exl-bookmark-modal button {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  transition: all 150ms ease-out;
+}
+
+.exl-bookmark-modal button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.exl-bookmark-modal button:active {
+  transform: translateY(0);
+}
+
+/* ========== MODAL/DIALOG ========== */
+.exl-hl-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: exl-hl-fade-in 150ms ease-out;
+}
+
+@keyframes exl-hl-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.exl-hl-modal {
+  background: oklch(0.99 0 0);
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  width: 90%;
+  max-width: 28rem;
+  max-height: 90vh;
+  overflow: hidden;
+  animation: exl-hl-modal-slide-up 200ms ease-out;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+@keyframes exl-hl-modal-slide-up {
+  from {
+    transform: translateY(2rem);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.exl-hl-modal-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid oklch(0.85 0.01 240);
+}
+
+.exl-hl-modal-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: oklch(0.25 0.01 240);
+  margin: 0;
+}
+
+.exl-hl-modal-body {
+  padding: 1.5rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.exl-hl-modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid oklch(0.85 0.01 240);
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.exl-hl-form-group {
+  margin-bottom: 1.25rem;
+}
+
+.exl-hl-form-group:last-child {
+  margin-bottom: 0;
+}
+
+.exl-hl-label {
+  display: block;
+  font-weight: 500;
+  color: oklch(0.25 0.01 240);
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+}
+
+.exl-hl-input,
+.exl-hl-select,
+.exl-hl-textarea-input {
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid oklch(0.85 0.01 240);
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: oklch(0.25 0.01 240);
+  transition: border-color 100ms ease-out;
+}
+
+.exl-hl-input:focus,
+.exl-hl-select:focus,
+.exl-hl-textarea-input:focus {
+  outline: none;
+  border-color: oklch(0.45 0.15 270);
+  box-shadow: 0 0 0 3px rgba(103, 126, 234, 0.1);
+}
+
+.exl-hl-textarea-input {
+  resize: vertical;
+  min-height: 4rem;
+}
+
+.exl-hl-char-counter {
+  font-size: 0.75rem;
+  color: oklch(0.65 0.01 240);
+  text-align: right;
+  margin-top: 0.25rem;
+}
+
+/* ========== ENHANCED STICKY NOTES (Rich Text Editor) ========== */
+
+/* Enhanced note header with title and controls */
+.exl-hl-note-header-enhanced {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem;
+  cursor: grab;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  gap: 0.5rem;
+}
+
+.exl-hl-note-header-enhanced:active {
+  cursor: grabbing;
+}
+
+/* Editable title input */
+.exl-hl-note-title-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: oklch(0.25 0.01 240);
+  outline: none;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.exl-hl-note-title-input::placeholder {
+  color: oklch(0.65 0.01 240);
+  font-weight: 400;
+}
+
+/* Header controls */
+.exl-hl-note-controls {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.exl-hl-note-control-btn {
+  background: transparent;
+  border: none;
+  color: oklch(0.45 0.01 240);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem;
+  transition: color 100ms ease-out, transform 100ms ease-out;
+  border-radius: 0.25rem;
+}
+
+.exl-hl-note-control-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  transform: scale(1.1);
+}
+
+.exl-hl-note-control-btn.exl-hl-note-delete:hover {
+  color: oklch(0.50 0.20 25);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Note body container */
+.exl-hl-note-body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Formatting toolbar */
+.exl-hl-note-toolbar {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.exl-hl-note-toolbar-btn {
+  background: transparent;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  color: oklch(0.35 0.01 240);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.25rem;
+  transition: all 100ms ease-out;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.exl-hl-note-toolbar-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: oklch(0.45 0.15 270);
+}
+
+.exl-hl-note-toolbar-btn:active {
+  transform: scale(0.95);
+}
+
+/* ContentEditable editor */
+.exl-hl-note-editor {
+  width: 100%;
+  min-height: 8rem;
+  max-height: 24rem;
+  overflow-y: auto;
+  border: none;
+  background: transparent;
+  padding: 0.75rem;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: oklch(0.25 0.01 240);
+  outline: none;
+}
+
+.exl-hl-note-editor:empty::before {
+  content: attr(data-placeholder);
+  color: oklch(0.65 0.01 240);
+  pointer-events: none;
+}
+
+.exl-hl-note-editor img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.25rem;
+  margin: 0.5rem 0;
+}
+
+.exl-hl-note-editor a {
+  color: oklch(0.45 0.15 270);
+  text-decoration: underline;
+}
+
+.exl-hl-note-editor ul,
+.exl-hl-note-editor ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+/* Lazy-loading images */
+.exl-lazy-img {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Resize handle */
+.exl-hl-note-resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.1) 50%);
+  border-bottom-right-radius: 0.5rem;
+}
+
+.exl-hl-note-resize-handle:hover {
+  background: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.2) 50%);
+}
+
+/* Conflict resolution toast */
+.exl-conflict-toast {
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* ========== MOBILE RESPONSIVE ========== */
+@media (max-width: 640px) {
+  .exl-hl-banner {
+    padding: 0 0.75rem;
+  }
+  
+  .exl-hl-banner-title {
+    font-size: 1rem;
+  }
+  
+  .exl-hl-palette {
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+  
+  .exl-hl-color-chip {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+  
+  .exl-hl-btn {
+    padding: 0.5rem;
+    font-size: 0;
+  }
+  
+  .exl-hl-btn::before {
+    font-size: 1rem;
+  }
+  
+  .exl-hl-note {
+    width: 14rem;
+  }
+  
+  .exl-hl-collections-panel {
+    width: 100%;
+  }
+
+  /* Enhanced notes responsive */
+  .exl-hl-note-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .exl-hl-note-toolbar-btn {
+    font-size: 0.7rem;
+    padding: 0.25rem 0.375rem;
+  }
+}
+
+/* ========== BANNER PINNED/UNPINNED RESPONSIVE FOR COLLECTIONS PANEL ========== */
+/* When banner is in sticky mode (pinned), collections panel is below banner */
+body:has(.exl-hl-banner.sticky-mode) .exl-hl-collections-panel {
+  top: 48px;
+  height: calc(100vh - 48px);
+}
+
+/* When banner is not in sticky mode (floating/hidden), collections panel uses full height */
+body:not(:has(.exl-hl-banner.sticky-mode)) .exl-hl-collections-panel {
+  top: 0;
+  height: 100vh;
+}
+
+/* ========== MESSAGE SECTION (Shared with PersistentBanner) ========== */
+/* Message section styling - matches persistentBanner design */
+
+.exl-hl-message-section {
+  flex: 1 1 auto;
+  min-width: 150px;
+  max-width: 400px;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.exl-hl-message-container {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  width: 100%;
+  padding: 0.25rem 0.5rem;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.exl-hl-message-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.exl-hl-message-text {
+  color: #374151;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.exl-hl-message-description {
+  color: #6b7280;
+  font-size: 0.625rem;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.exl-hl-message-nav-btn {
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: #6b7280;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.exl-hl-message-nav-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: #374151;
+}
+
+.exl-hl-message-nav-btn:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 1px;
+}
+
+.exl-hl-message-counter {
+  flex-shrink: 0;
+  color: #9ca3af;
+  font-size: 0.625rem;
+  min-width: 1.5rem;
+  text-align: center;
+}
+
+/* Floating banner message section adjustments */
+.exl-hl-floating-banner .exl-hl-message-section {
+  max-width: 300px;
+}
+
+.exl-hl-floating-banner .exl-hl-message-container {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.exl-hl-floating-banner .exl-hl-message-text {
+  color: #f3f4f6;
+}
+
+.exl-hl-floating-banner .exl-hl-message-description {
+  color: #d1d5db;
+}
+
+.exl-hl-floating-banner .exl-hl-message-nav-btn {
+  color: #d1d5db;
+}
+
+.exl-hl-floating-banner .exl-hl-message-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+
+.exl-hl-floating-banner .exl-hl-message-counter {
+  color: #9ca3af;
+}
+
+/* Responsive adjustments for message section */
+@media (max-width: 900px) {
+  .exl-hl-message-section {
+    max-width: 250px;
+    min-width: 100px;
+  }
+  
+  .exl-hl-message-text {
+    font-size: 0.6875rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .exl-hl-message-section {
+    display: none; /* Hide on very small screens */
+  }
+}

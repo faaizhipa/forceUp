@@ -35,13 +35,13 @@ const UnknownCustomerManager = {
      * Check for unknown customers pending review
      */
     async checkPendingReviews() {
-        if (typeof TimezoneStorage === 'undefined') {
-            console.warn('[UnknownCustomerManager] TimezoneStorage not loaded');
+        if (typeof CustomerMasterManager === 'undefined') {
+            console.warn('[UnknownCustomerManager] CustomerMasterManager not loaded');
             return;
         }
 
         try {
-            const result = await TimezoneStorage.checkUnknownCustomers();
+            const result = await CustomerMasterManager.checkUnknownCustomers();
             
             if (result.hasUnknown) {
                 this.pendingReviews = result.customers;
@@ -251,13 +251,10 @@ const UnknownCustomerManager = {
                 return;
             }
 
-            // Save to storage
-            if (typeof TimezoneStorage !== 'undefined') {
-                await TimezoneStorage.promoteUnknownCustomer(newCustomer);
+            // Save to storage via CustomerMasterManager
+            if (typeof CustomerMasterManager !== 'undefined') {
+                await CustomerMasterManager.promoteUnknownCustomer(newCustomer);
             }
-
-            // Optionally add to CustomerDataManager (if it supports adding customers)
-            // This would require extending CustomerDataManager with an addCustomer method
 
             FlexipagePanelInjector.setStatusMessage(
                 `Customer "${newCustomer.name}" added successfully! Institution Code: ${newCustomer.institutionCode}`,

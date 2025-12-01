@@ -281,6 +281,41 @@ const URLBuilder = {
     }
 
     return buttonGroups;
+  },
+
+  /**
+   * Get wiki links for Wiki Shortcuts section
+   * Extracts wiki links from tools and sql button groups
+   * @returns {Array} Array of wiki link objects
+   */
+  getWikiLinks() {
+    return [
+      {
+        label: 'Wiki',
+        url: 'https://wiki.clarivate.io/pages/viewpage.action?spaceKey=ESP&title=Kibana+-+Log+Searching+Tool',
+        icon: 'utility:knowledge_base'
+      },
+      {
+        label: 'SQL Wiki',
+        url: 'https://wiki.clarivate.io/spaces/ESP/pages/505330963/SQL+Course',
+        icon: 'utility:database'
+      },
+      {
+        label: 'SQL Alma',
+        url: 'https://wiki.clarivate.io/display/ESP/SQL+Knowledgebase',
+        icon: 'utility:database'
+      },
+      {
+        label: 'SQL Esploro',
+        url: 'https://wiki.clarivate.io/spaces/ESP/pages/505334550/Esploro+SQL+Queries',
+        icon: 'utility:database'
+      },
+      {
+        label: 'Esploro Customer List',
+        url: 'https://wiki.clarivate.io/spaces/EXLPS/pages/506201574/Esploro+Customers',
+        icon: 'utility:groups'
+      }
+    ];
   }
 };
 

@@ -223,14 +223,15 @@ const CaseCommentExtractor = (() => {
 
     /**
      * Extracts case metadata from the page
-     * @returns {Object} Case metadata
+     * Validates against current URL to ensure data matches current page (prevents stale data)
+     * @returns {Promise<Object>} Case metadata (validated against current URL)
      */
-    function extractCaseMetadata() {
+    async function extractCaseMetadata() {
         const metadata = {};
         
-        // Extract Case ID from URL (supports both case detail and comments view pages)
+        // Extract Case ID from URL FIRST (source of truth)
         let urlMatch = window.location.pathname.match(/\/(?:Case|lightning\/r\/Case)\/([a-zA-Z0-9]{15,18})/i);
-        metadata.caseId = urlMatch?.[1] || 'N/A';
+        metadata.caseId = urlMatch?.[1] || null;
         
         // Extract Case Number
         const caseNumberElement = document.querySelector('lightning-formatted-text[data-output-element-id="output-field"][slot="output"]');
@@ -257,7 +258,23 @@ const CaseCommentExtractor = (() => {
             }
         }
         
-        metadata.caseNumber = caseNumber || 'N/A';
+        metadata.caseNumber = caseNumber || null;
+        
+        // Simple validation: Ensure we have a valid case ID
+        // We validate by comparing extracted case ID with current URL (source of truth)
+        const urlCaseId = getCurrentCaseId();
+        if (!metadata.caseId || metadata.caseId === 'N/A' || !urlCaseId) {
+            console.warn('[CaseCommentExtractor] No valid case ID available, cannot proceed');
+            return null;
+        }
+        
+        // Verify extracted case ID matches URL (prevents stale data from navigation)
+        if (metadata.caseId !== urlCaseId) {
+            console.warn(`[CaseCommentExtractor] Case ID mismatch: extracted=${metadata.caseId}, URL=${urlCaseId}. Using URL as source of truth.`);
+            metadata.caseId = urlCaseId;
+        }
+        
+        console.log('[CaseCommentExtractor] Metadata validated against URL:', metadata.caseId);
         
         // Extract subject
         const subjectElement = document.querySelector('div[data-target-selection-name="sfdc:RecordField.Case.Subject"] lightning-formatted-text[slot="outputField"]');
@@ -321,11 +338,47 @@ const CaseCommentExtractor = (() => {
     }
 
     /**
+     * Tries to navigate to the Communications tab if not already active
+     * @returns {Promise<boolean>} True if tab is now active or was already active
+     */
+    async function ensureCommunicationsTabActive() {
+        // Check if Communications tab is already active
+        const activeTab = document.querySelector('one-app-nav-bar-item-root[data-label="Communications"].active, lightning-tab-bar-item.active[data-label="Communications"]');
+        if (activeTab) {
+            console.log('[CaseCommentExtractor] Communications tab is already active');
+            return true;
+        }
+        
+        // Try to find and click the Communications tab
+        const communicationsTab = document.querySelector('one-app-nav-bar-item-root[data-label="Communications"], lightning-tab-bar-item[data-label="Communications"], a[data-label="Communications"], button[data-label="Communications"]');
+        if (communicationsTab) {
+            console.log('[CaseCommentExtractor] Found Communications tab, clicking...');
+            try {
+                communicationsTab.click();
+                // Wait for tab to load
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                return true;
+            } catch (error) {
+                console.error('[CaseCommentExtractor] Error clicking Communications tab:', error);
+                return false;
+            }
+        }
+        
+        console.warn('[CaseCommentExtractor] Communications tab not found');
+        return false;
+    }
+
+    /**
      * Finds the case comments table on the page (only visible tables)
      * Supports both case detail page and case comments full view page
-     * @returns {Element|null} The comments table element or null
+     * @returns {Promise<Element|null>} The comments table element or null
      */
-    function findCommentsTable() {
+    async function findCommentsTable() {
+        // First, try to ensure Communications tab is active
+        await ensureCommunicationsTabActive();
+        
+        // Wait a bit for content to load after tab switch
+        await new Promise(resolve => setTimeout(resolve, 500));
         // Try multiple selectors for the Comments tab/section
         const containerSelectors = [
             // Case Comments full view page - list view manager
@@ -388,24 +441,53 @@ const CaseCommentExtractor = (() => {
         }
         
         if (!commentsContainer) {
-            console.error('Case Comments container not found. Trying broader search...');
-            // Last resort: find any visible table with comment-related columns
-            const allTables = document.querySelectorAll('table[role="grid"], table.slds-table');
-            for (const table of allTables) {
-                // Only check visible tables
-                if (!isElementVisible(table)) {
-                    console.log('[CaseCommentExtractor] Skipping non-visible table');
-                    continue;
-                }
-                
-                const headers = Array.from(table.querySelectorAll('thead th'));
-                const headerTexts = headers.map(h => (h.textContent || '').trim().toLowerCase());
-                if (headerTexts.includes('comment') || (headerTexts.includes('user') && headerTexts.includes('public'))) {
-                    console.log('Found visible table with comment-related headers (fallback)');
-                    return table;
+            console.error('[CaseCommentExtractor] Case Comments container not found. Trying broader search...');
+            
+            // Try searching within Communications tab specifically
+            const communicationsSection = document.querySelector('[data-label="Communications"], [aria-label*="Communications"], .oneAppNavBarItemRoot[data-label="Communications"]');
+            if (communicationsSection) {
+                const sectionContainer = communicationsSection.closest('.active') || document.querySelector('.oneAppNavBarItemRoot.active .slds-card, .lightning-tab.active .slds-card, .active-tab-content');
+                if (sectionContainer) {
+                    // Look for Case Comments within the Communications section
+                    const candidates = sectionContainer.querySelectorAll('article.slds-card, div.slds-card, div.forceRelatedListContainer, div[class*="related"]');
+                    for (const candidate of candidates) {
+                        if (!isElementVisible(candidate)) continue;
+                        const text = (candidate.textContent || '').toLowerCase();
+                        const title = (candidate.getAttribute('title') || '').toLowerCase();
+                        const ariaLabel = (candidate.getAttribute('aria-label') || '').toLowerCase();
+                        if (text.includes('case comments') || title.includes('case comments') || ariaLabel.includes('case comments') || text.includes('comment body')) {
+                            console.log('[CaseCommentExtractor] Found Case Comments container in Communications section');
+                            commentsContainer = candidate;
+                            break;
+                        }
+                    }
                 }
             }
-            return null;
+            
+            // Last resort: find any visible table with comment-related columns
+            if (!commentsContainer) {
+                const allTables = document.querySelectorAll('table[role="grid"], table.slds-table, table[class*="table"]');
+                for (const table of allTables) {
+                    // Only check visible tables
+                    if (!isElementVisible(table)) {
+                        continue;
+                    }
+                    
+                    const headers = Array.from(table.querySelectorAll('thead th, thead td, tr:first-child th, tr:first-child td'));
+                    const headerTexts = headers.map(h => (h.textContent || '').trim().toLowerCase());
+                    if (headerTexts.some(h => h.includes('comment')) || 
+                        (headerTexts.some(h => h.includes('user') || h.includes('created by')) && 
+                         headerTexts.some(h => h.includes('public') || h.includes('is public')))) {
+                        console.log('[CaseCommentExtractor] Found visible table with comment-related headers (fallback)');
+                        return table;
+                    }
+                }
+            }
+            
+            if (!commentsContainer) {
+                console.error('[CaseCommentExtractor] Could not find Case Comments container or table');
+                return null;
+            }
         }
         
         // Find the table within the container - try multiple selectors
@@ -501,16 +583,34 @@ const CaseCommentExtractor = (() => {
 
     /**
      * Main extraction function
-     * @returns {Object|null} Extracted case data or null
+     * @returns {Promise<Object|null>} Extracted case data or null
      */
-    function extractCaseComments() {
+    async function extractCaseComments() {
         console.log('Attempting to extract case comments...');
         
-        const metadata = extractCaseMetadata();
-        const commentsTable = findCommentsTable();
+        const metadata = await extractCaseMetadata();
+        
+        // If metadata validation failed, return null
+        if (!metadata) {
+            console.warn('[CaseCommentExtractor] Cannot extract comments: metadata validation failed');
+            return null;
+        }
+        
+        const commentsTable = await findCommentsTable();
         
         if (!commentsTable) {
-            return { caseNumber: metadata.caseNumber, metadata, comments: [] };
+            console.warn('[CaseCommentExtractor] No comments table found. Trying to locate comments in alternative locations...');
+            // Try one more time after a longer wait
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            const retryTable = await findCommentsTable();
+            if (!retryTable) {
+                return { caseNumber: metadata.caseNumber, metadata, comments: [] };
+            }
+            return {
+                caseNumber: metadata.caseNumber,
+                metadata,
+                comments: extractCommentsFromTable(retryTable)
+            };
         }
         
         const comments = extractCommentsFromTable(commentsTable);
@@ -710,7 +810,7 @@ const CaseCommentExtractor = (() => {
             e.preventDefault();
             e.stopPropagation();
             
-            const data = extractCaseComments();
+            const data = await extractCaseComments();
             if (data && data.comments.length > 0) {
                 const tableText = generateTable(data);
                 const success = await copyToClipboard(tableText);
@@ -732,7 +832,7 @@ const CaseCommentExtractor = (() => {
             e.preventDefault();
             e.stopPropagation();
             
-            const data = extractCaseComments();
+            const data = await extractCaseComments();
             if (data && data.comments.length > 0) {
                 const xmlText = generateXML(data);
                 const success = await copyToClipboard(xmlText);

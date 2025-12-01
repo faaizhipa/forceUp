@@ -1,354 +1,622 @@
-# Ex Libris/Esploro Features - Quick Reference
+# Feature Summary
 
-## What's Been Built
-
-### ✅ Fully Implemented (Ready to Test)
-
-| Feature | Description | File |
-|---------|-------------|------|
-| **Page Detection** | Automatically identifies which Salesforce page you're on | `modules/pageIdentifier.js` |
-| **Field Highlighting** | Empty fields = red, filled fields = yellow | `modules/fieldHighlighter.js` |
-| **Dynamic Buttons** | Generates links to Live View, Back Office, Sandboxes, Kibana, etc. | `modules/urlBuilder.js` + `modules/dynamicMenu.js` |
-| **Comment Auto-Save** | Automatically saves case comments every 500ms | `modules/caseCommentMemory.js` |
-| **Comment History** | Restore previous versions (last 10) via dropdown | `modules/caseCommentMemory.js` |
-| **Character Counter** | Shows character count with color-coded warnings | `modules/characterCounter.js` |
-| **Text Formatter** | Convert text to 𝗯𝗼𝗹𝗱, 𝘪𝘵𝘢𝘭𝘪𝘤, 𝚌𝚘𝚍𝚎, etc. | `modules/textFormatter.js` |
-| **Data Extractor** | Pulls case data (account #, server, product, etc.) | `modules/caseDataExtractor.js` |
-
-### 🚧 Partially Implemented (Needs UI)
-
-| Feature | What's Done | What's Needed |
-|---------|-------------|---------------|
-| **Context Menu** | Text formatting logic complete | Right-click menu UI |
-| **Customer Data Sync** | Architecture designed | Wiki extraction + toggle |
-| **SQL Query Builder** | Queries defined | Dropdown UI + copy button |
-| **Sidepanel** | Storage schema defined | Notepad + code editor UI |
-| **Multi-Tab Warning** | Detection logic sketched | Banner UI implementation |
+**Last Updated:** 2025-01-23  
+**Purpose:** Quick reference guide for all extension features with brief descriptions and quick start steps
 
 ---
 
-## How to Test
+## Overview
 
-### 1. Load the Extension
-
-```bash
-1. Open Chrome
-2. Go to chrome://extensions/
-3. Enable "Developer mode" (top right)
-4. Click "Load unpacked"
-5. Select the "3.0" folder
-```
-
-### 2. Navigate to ProQuest Salesforce
-
-URL: `https://proquestllc.lightning.force.com/`
-
-### 3. Open a Case
-
-The following should happen automatically:
-
-✅ **Field Highlighting**: Category, Sub-Category, Description, Status, Jira fields highlighted in red (empty) or yellow (filled)
-
-✅ **Dynamic Buttons**: Section appears in header with buttons:
-   - Production (LV, BO)
-   - Sandboxes (PSB/SB/SQA variants)
-   - Tools (Kibana, Wiki, System Status)
-   - SQL (3 wiki links)
-   - Customer JIRA
-
-✅ **Analytics Refresh Time**: Displays next refresh in UTC and local time
-
-### 4. Try Case Comments
-
-1. Scroll to case comment section
-2. Click in the textarea
-
-✅ **Character Counter**: Appears on left side showing `0 / 4000`
-
-✅ **Auto-Save**: Type something, switch tabs, come back - text should still be there
-
-✅ **Restore Button**: Click "Restore ▼" to see previous versions (after saving at least once)
-
-### 5. Check Browser Console
-
-You should see:
-```
-[ExLibris Extension] Initializing...
-[ExLibris Extension] Page changed: {type: "case_page", caseId: "..."}
-[ExLibris Extension] Extracting case data...
-[ExLibris Extension] Case page features initialized
-```
+This Chrome Extension (Manifest V3) enhances Salesforce Lightning with productivity tools for Clarivate and Ex Libris support teams. Features are organized by domain and page type.
 
 ---
 
-## Configuration Options
+## Feature Availability by Domain
 
-Currently, most features use default settings. To customize:
+### ProQuest/Ex Libris Domain (`proquestllc.lightning.force.com`)
+**Full feature set available:**
+- Field Highlighting
+- Dynamic Menu Buttons
+- Case Comment Memory
+- Character Counter
+- Context Menu Formatting
+- Keyboard Shortcuts
+- Multi-Tab Sync
+- Persistent Banner
+- Case Data Extraction & Caching
+- Timezone Resolution
+- Case Page Data Extractor
 
-### Settings Object (in code)
+### Clarivate Domains
+**Legacy features:**
+- Email From validation
+- Case list row aging colors
+- Status badge colorization
 
-Located in `content_script_exlibris.js`:
-
-```javascript
-settings: {
-  menuLocations: {
-    cardActions: false,      // Show buttons in card actions
-    headerDetails: true      // Show buttons in header
-  },
-  buttonLabelStyle: 'casual',  // 'formal', 'casual', 'abbreviated'
-  timezone: null,              // null = auto-detect
-  highlightingEnabled: true    // Enable field highlighting
-}
-```
-
-### To Change Settings (Temporary):
-
-Open browser console on Salesforce page:
-
-```javascript
-// Change button labels to abbreviated
-ExLibrisExtension.settings.buttonLabelStyle = 'abbreviated';
-ExLibrisExtension.refresh();
-
-// Disable field highlighting
-ExLibrisExtension.settings.highlightingEnabled = false;
-ExLibrisExtension.refresh();
-
-// Change timezone
-ExLibrisExtension.settings.timezone = 'America/New_York';
-ExLibrisExtension.refresh();
-```
+### Support Sites (`support.clarivate.com`, `knowledge.exlibrisgroup.com`, `developers.exlibrisgroup.com`)
+**Text highlighting features:**
+- Text Highlighter
+- Sticky Notes
+- Bookmarks
 
 ---
 
-## Button URLs Reference
+## Core Features
 
-All buttons are dynamically generated based on case data. Here are the templates:
+### 1. Field Highlighting
+**Module:** `fieldHighlighter.js`  
+**Page Type:** Case Page only  
+**Status:** ✅ Active
 
-### Production
-- **Live View**: `https://{server}.alma.exlibrisgroup.com/esploro/?institution={institutionCode}`
-- **Back Office**: `https://{server}.alma.exlibrisgroup.com/mng/login?institute={institutionCode}&productCode=esploro&debug=true`
+**Description:**  
+Highlights key case fields with color coding:
+- **Red:** Empty required fields
+- **Yellow:** Filled fields
+- **Green:** Optional fields (if configured)
 
-### Sandboxes (Varies by Product)
+**Target Fields:**
+- Category
+- Sub-Category
+- Description
+- Status
+- Problem Root Cause
+- Primary Jira
+- Jira Status
 
-**If Product = "Esploro Advanced"**:
-- PSB LV, PSB BO (Premium Sandbox)
+**Quick Start:**
+1. Navigate to a case page
+2. Fields are automatically highlighted
+3. Configure in popup settings (General tab)
 
-**If Product = "Esploro Standard"**:
-- SB LV, SB BO (Standard Sandbox)
+**Configuration:**
+- Enable/disable in popup: `Features > Field Highlighting`
+- Colors are defined in `fieldHighlighter.js`
 
-**Always Available**:
-- SQA LV, SQA BO
-
-### Kibana (DC-Aware)
-
-Automatically selects correct Kibana based on affected environment:
-
-| Environment | Kibana DC |
-|-------------|-----------|
-| NA04-08 | dc01 |
-| EU00-02 | dc03 |
-| NA01-03, NA91 | dc04 |
-| AP01 | dc05 |
-| EU03-06 | dc06 |
-| AP02 | dc07 |
-| CA01 | dc82 |
-| CN01 | dc81 |
-
-### Customer JIRA
-
-Searches for customer code in URM project with Esploro filter.
+**Dependencies:**
+- `pageIdentifier.js` (page detection)
+- `caseDataExtractor.js` (field data)
 
 ---
 
-## Data Extraction Logic
+### 2. Dynamic Menu Buttons
+**Module:** `dynamicMenu.js`  
+**Page Type:** Case Page  
+**Status:** ✅ Active
 
-The extension looks for these fields in the Salesforce case:
+**Description:**  
+Injects action buttons that generate dynamic URLs for:
+- Live View (Esploro/Alma portals)
+- Back Office
+- Sandbox environments
+- SQL Query Builder
+- JIRA links
+- Analytics tools
+- Kibana dashboards
 
-| Field | CSS Selector | Derived Values |
-|-------|--------------|----------------|
-| Ex Libris Account # | `records-record-layout-item[field-label*="Ex Libris Account"]` | → Institution Code (adds `_INST` if no underscore) |
-| Affected Environment | `records-record-layout-item[field-label*="Affected Environment"]` | → Server (e.g., `na05`) <br> → Server Region (e.g., `NA`) |
-| Product/Service Name | `records-record-layout-item[field-label*="Product"]` | → Determines sandbox type |
-| Asset | `records-record-layout-item[field-label*="Asset"]` | → Text + Href |
-| JIRA ID | `flexipage-component2[data-component-id="flexipage_fieldSection6"]` | → Primary JIRA field |
+**Quick Start:**
+1. Navigate to a case page
+2. Buttons appear in header details area (default)
+3. Click any button to open the generated URL
 
-### Example Data Flow
+**Button Groups:**
+- **Environment Buttons:** Production, Sandbox, PSB
+- **Tool Buttons:** SQL, Analytics, Kibana
+- **External Links:** JIRA, Documentation
 
-**Case Page Shows**:
-- Ex Libris Account Number: `61SCU`
-- Affected Environment: `AP02`
-- Product: `Esploro Advanced`
+**Configuration:**
+- Button placement: `Popup > Ex Libris > Menu Locations`
+- Button label style: `Popup > Ex Libris > Button Label Style`
+  - Options: Formal, Casual, Abbreviated
 
-**Extension Extracts**:
-```javascript
-{
-  exLibrisAccountNumber: "61SCU",
-  institutionCode: "61SCU_INST",  // Derived
-  server: "ap02",                  // Derived
-  serverRegion: "AP",              // Derived
-  productServiceName: "esploro advanced"
-}
-```
-
-**Buttons Generated**:
-- Live View → `https://ap02.alma.exlibrisgroup.com/esploro/?institution=61SCU_INST`
-- PSB LV → `https://psb-ap02.alma.exlibrisgroup.com/esploro/?institution=61SCU_INST`
-- Kibana → `http://lm-oss-kib.dc07.hosted.exlibrisgroup.com:5601/` (AP02 = dc07)
-
----
-
-## Troubleshooting Quick Fixes
-
-### Buttons Not Appearing
-
-**Check 1**: Is page detected correctly?
-```javascript
-PageIdentifier.identifyPage()
-// Should return: {type: "case_page", caseId: "..."}
-```
-
-**Check 2**: Is case data extracted?
-```javascript
-ExLibrisExtension.getCaseData(ExLibrisExtension.currentCaseId)
-// Should return object with exLibrisAccountNumber, server, etc.
-```
-
-**Fix**: If data extraction fails, check if field labels match. Update selectors in `modules/caseDataExtractor.js`.
-
-### Field Highlighting Not Working
-
-**Check**: Inspect a field element and compare class names with selectors in `modules/fieldHighlighter.js`.
-
-**Common Issue**: Salesforce changed DOM structure.
-
-**Fix**: Update selectors:
-```javascript
-// In fieldHighlighter.js
-fieldSelectors: {
-  category: {
-    container: 'NEW_SELECTOR_HERE',
-    input: 'NEW_INPUT_SELECTOR_HERE'
-  }
-}
-```
-
-### Character Counter Misplaced
-
-**Check**: Is button row detected?
-```javascript
-CharacterCounter.findButtonRow()
-```
-
-**Fix**: Update `findButtonRow()` logic in `characterCounter.js` to match current DOM structure.
-
-### Auto-Save Not Working
-
-**Check**: Browser console for errors related to `chrome.storage`
-
-**Fix**: Verify "storage" permission in `manifest.json` (should already be there).
-
-### URLs Are Wrong
-
-**Most Common**: Case data extraction failed or incomplete.
-
-**Check**:
-```javascript
-const data = await ExLibrisExtension.getCaseData(ExLibrisExtension.currentCaseId);
-console.log(data);
-```
-
-**Fix**: Ensure Ex Libris Account Number and Affected Environment fields are populated in the case.
+**Dependencies:**
+- `urlBuilder.js` (URL generation)
+- `caseDataExtractor.js` (case data)
+- `customerDataManager.js` (customer info)
 
 ---
 
-## Next Steps for Full Implementation
+### 3. Timezone Converter
+**Module:** `timezoneConverter.js`, `dynamicMenu.js`  
+**Page Type:** Case Page  
+**Status:** ✅ Active
 
-### Priority 1 Tasks
+**Description:**  
+Expandable timezone converter that displays time conversions between case timezone, user timezone, and UTC. Replaces the previous "Next Analytics Refresh" section with a comprehensive converter.
 
-1. **Context Menu UI** (2-3 hours)
-   - Create right-click menu for textarea
-   - Wire up to TextFormatter methods
-   - Test all formatting options
+**Features:**
+- Expandable/collapsible UI (default collapsed)
+- Date selection dropdown:
+  - Next Analytics Refresh (default)
+  - Case Created Date
+  - Case Closed Date
+  - Case Last Modified Date
+- Three timezone displays:
+  - Case Timezone (resolved from case data)
+  - Your Timezone (from user preferences)
+  - UTC
+- Automatic timezone resolution
+- Real-time conversion updates
 
-2. **Enhanced Popup** (2-3 hours)
-   - Add Ex Libris settings section
-   - Timezone dropdown
-   - Button label style selector
-   - Menu location toggles
+**Quick Start:**
+1. Navigate to a case page
+2. Timezone converter appears in Dynamic Menu
+3. Click header to expand/collapse
+4. Select different dates from dropdown
+5. View conversions in all three timezones
 
-### Priority 2 Tasks
+**Timezone Resolution:**
+- **Case Timezone:** 
+  - Priority: TimezoneStorage (cached) > InstitutionTimezoneManager > UTC fallback
+  - Uses case account name, institution code, customer ID, institution ID
+- **User Timezone:**
+  - From UserPreferences (auto-detect or manual)
+  - Falls back to browser detection
+- **UTC:** Always available
 
-3. **Customer Data Sync** (3-4 hours)
-   - Guide user to Wiki page
-   - Extract table on load
-   - Store and use for lookups
+**Configuration:**
+- User timezone: `Popup > Timezone Settings > Your Local Timezone`
+- Auto-detect or manual override available
+- Case timezone resolved automatically from case data
 
-4. **SQL Query Builder** (2-3 hours)
-   - Create expandable UI section
-   - Add entity dropdowns
-   - Display formatted query
-   - Copy to clipboard button
-
-### Priority 3 Tasks
-
-5. **Sidepanel** (4-5 hours)
-   - Circular trigger button
-   - Sliding panel animation
-   - Rich text notepad
-   - Simple code editor
-   - Per-case persistence
-
-6. **Multi-Tab Warning** (1-2 hours)
-   - Detect simultaneous editing
-   - Show warning banner
-   - Link to active tab
-
-**Estimated Total**: 14-22 hours to complete all remaining features
-
----
-
-## File Structure Reference
-
-```
-3.0/
-├── modules/
-│   ├── pageIdentifier.js           (✅ Complete)
-│   ├── caseDataExtractor.js        (✅ Complete)
-│   ├── fieldHighlighter.js         (✅ Complete)
-│   ├── urlBuilder.js               (✅ Complete)
-│   ├── textFormatter.js            (✅ Complete)
-│   ├── caseCommentMemory.js        (✅ Complete)
-│   ├── dynamicMenu.js              (✅ Complete)
-│   ├── characterCounter.js         (✅ Complete)
-│   ├── contextMenu.js              (🚧 To create)
-│   ├── customerDataSync.js         (🚧 To create)
-│   ├── sqlQueryBuilder.js          (🚧 To create)
-│   ├── sidepanel.js                (🚧 To create)
-│   └── multiTabDetector.js         (🚧 To create)
-├── content_script.js               (Existing - Clarivate features)
-├── content_script_exlibris.js      (✅ New - Ex Libris integration)
-├── background.js                   (Existing)
-├── popup.html                      (Existing - needs update)
-├── popup.js                        (Existing - needs update)
-├── manifest.json                   (✅ Updated)
-├── explanation.md                  (✅ Codebase analysis)
-├── IMPLEMENTATION_GUIDE.md         (✅ Detailed guide)
-└── FEATURE_SUMMARY.md              (This file)
-```
+**Dependencies:**
+- `timezoneConverter.js` (conversion logic)
+- `timezoneStorage.js` (case timezone cache)
+- `institutionTimezoneManager.js` (institution timezone lookup)
+- `userPreferences.js` (user timezone settings)
+- `urlBuilder.js` (analytics refresh time)
+- `casePageDataExtractor.js` (case dates)
 
 ---
 
-## Contact & Support
+### 4. Case Comment Memory
+**Module:** `caseCommentMemory.js`  
+**Page Type:** Case Comments page  
+**Status:** ✅ Active
 
-**Original Extension**: Muhammad Amir Faaiz Shamsol Nizam
+**Description:**  
+Auto-saves comment text as you type with history tracking. Restore previous versions or continue where you left off.
 
-**New Features**: Implementation by Claude Code
+**Features:**
+- Auto-save every 2 seconds (throttled)
+- History queue (last 10 versions)
+- Restore UI with timestamp dropdown
+- Per-case storage (localStorage)
+- Multi-tab sync detection
 
-**Questions**: Refer to `IMPLEMENTATION_GUIDE.md` for detailed documentation
+**Quick Start:**
+1. Navigate to Case Comments page
+2. Start typing in comment textarea
+3. Text is auto-saved automatically
+4. Use restore button to access history
+
+**Configuration:**
+- Enable/disable: `Popup > Features > Auto-Save Comments`
+- Storage: `chrome.storage.local` by case ID
+
+**Dependencies:**
+- `pageIdentifier.js` (page detection)
+- `multiTabSync.js` (tab sync warnings)
 
 ---
 
-**Version**: 1.0
-**Last Updated**: 2025-10-14
-**Status**: Core features complete, UI enhancements pending
+### 4. Character Counter
+**Module:** `characterCounter.js`  
+**Page Type:** Case Comments page  
+**Status:** ✅ Active
+
+**Description:**  
+Displays live character count (0/4000) near the Save button with color thresholds.
+
+**Color Coding:**
+- **Green:** 0-3500 characters
+- **Yellow:** 3500-3900 characters
+- **Red:** 3900-4000+ characters
+
+**Quick Start:**
+1. Navigate to Case Comments page
+2. Counter appears automatically near Save button
+3. Updates in real-time as you type
+
+**Configuration:**
+- Enable/disable: `Popup > Features > Character Counter`
+- Thresholds are configurable in module
+
+---
+
+### 5. Context Menu Formatting
+**Module:** `contextMenuHandler.js`  
+**Page Type:** Any (textareas/inputs)  
+**Status:** ✅ Active
+
+**Description:**  
+Right-click context menu for text formatting:
+- Unicode character replacement (bold, italic, code)
+- Case toggling (UPPER, lower, Sentence, Title)
+- Symbol insertion (bullets, arrows, etc.)
+
+**Quick Start:**
+1. Select text in any textarea
+2. Right-click to open context menu
+3. Choose formatting option
+
+**Menu Options:**
+- **Format:** Bold, Italic, Code, Strikethrough
+- **Case:** Toggle, UPPER, lower, Sentence, Title
+- **Symbols:** Bullets, arrows, special characters
+
+**Configuration:**
+- Enable/disable: `Popup > Features > Context Menu Formatting`
+- Menu items defined in `background.js`
+
+**Dependencies:**
+- `textFormatter.js` (formatting functions)
+- `background.js` (menu creation)
+
+---
+
+### 6. Keyboard Shortcuts
+**Module:** `keyboardShortcuts.js`  
+**Page Type:** Case Comments page  
+**Status:** ✅ Active
+
+**Description:**  
+Hotkeys for quick text formatting and UI actions.
+
+**Available Shortcuts:**
+- `Ctrl+B` / `Cmd+B`: Bold
+- `Ctrl+I` / `Cmd+I`: Italic
+- `Ctrl+U` / `Cmd+U`: Underline
+- `Ctrl+Shift+X`: Toggle case
+- `Ctrl+K`: Insert symbol
+
+**Quick Start:**
+1. Focus on a textarea
+2. Use keyboard shortcuts
+3. Formatting is applied to selection
+
+**Configuration:**
+- Enable/disable: `Popup > Shortcuts > Enable Keyboard Shortcuts`
+- Shortcuts defined in `keyboardShortcuts.js`
+
+**Dependencies:**
+- `textFormatter.js` (formatting functions)
+
+---
+
+### 7. Multi-Tab Sync
+**Module:** `multiTabSync.js`  
+**Page Type:** Case Page, Case Comments  
+**Status:** ✅ Active
+
+**Description:**  
+Detects when the same case is open in multiple tabs and warns users to prevent conflicts.
+
+**Features:**
+- BroadcastChannel-based detection
+- Heartbeat mechanism (every 2 seconds)
+- Warning banner with "Switch to Other Tab" button
+- Automatic tab switching via background script
+
+**Quick Start:**
+1. Open a case in one tab
+2. Open the same case in another tab
+3. Warning banner appears
+4. Click button to switch to other tab
+
+**Configuration:**
+- Enable/disable: `Popup > Features > Multi-Tab Warning`
+- Heartbeat interval: 2000ms (configurable)
+
+---
+
+### 8. Persistent Banner
+**Module:** `persistentBanner.js`  
+**Page Type:** All pages (ProQuest domain)  
+**Status:** ✅ Active
+
+**Description:**  
+Fixed banner at top of page showing:
+- Current case information
+- Customer metadata (custID, instID, server)
+- Page status with gradient coloring
+- Navigation history
+- Environment buttons (Production, Sandbox)
+- Quick actions (Refresh, Show Panel)
+
+**Features:**
+- Always visible (fixed position)
+- Collapsible to small button
+- Status-based gradient colors
+- Case data validation
+- Periodic validation (every 2 seconds)
+
+**Quick Start:**
+1. Navigate to any ProQuest Salesforce page
+2. Banner appears automatically at top
+3. Click collapse button to minimize
+4. Use action buttons for quick access
+
+**Status Colors:**
+- **Blue gradient:** Closed cases
+- **Green gradient:** New cases
+- **Yellow gradient:** In Progress
+- **Red gradient:** Escalated
+- **Gray gradient:** Default/Unknown
+
+**Configuration:**
+- Enable/disable: `Popup > Features > Persistent Banner`
+- Banner messages: Rotating informational messages
+
+**Dependencies:**
+- `casePageDataExtractor.js` (case data)
+- `pageContextValidator.js` (validation)
+- `navigationObserver.js` (navigation detection)
+
+---
+
+### 9. Case Data Extraction & Caching
+**Module:** `caseDataExtractor.js`, `casePageDataExtractor.js`, `cacheManager.js`  
+**Page Type:** Case Page  
+**Status:** ✅ Active
+
+**Description:**  
+Extracts case data from DOM and caches it for performance. Validates data integrity and prevents stale data display.
+
+**Extracted Data:**
+- Case ID and Case Number
+- Subject and Description
+- Account and Contact names
+- Product/Service information
+- Category and Sub-Category
+- Status and Sub-Status
+- Customer metadata (custID, instID, server)
+- Ex Libris Account Number
+- Dates (Created, Closed, Last Modified)
+
+**Caching Strategy:**
+- In-memory cache (fast access)
+- `chrome.storage.local` (persistence)
+- Signature-based validation
+- Case ID and Case Number validation
+- Cache locking for concurrency
+
+**Quick Start:**
+1. Navigate to a case page
+2. Data is extracted automatically
+3. Cached for subsequent visits
+4. Cache invalidates on case modification
+
+**Configuration:**
+- Cache TTL: 30 days (configurable)
+- Cache size limit: ~8MB (chrome.storage limit)
+
+**Dependencies:**
+- `customerDataManager.js` (customer lookup)
+- `pageContextValidator.js` (validation)
+- `pageIdentifier.js` (page detection)
+
+---
+
+### 10. Timezone Resolution
+**Module:** `caseTimezoneResolver.js`, `timezoneUtils.js`, `institutionTimezoneManager.js`  
+**Page Type:** Case Page (via Panel)  
+**Status:** ✅ Active
+
+**Description:**  
+Resolves timezone for cases based on:
+- Institution code lookup
+- Customer ID lookup
+- Account address analysis
+- Default timezone fallback
+
+**Features:**
+- Automatic timezone detection
+- Manual timezone override
+- Timezone storage per institution
+- Integration with case data
+
+**Quick Start:**
+1. Open case page
+2. Click "Show Panel" in banner
+3. Timezone is resolved automatically
+4. View timezone info in panel
+
+**Configuration:**
+- Auto-detect: Enabled by default
+- Manual override: Available in panel
+- Storage: `chrome.storage.local`
+
+**Dependencies:**
+- `institutionTimezoneManager.js` (timezone data)
+- `accountAddressExtractor.js` (address parsing)
+- `timezoneStorage.js` (persistence)
+
+---
+
+### 11. Case Page Data Extractor
+**Module:** `casePageDataExtractor.js`  
+**Page Type:** Case Page  
+**Status:** ✅ Active
+
+**Description:**  
+Automatically extracts comprehensive case data when navigating to case pages. Handles SPA navigation and validates data before dispatch.
+
+**Features:**
+- Automatic extraction on page load
+- Manual extraction trigger (via banner)
+- Data validation (case ID/number matching)
+- Title update waiting (handles SPA timing)
+- Retry mechanism for failed validations
+- Event-based data dispatch
+
+**Quick Start:**
+1. Navigate to a case page
+2. Data extraction happens automatically
+3. Data is dispatched via `casePageDataExtracted` event
+4. Other modules consume the event
+
+**Configuration:**
+- Extraction timeout: 20 seconds
+- Retry delay: 500ms
+- Title update wait: 2 seconds max
+
+**Dependencies:**
+- `pageIdentifier.js` (page detection)
+- `pageContextValidator.js` (validation)
+- `customerDataManager.js` (customer data)
+
+---
+
+## Legacy Features (Clarivate Domains)
+
+### Email From Validation
+**Module:** `content_script.js`  
+**Domain:** Clarivate domains  
+**Status:** ✅ Active
+
+**Description:**  
+Highlights email "From" addresses in case emails based on team configuration.
+
+**Quick Start:**
+1. View case emails
+2. Team emails are automatically highlighted
+3. Configure team in popup settings
+
+---
+
+### Case List Row Aging
+**Module:** `content_script.js`  
+**Domain:** Clarivate domains  
+**Status:** ✅ Active
+
+**Description:**  
+Color-codes case list rows based on age and response time targets.
+
+**Color Logic:**
+- Based on team working hours
+- Response time targets
+- Elapsed time calculation
+
+---
+
+## Support Site Features
+
+### Text Highlighter
+**Module:** `highlighter.js`  
+**Domain:** Support sites  
+**Status:** ✅ Active
+
+**Description:**  
+Highlight text on support documentation sites with persistent storage.
+
+**Quick Start:**
+1. Navigate to support site
+2. Select text and highlight
+3. Highlights persist across sessions
+
+---
+
+### Sticky Notes
+**Module:** `stickyNotes.js`  
+**Domain:** Support sites  
+**Status:** ✅ Active
+
+**Description:**  
+Add sticky notes to support pages with positioning and persistence.
+
+---
+
+### Bookmarks
+**Module:** `bookmarkManager.js`  
+**Domain:** Support sites  
+**Status:** ✅ Active
+
+**Description:**  
+Bookmark important pages and sections.
+
+---
+
+## Feature Dependencies
+
+### Core Dependencies
+All features depend on:
+- `pageIdentifier.js` - Page type detection
+- `settingsManager.js` - Settings management
+- `navigationObserver.js` - SPA navigation detection
+
+### Data Dependencies
+Features that need case data:
+- Dynamic Menu Buttons → `caseDataExtractor.js`, `customerDataManager.js`
+- Persistent Banner → `casePageDataExtractor.js`
+- Timezone Resolution → `caseTimezoneResolver.js`
+
+### UI Dependencies
+Features that inject UI:
+- Dynamic Menu → `dynamicMenu.js`
+- Persistent Banner → `persistentBanner.js`
+- Field Highlighting → `fieldHighlighter.js`
+
+---
+
+## Configuration Quick Reference
+
+### Popup Settings Location
+1. Click extension icon
+2. Navigate to appropriate tab:
+   - **General:** Team selection
+   - **Ex Libris:** Feature toggles, UI preferences
+   - **Shortcuts:** Keyboard shortcuts
+   - **About:** Version info, storage usage
+
+### Feature Toggles
+All features can be enabled/disabled individually in:
+`Popup > Ex Libris > Features`
+
+### Team Configuration
+Select your team in:
+`Popup > General > Team Setting`
+
+Available teams:
+- EndNote
+- Web of Science
+- ScholarOne
+- Life Science (various)
+- Account Support
+- Esploro
+- Alma
+- Pivot-RP
+- RefWorks
+- InCites
+
+---
+
+## Troubleshooting
+
+### Features Not Appearing
+1. Check popup settings (feature enabled?)
+2. Verify correct domain (ProQuest vs Clarivate)
+3. Check browser console for errors
+4. Verify page type (some features are page-specific)
+
+### Data Not Loading
+1. Check `casePageDataExtractor.js` logs in console
+2. Verify page context validation
+3. Check cache status in console
+4. Try manual refresh via banner button
+
+### Performance Issues
+1. Check cache size in popup (About tab)
+2. Clear cache if needed
+3. Disable unused features
+4. Check console for excessive logging
+
+---
+
+## Related Documentation
+
+- **[IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md)** - Detailed implementation information
+- **[FUNCTIONS.md](FUNCTIONS.md)** - Function reference for each module
+- **[SELECTORS.md](SELECTORS.md)** - DOM selector reference
+- **[BEST_PRACTICES.md](BEST_PRACTICES.md)** - Development best practices
+- **[PROJECT_RULES.md](PROJECT_RULES.md)** - Project rules and guidelines
+

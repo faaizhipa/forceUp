@@ -11,13 +11,17 @@ const SettingsManager = (function() {
     // Ex Libris specific settings
     exlibris: {
       // Feature toggles
+      // All features default to true (enabled) unless explicitly disabled
       features: {
         fieldHighlighting: true,
         contextMenu: true,
         multiTabSync: true,
         caseCommentMemory: true,
         characterCounter: true,
-        dynamicMenu: true
+        dynamicMenu: true,
+        persistentBanner: true,
+        highlighterEnabled: true,
+        bannerMessages: true
       },
 
       // UI preferences
@@ -44,6 +48,77 @@ const SettingsManager = (function() {
         italic: true,
         code: true,
         closeModal: true
+      },
+
+      // Persistent Banner settings
+      persistentBanner: {
+        messages: {
+          enabled: true,  // Enable/disable rotating messages (separate from feature toggle)
+          defaultMessages: {
+            enabled: true,
+            items: [
+              { id: 'default_1', text: 'Field Highlighting', enabled: true },
+              { id: 'default_2', text: 'Context Menu Formatting', enabled: true },
+              { id: 'default_3', text: 'Multi-Tab Warning', enabled: true },
+              { id: 'default_4', text: 'Auto-Save Comments', enabled: true },
+              { id: 'default_5', text: 'Character Counter', enabled: true },
+              { id: 'default_6', text: 'Dynamic Buttons', enabled: true },
+              { id: 'default_7', text: 'Persistent Banner', enabled: true },
+              { id: 'default_8', text: 'Text Highlighter & Sticky Notes', enabled: true }
+            ]
+          },
+          customMessages: [],
+          rotationInterval: 5000,  // milliseconds (default: 5 seconds)
+          autoRotate: true  // Enable/disable automatic rotation
+        }
+      }
+    },
+
+    // Highlighter & Notes settings (NEW)
+    highlighterNotes: {
+      // Feature flags
+      featureFlags: {
+        screenshots: true,
+        richTextNotes: true,
+        noteAnnotations: true
+      },
+
+      // Screenshot settings
+      screenshots: {
+        enabled: true,
+        autoCleanup: true,
+        retentionDays: 30,
+        maxSizeMB: 5,
+        jpegQuality: 0.8,
+        maxImageWidth: 800
+      },
+
+      // Sticky notes settings
+      notes: {
+        collapseMode: 'manual', // 'manual' or 'auto'
+        virtualScrollThreshold: 50,
+        lazyLoadImages: true,
+        defaultColor: 'yellow',
+        defaultSize: {
+          width: 300,
+          height: 200
+        }
+      },
+
+      // Cross-tab sync settings
+      sync: {
+        enabled: true,
+        conflictResolution: 'prompt', // 'prompt', 'local', 'remote'
+        autoResolveDelay: 10000 // milliseconds
+      },
+
+      // Multi-site banner activation (NEW)
+      activeSites: {}, // { "example.com": true/false }
+
+      // Banner dismissal settings (NEW)
+      banner: {
+        showCloseButton: true,
+        dismissalDuration: 'session' // 'session' or 'permanent'
       }
     },
 
@@ -88,10 +163,22 @@ const SettingsManager = (function() {
 
     /**
      * Saves settings to storage
+     * Ensures all feature values are explicit booleans before saving
      * @param {Object} settings - Settings to save
      * @returns {Promise<void>}
      */
     async save(settings) {
+      // Normalize feature values to explicit booleans before saving
+      if (settings.exlibris?.features) {
+        for (const featureName in settings.exlibris.features) {
+          const value = settings.exlibris.features[featureName];
+          // Ensure it's a boolean (not undefined, null, or other type)
+          if (typeof value !== 'boolean') {
+            settings.exlibris.features[featureName] = Boolean(value);
+          }
+        }
+      }
+      
       return new Promise((resolve, reject) => {
         chrome.storage.sync.set(settings, () => {
           if (chrome.runtime.lastError) {
@@ -176,12 +263,31 @@ const SettingsManager = (function() {
 
     /**
      * Merges settings with defaults (deep merge)
+     * Also migrates undefined/null feature values to explicit booleans
      * @param {Object} settings
      * @returns {Object}
      */
     mergeWithDefaults(settings) {
       const defaults = this.getDefaultSettings();
-      return this.deepMerge(defaults, settings);
+      const merged = this.deepMerge(defaults, settings);
+      
+      // Migrate undefined/null feature values to explicit booleans
+      if (merged.exlibris?.features) {
+        const defaultFeatures = defaults.exlibris.features;
+        for (const featureName in defaultFeatures) {
+          const currentValue = merged.exlibris.features[featureName];
+          // If value is undefined or null, use default
+          if (currentValue === undefined || currentValue === null) {
+            merged.exlibris.features[featureName] = defaultFeatures[featureName];
+          }
+          // Ensure it's a boolean
+          else if (typeof currentValue !== 'boolean') {
+            merged.exlibris.features[featureName] = Boolean(currentValue);
+          }
+        }
+      }
+      
+      return merged;
     },
 
     /**
@@ -272,11 +378,14 @@ const SettingsManager = (function() {
 
     /**
      * Gets feature toggle state
+     * Consistent logic: undefined/true = enabled, false = disabled
      * @param {string} featureName
      * @returns {boolean}
      */
     isFeatureEnabled(featureName) {
-      return this.getValue(`exlibris.features.${featureName}`) !== false;
+      const value = this.getValue(`exlibris.features.${featureName}`);
+      // Consistent check: undefined or true means enabled, only false means disabled
+      return value !== false;
     },
 
     /**

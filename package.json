@@ -1,0 +1,46 @@
+{
+  "name": "penang-coe-salesforce-extension",
+  "version": "7.2.0",
+  "description": "Productivity Tools for Clarivate and Ex Libris - Salesforce and Documentation Enhancement",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "build:dev": "node scripts/build.js --dev",
+    "build:prod": "node scripts/build.js --prod",
+    "build:data": "node scripts/buildCustomerMasterJSON.js",
+    "package": "node scripts/package.js",
+    "package:zip": "node scripts/package.js --zip",
+    "version:bump": "node scripts/version.js",
+    "version:bump:minor": "node scripts/version.js --minor",
+    "version:bump:major": "node scripts/version.js --major",
+    "validate": "node scripts/validate.js",
+    "clean": "node scripts/clean.js",
+    "watch": "node scripts/watch.js",
+    "lint": "eslint modules/*.js content_script*.js background.js popup.js",
+    "lint:fix": "eslint --fix modules/*.js content_script*.js background.js popup.js",
+    "test": "echo \"No tests configured\" && exit 0",
+    "debug:manifest": "node scripts/validate.js --manifest",
+    "debug:modules": "node scripts/validate.js --modules",
+    "debug:deps": "node scripts/validate.js --dependencies"
+  },
+  "keywords": [
+    "chrome-extension",
+    "salesforce",
+    "productivity",
+    "clarivate",
+    "exlibris"
+  ],
+  "author": "Penang CoE Team",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "archiver": "^6.0.2",
+    "chalk": "^5.3.0",
+    "chokidar": "^3.5.3",
+    "eslint": "^8.56.0",
+    "fs-extra": "^11.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
