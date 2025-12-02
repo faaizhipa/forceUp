@@ -408,6 +408,124 @@ document.addEventListener("DOMContentLoaded", async () => {
     showSuccess('Team setting saved! Please refresh Salesforce.');
   });
 
+  // ========== GOOGLE DRIVE BACKUP BUTTONS ==========
+
+  // Backup now button
+  document.getElementById('backup-now').addEventListener('click', async () => {
+    const statusEl = document.getElementById('backup-status');
+    const button = document.getElementById('backup-now');
+    
+    button.disabled = true;
+    button.textContent = 'Backing up...';
+    statusEl.textContent = 'Starting backup...';
+    
+    try {
+      chrome.runtime.sendMessage({ type: 'RUN_DRIVE_BACKUP_FROM_POPUP' }, (response) => {
+        if (chrome.runtime.lastError) {
+          statusEl.textContent = 'Error: ' + chrome.runtime.lastError.message;
+          console.error('Backup error:', chrome.runtime.lastError);
+        } else if (response && response.ok) {
+          statusEl.textContent = '✓ ' + (response.message || 'Backup completed successfully');
+          showSuccess('Backup completed!');
+        } else {
+          statusEl.textContent = '✗ ' + (response?.error || 'Backup failed');
+        }
+        
+        button.disabled = false;
+        button.textContent = 'Backup now to Google Drive';
+      });
+    } catch (error) {
+      statusEl.textContent = 'Error: ' + error.message;
+      button.disabled = false;
+      button.textContent = 'Backup now to Google Drive';
+    }
+  });
+
+  // Restore now button
+  document.getElementById('restore-now').addEventListener('click', async () => {
+    if (!confirm('Restore data from Google Drive? This will overwrite your current settings and data.')) {
+      return;
+    }
+    
+    const statusEl = document.getElementById('backup-status');
+    const button = document.getElementById('restore-now');
+    
+    button.disabled = true;
+    button.textContent = 'Restoring...';
+    statusEl.textContent = 'Starting restore...';
+    
+    try {
+      chrome.runtime.sendMessage({ type: 'RUN_DRIVE_RESTORE' }, async (response) => {
+        if (chrome.runtime.lastError) {
+          statusEl.textContent = 'Error: ' + chrome.runtime.lastError.message;
+          console.error('Restore error:', chrome.runtime.lastError);
+        } else if (response && response.ok) {
+          statusEl.textContent = '✓ ' + (response.message || 'Restore completed successfully');
+          showSuccess('Restore completed! Reloading settings...');
+          
+          // Reload settings after restore
+          const settings = await loadSettings();
+          populateUI(settings);
+          updateStorageInfo();
+        } else {
+          statusEl.textContent = '✗ ' + (response?.error || 'Restore failed');
+        }
+        
+        button.disabled = false;
+        button.textContent = 'Restore from Google Drive';
+      });
+    } catch (error) {
+      statusEl.textContent = 'Error: ' + error.message;
+      button.disabled = false;
+      button.textContent = 'Restore from Google Drive';
+    }
+  });
+
+  // Inject Salesforce backup button
+  document.getElementById('inject-sf-backup').addEventListener('click', async () => {
+    const statusEl = document.getElementById('backup-status');
+    
+    try {
+      // Get the active tab
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = tabs[0];
+      
+      if (!tab) {
+        statusEl.textContent = 'Error: No active tab found';
+        return;
+      }
+      
+      // Check if it's a Salesforce page
+      const isSalesforce = tab.url && (
+        tab.url.includes('salesforce.com') ||
+        tab.url.includes('lightning.force.com')
+      );
+      
+      if (!isSalesforce) {
+        statusEl.textContent = 'Error: Please navigate to a Salesforce page first';
+        return;
+      }
+      
+      statusEl.textContent = 'Injecting button...';
+      
+      // Send message to content script
+      chrome.tabs.sendMessage(tab.id, { type: 'INIT_SF_BACKUP_BUTTON' }, (response) => {
+        if (chrome.runtime.lastError) {
+          // Content script might not be loaded on this page
+          statusEl.textContent = 'Error: Could not reach Salesforce page. Try refreshing the page.';
+          console.error('Inject error:', chrome.runtime.lastError);
+        } else if (response && response.ok) {
+          statusEl.textContent = '✓ Backup button added to Salesforce page';
+          showSuccess('Button injected!');
+        } else {
+          statusEl.textContent = 'Error: ' + (response?.error || 'Failed to inject button');
+        }
+      });
+    } catch (error) {
+      statusEl.textContent = 'Error: ' + error.message;
+    }
+  });
+
   // Save preferences button
   document.getElementById('savePreferencesButton').addEventListener('click', async () => {
     const settings = getSettingsFromUI();

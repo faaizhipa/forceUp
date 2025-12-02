@@ -1,3 +1,7 @@
+// ========== DRIVE BACKUP MODULE IMPORT ==========
+// Import the DriveBackup module for Google Drive AppData backup functionality
+import DriveBackup from './modules/driveBackup.js';
+
 // ========== CONTEXT MENU MANAGEMENT ==========
 
 let contextMenusCreated = false;
@@ -172,6 +176,88 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         }
       });
       return true;
+    } else if (request.type === 'RUN_DRIVE_BACKUP_FROM_SF' || request.type === 'RUN_DRIVE_BACKUP_FROM_POPUP') {
+      // Handle Drive backup requests from Salesforce content script or popup
+      (async () => {
+        try {
+          console.log('[Background] Running Drive backup from:', request.type);
+          
+          const result = await DriveBackup.backupNow({ interactive: true });
+          
+          if (result.ok) {
+            // Show success notification
+            chrome.notifications.create({
+              type: 'basic',
+              iconUrl: 'icons/ExtLogoV3.png',
+              title: 'Backup Complete',
+              message: result.message || 'Your data has been backed up to Google Drive.',
+              priority: 1
+            });
+            sendResponse({ ok: true, message: result.message });
+          } else {
+            // Show failure notification
+            chrome.notifications.create({
+              type: 'basic',
+              iconUrl: 'icons/ExtLogoV3.png',
+              title: 'Backup Failed',
+              message: result.error || 'Failed to backup data to Google Drive.',
+              priority: 2
+            });
+            sendResponse({ ok: false, error: result.error });
+          }
+        } catch (error) {
+          console.error('[Background] Drive backup error:', error);
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icons/ExtLogoV3.png',
+            title: 'Backup Failed',
+            message: error.message || 'An unexpected error occurred.',
+            priority: 2
+          });
+          sendResponse({ ok: false, error: error.message });
+        }
+      })();
+      return true; // Indicates async response
+    } else if (request.type === 'RUN_DRIVE_RESTORE') {
+      // Handle Drive restore requests from popup
+      (async () => {
+        try {
+          console.log('[Background] Running Drive restore');
+          
+          const result = await DriveBackup.restoreNow({ interactive: true });
+          
+          if (result.ok) {
+            chrome.notifications.create({
+              type: 'basic',
+              iconUrl: 'icons/ExtLogoV3.png',
+              title: 'Restore Complete',
+              message: result.message || 'Your data has been restored from Google Drive.',
+              priority: 1
+            });
+            sendResponse({ ok: true, message: result.message });
+          } else {
+            chrome.notifications.create({
+              type: 'basic',
+              iconUrl: 'icons/ExtLogoV3.png',
+              title: 'Restore Failed',
+              message: result.error || 'Failed to restore data from Google Drive.',
+              priority: 2
+            });
+            sendResponse({ ok: false, error: result.error });
+          }
+        } catch (error) {
+          console.error('[Background] Drive restore error:', error);
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icons/ExtLogoV3.png',
+            title: 'Restore Failed',
+            message: error.message || 'An unexpected error occurred.',
+            priority: 2
+          });
+          sendResponse({ ok: false, error: error.message });
+        }
+      })();
+      return true; // Indicates async response
     }
   });
 
