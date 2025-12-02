@@ -105,7 +105,7 @@
          "https://www.googleapis.com/auth/drive.appdata"
       ]
    },
-   "permissions": [ "storage", "tabs", "activeTab", "contextMenus", "identity", "notifications" ],
+   "permissions": [ "storage", "tabs", "activeTab", "contextMenus", "identity", "notifications", "alarms" ],
    "update_url": "https://clients2.google.com/service/update2/crx",
    "version": "7.0",
    "web_accessible_resources": [

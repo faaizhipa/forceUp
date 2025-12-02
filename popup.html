@@ -223,9 +223,101 @@
       margin-top: 8px;
     }
 
+    /* Modal styles */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 9999;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal-content {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 12px;
+      padding: 20px;
+      max-width: 380px;
+      width: 90%;
+      color: white;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    .modal-content h2 {
+      margin-bottom: 15px;
+      font-size: 16px;
+      text-align: center;
+    }
+
+    .modal-content p {
+      font-size: 12px;
+      margin-bottom: 15px;
+      line-height: 1.5;
+    }
+
+    .modal-buttons {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .modal-buttons button {
+      flex: 1;
+      margin-top: 0;
+    }
+
   </style>
 </head>
 <body>
+  <!-- Backup Schedule Setup Modal -->
+  <div id="backupSetupModal" class="modal-overlay">
+    <div class="modal-content">
+      <h2>🎉 Setup Automatic Backups</h2>
+      <p>You're now connected to Google Drive! Would you like to enable automatic backups?</p>
+      
+      <label for="modalBackupFrequency">Backup Frequency</label>
+      <select id="modalBackupFrequency" title="Backup Frequency">
+        <option value="daily">Daily (at lunch time)</option>
+        <option value="weekly">Weekly (every Monday)</option>
+      </select>
+
+      <label for="modalLunchtimeHour" style="margin-top: 10px;">Your Lunch Time</label>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <select id="modalLunchtimeHour" title="Hour" style="width: auto; flex: 1;">
+          <option value="11">11:00</option>
+          <option value="12" selected>12:00</option>
+          <option value="13">13:00</option>
+          <option value="14">14:00</option>
+        </select>
+      </div>
+
+      <label for="modalBackupTimezone" style="margin-top: 10px;">Your Timezone</label>
+      <select id="modalBackupTimezone" title="Timezone">
+        <option value="Asia/Kuala_Lumpur">Malaysia (MYT - UTC+8)</option>
+        <option value="Asia/Singapore">Singapore (SGT - UTC+8)</option>
+        <option value="Asia/Manila">Philippines (PHT - UTC+8)</option>
+        <option value="Asia/Kolkata">India (IST - UTC+5:30)</option>
+        <option value="Europe/London">London (GMT/BST)</option>
+        <option value="America/New_York">Eastern Time (ET)</option>
+        <option value="America/Chicago">Central Time (CT)</option>
+        <option value="America/Los_Angeles">Pacific Time (PT)</option>
+      </select>
+
+      <div class="modal-buttons">
+        <button id="modalSkipBackup" class="button-secondary">Skip for Now</button>
+        <button id="modalEnableBackup">Enable Backups</button>
+      </div>
+    </div>
+  </div>
+
   <h1>🎯 CForce Extension Settings</h1>
 
   <!-- Tabs -->
@@ -267,6 +359,45 @@
         <button id="restore-now" class="button-secondary">Restore from Google Drive</button>
         <button id="inject-sf-backup" class="button-secondary">Show "Backup to Drive" button in Salesforce</button>
         <div id="backup-status" class="info-text" style="margin-top: 8px;"></div>
+      </div>
+
+      <div class="setting-group">
+        <h2>⏰ Scheduled Backups</h2>
+        <div class="checkbox-item">
+          <input type="checkbox" id="autoBackupEnabled">
+          <label for="autoBackupEnabled">Enable automatic backups</label>
+        </div>
+        
+        <label for="backupFrequency" style="margin-top: 10px;">Backup Frequency</label>
+        <select id="backupFrequency" title="Backup Frequency">
+          <option value="daily">Daily (at lunch time)</option>
+          <option value="weekly">Weekly (every Monday at lunch time)</option>
+        </select>
+
+        <label for="lunchtimeHour" style="margin-top: 10px;">Lunch Time</label>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <select id="lunchtimeHour" title="Hour" style="width: auto; flex: 1;">
+            <option value="11">11:00</option>
+            <option value="12" selected>12:00</option>
+            <option value="13">13:00</option>
+            <option value="14">14:00</option>
+          </select>
+          <span style="font-size: 12px;">in</span>
+          <select id="backupTimezone" title="Timezone" style="width: auto; flex: 2;">
+            <option value="Asia/Kuala_Lumpur">Malaysia (MYT)</option>
+            <option value="Asia/Singapore">Singapore (SGT)</option>
+            <option value="Asia/Manila">Philippines (PHT)</option>
+            <option value="Asia/Kolkata">India (IST)</option>
+            <option value="Europe/London">London (GMT/BST)</option>
+            <option value="America/New_York">Eastern (ET)</option>
+            <option value="America/Chicago">Central (CT)</option>
+            <option value="America/Los_Angeles">Pacific (PT)</option>
+          </select>
+        </div>
+        <p class="info-text">Backups run automatically during your lunch hour.</p>
+        
+        <button id="saveBackupSchedule" class="button-secondary" style="margin-top: 10px;">Save Backup Schedule</button>
+        <div id="backup-schedule-status" class="info-text" style="margin-top: 8px;"></div>
       </div>
     </div>
 
