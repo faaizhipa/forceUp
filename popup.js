@@ -1504,6 +1504,120 @@ async function dismissBannerInPopup(domain, url) {
   });
 }
 
+/**
+ * Initialize Google Drive backup UI
+ */
+async function initDriveBackupUI() {
+  const statusEl = document.getElementById('driveBackupStatus');
+  const backupBtn = document.getElementById('driveBackupButton');
+  const restoreBtn = document.getElementById('driveRestoreButton');
+
+  if (!statusEl || !backupBtn || !restoreBtn) {
+    console.warn('[Popup] Google Drive backup UI elements not found');
+    return;
+  }
+
+  // Check if DriveBackup module is available
+  if (typeof DriveBackup === 'undefined') {
+    statusEl.textContent = 'Google Drive backup not available';
+    backupBtn.disabled = true;
+    restoreBtn.disabled = true;
+    return;
+  }
+
+  // Update status
+  await updateDriveBackupStatus();
+
+  // Backup button handler
+  backupBtn.addEventListener('click', async () => {
+    backupBtn.disabled = true;
+    backupBtn.textContent = 'Backing up...';
+    
+    try {
+      const result = await DriveBackup.backup(true);
+      
+      if (result.success) {
+        showSuccess('Backup saved to Google Drive!');
+        await updateDriveBackupStatus();
+      } else {
+        showSuccess('Backup failed: ' + (result.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('[Popup] Backup error:', error);
+      showSuccess('Backup failed: ' + error.message);
+    } finally {
+      backupBtn.disabled = false;
+      backupBtn.textContent = 'Backup to Google Drive';
+    }
+  });
+
+  // Restore button handler
+  restoreBtn.addEventListener('click', async () => {
+    if (!confirm('Restore settings from Google Drive? This will overwrite your current settings.')) {
+      return;
+    }
+
+    restoreBtn.disabled = true;
+    restoreBtn.textContent = 'Restoring...';
+    
+    try {
+      const result = await DriveBackup.restore(true);
+      
+      if (result.success) {
+        showSuccess('Settings restored from Google Drive!');
+        // Reload settings in UI
+        const settings = await loadSettings();
+        populateUI(settings);
+        await updateDriveBackupStatus();
+      } else {
+        showSuccess('Restore failed: ' + (result.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('[Popup] Restore error:', error);
+      showSuccess('Restore failed: ' + error.message);
+    } finally {
+      restoreBtn.disabled = false;
+      restoreBtn.textContent = 'Restore from Google Drive';
+    }
+  });
+}
+
+/**
+ * Update Google Drive backup status display
+ */
+async function updateDriveBackupStatus() {
+  const statusEl = document.getElementById('driveBackupStatus');
+  if (!statusEl || typeof DriveBackup === 'undefined') return;
+
+  try {
+    const isAuth = await DriveBackup.isAuthenticated();
+    
+    if (!isAuth) {
+      statusEl.textContent = 'Not connected to Google Drive. Click backup to sign in.';
+      return;
+    }
+
+    const backupInfo = await DriveBackup.checkBackup(false);
+    const timestamps = await DriveBackup.getTimestamps();
+
+    if (backupInfo.exists) {
+      const lastModified = new Date(backupInfo.modifiedTime).toLocaleString();
+      statusEl.innerHTML = `
+        <strong>Backup found</strong><br>
+        Last modified: ${lastModified}<br>
+        Size: ${Math.round((backupInfo.size || 0) / 1024)} KB
+      `;
+    } else if (timestamps.lastBackup) {
+      statusEl.textContent = `Last backup: ${new Date(timestamps.lastBackup).toLocaleString()}`;
+    } else {
+      statusEl.textContent = 'No backup found. Click backup to create one.';
+    }
+  } catch (error) {
+    console.warn('[Popup] Error checking backup status:', error);
+    statusEl.textContent = 'Click backup to sign in with Google.';
+  }
+}
+
 // Initialize on load
 document.addEventListener("DOMContentLoaded", async () => {
   const activeTab = await getActiveTabURL();
@@ -1733,4 +1847,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     };
     input.click();
   });
+
+  // Google Drive Backup functionality
+  await initDriveBackupUI();
 });

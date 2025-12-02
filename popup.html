@@ -691,10 +691,21 @@
           Export files now include workspace data (highlights, notes, bookmarks, layers) and their backups so you can move them to another browser.
         </p>
       </div>
+
+      <div class="setting-group">
+        <h2>☁️ Google Drive Backup</h2>
+        <div id="driveBackupStatus" class="storage-info">Checking status...</div>
+        <button id="driveBackupButton" class="button-secondary">Backup to Google Drive</button>
+        <button id="driveRestoreButton" class="button-secondary">Restore from Google Drive</button>
+        <p class="info-text info-text-spacing">
+          Sync your settings across devices using Google Drive. Your data is stored privately in the app's hidden folder.
+        </p>
+      </div>
     </div>
   </div>
 
 <script src="modules/dataMigration.js"></script>
+<script src="modules/driveBackup.js"></script>
 <script src="popup.js"></script>
 </body>
 </html>
