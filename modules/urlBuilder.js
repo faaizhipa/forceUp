@@ -217,7 +217,7 @@ const URLBuilder = {
 
     const selectedLabels = labels[labelStyle] || labels.casual;
 
-    if (caseData.institutionCode.length === 4) {
+    if (caseData.institutionCode && caseData.institutionCode.length === 4) {
       caseData.institutionCode += '_INST';
     }
 
