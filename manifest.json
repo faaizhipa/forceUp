@@ -9,11 +9,12 @@
       "default_title": "Penang CoE Salesforce and Docs Extension"
    },
    "background": {
-      "service_worker": "background.js"
+      "service_worker": "background.js",
+      "type": "module"
    },
    "content_scripts": [
       {
-         "js": [ "content_script.js" ],
+         "js": [ "content_script.js", "content_script_backup.js" ],
          "matches": [ 
             "https://clarivateanalytics.lightning.force.com/*", 
             "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*", 
@@ -59,7 +60,8 @@
             "modules/persistentBanner.js",
             "modules/implementationStatus.js",
             "modules/flexipagePanelInjector.js",
-            "content_script_exlibris.js"
+            "content_script_exlibris.js",
+            "content_script_backup.js"
          ],
          "matches": [ "https://proquestllc.lightning.force.com/*", "https://clarivate23-dev-ed.develop.my.salesforce-setup.com/*" ],
          "run_at": "document_idle",
@@ -86,6 +88,9 @@
       }
    ],
    "description": "Productivity Tools for Clarivate and Ex Libris",
+   "host_permissions": [
+      "https://www.googleapis.com/*"
+   ],
    "icons": {
       "128": "icons/ExtLogoV3.png",
       "16": "icons/ExtLogoV3.png",
@@ -94,7 +99,13 @@
    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwEtsrKbUbSe0JeeMtKca1Ka786YKcryHy5uKYPXm5Zm7QUnr/pn8YU/zGjs0ByOkO5309ro9sRsVKscYpYLfqiiQQGNvS5hnYSUh/z43QrS//ItbDHMmjlkJdryctqLO87pUVdbo97knNZ4fXAYkZNZFjjMG8UergCmOgkSt+9k6aQnSE+r1vmME+v3Tl44Wr8GOkM0TohvH1GdQODSh7tNcVpEtj3GnEmHR9NhABR95+cNLwIv9e3d/hWYpdPOm1gwf5bxWKlgbdtA93rFVALZiLcJ6HfBBElnWrXAl9vBMnqzFy+urtuF9ZJb3Qf64gdBa9IOnF0KVBDLI1DTm+wIDAQAB",
    "manifest_version": 3,
    "name": "Penang CoE Salesforce and Docs Extension",
-   "permissions": [ "storage", "tabs", "activeTab", "contextMenus" ],
+   "oauth2": {
+      "client_id": "YOUR_CHROME_EXTENSION_CLIENT_ID.apps.googleusercontent.com",
+      "scopes": [
+         "https://www.googleapis.com/auth/drive.appdata"
+      ]
+   },
+   "permissions": [ "storage", "tabs", "activeTab", "contextMenus", "identity", "notifications", "alarms" ],
    "update_url": "https://clients2.google.com/service/update2/crx",
    "version": "7.0",
    "web_accessible_resources": [

@@ -408,6 +408,298 @@ document.addEventListener("DOMContentLoaded", async () => {
     showSuccess('Team setting saved! Please refresh Salesforce.');
   });
 
+  // ========== GOOGLE DRIVE BACKUP BUTTONS ==========
+
+  // Timeout for backup/restore operations (60 seconds)
+  const BACKUP_TIMEOUT_MS = 60000;
+  // Delay before showing setup modal after successful backup
+  const MODAL_DELAY_MS = 500;
+
+  // Backup now button handler is defined later with modal logic
+
+  // Restore now button
+  document.getElementById('restore-now').addEventListener('click', async () => {
+    if (!confirm('Restore data from Google Drive? This will overwrite your current settings and data.')) {
+      return;
+    }
+    
+    const statusEl = document.getElementById('backup-status');
+    const button = document.getElementById('restore-now');
+    
+    button.disabled = true;
+    button.textContent = 'Restoring...';
+    statusEl.textContent = 'Starting restore...';
+    
+    let responseReceived = false;
+    const timeoutId = setTimeout(() => {
+      if (!responseReceived) {
+        statusEl.textContent = 'Error: Restore request timed out';
+        button.disabled = false;
+        button.textContent = 'Restore from Google Drive';
+      }
+    }, BACKUP_TIMEOUT_MS);
+    
+    try {
+      chrome.runtime.sendMessage({ type: 'RUN_DRIVE_RESTORE' }, async (response) => {
+        responseReceived = true;
+        clearTimeout(timeoutId);
+        
+        if (chrome.runtime.lastError) {
+          statusEl.textContent = 'Error: ' + chrome.runtime.lastError.message;
+          console.error('Restore error:', chrome.runtime.lastError);
+        } else if (response && response.ok) {
+          statusEl.textContent = '✓ ' + (response.message || 'Restore completed successfully');
+          showSuccess('Restore completed! Reloading settings...');
+          
+          // Reload settings after restore
+          const settings = await loadSettings();
+          populateUI(settings);
+          updateStorageInfo();
+        } else {
+          statusEl.textContent = '✗ ' + (response?.error || 'Restore failed');
+        }
+        
+        button.disabled = false;
+        button.textContent = 'Restore from Google Drive';
+      });
+    } catch (error) {
+      responseReceived = true;
+      clearTimeout(timeoutId);
+      statusEl.textContent = 'Error: ' + error.message;
+      button.disabled = false;
+      button.textContent = 'Restore from Google Drive';
+    }
+  });
+
+  // Inject Salesforce backup button
+  document.getElementById('inject-sf-backup').addEventListener('click', async () => {
+    const statusEl = document.getElementById('backup-status');
+    
+    try {
+      // Get the active tab
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = tabs[0];
+      
+      if (!tab) {
+        statusEl.textContent = 'Error: No active tab found';
+        return;
+      }
+      
+      // Check if it's a Salesforce page using proper URL parsing
+      let isSalesforce = false;
+      try {
+        if (tab.url) {
+          const url = new URL(tab.url);
+          const hostname = url.hostname.toLowerCase();
+          // Check if the hostname ends with salesforce.com or lightning.force.com
+          isSalesforce = hostname.endsWith('.salesforce.com') ||
+                        hostname.endsWith('.lightning.force.com') ||
+                        hostname === 'salesforce.com' ||
+                        hostname === 'lightning.force.com';
+        }
+      } catch (e) {
+        // Invalid URL
+        isSalesforce = false;
+      }
+      
+      if (!isSalesforce) {
+        statusEl.textContent = 'Error: Please navigate to a Salesforce page first';
+        return;
+      }
+      
+      statusEl.textContent = 'Injecting button...';
+      
+      // Timeout for inject operation (10 seconds)
+      let injectResponseReceived = false;
+      const injectTimeoutId = setTimeout(() => {
+        if (!injectResponseReceived) {
+          statusEl.textContent = 'Error: Inject request timed out. Try refreshing the page.';
+        }
+      }, 10000);
+      
+      // Send message to content script
+      chrome.tabs.sendMessage(tab.id, { type: 'INIT_SF_BACKUP_BUTTON' }, (response) => {
+        injectResponseReceived = true;
+        clearTimeout(injectTimeoutId);
+        
+        if (chrome.runtime.lastError) {
+          // Content script might not be loaded on this page
+          statusEl.textContent = 'Error: Could not reach Salesforce page. Try refreshing the page.';
+          console.error('Inject error:', chrome.runtime.lastError);
+        } else if (response && response.ok) {
+          statusEl.textContent = '✓ Backup button added to Salesforce page';
+          showSuccess('Button injected!');
+        } else {
+          statusEl.textContent = 'Error: ' + (response?.error || 'Failed to inject button');
+        }
+      });
+    } catch (error) {
+      statusEl.textContent = 'Error: ' + error.message;
+    }
+  });
+
+  // ========== BACKUP SCHEDULE SETTINGS ==========
+
+  // Load backup schedule settings
+  async function loadBackupSchedule() {
+    return new Promise((resolve) => {
+      chrome.storage.sync.get(['backupSchedule'], (result) => {
+        resolve(result.backupSchedule || {
+          enabled: false,
+          frequency: 'daily',
+          lunchtimeHour: 12,
+          timezone: 'Asia/Kuala_Lumpur',
+          hasBeenSetup: false
+        });
+      });
+    });
+  }
+
+  // Save backup schedule settings
+  async function saveBackupSchedule(schedule) {
+    return new Promise((resolve) => {
+      chrome.storage.sync.set({ backupSchedule: schedule }, () => {
+        // Notify background script to update alarm
+        chrome.runtime.sendMessage({ 
+          type: 'UPDATE_BACKUP_SCHEDULE', 
+          schedule: schedule 
+        }, (response) => {
+          resolve(response);
+        });
+      });
+    });
+  }
+
+  // Populate backup schedule UI
+  async function populateBackupScheduleUI() {
+    const schedule = await loadBackupSchedule();
+    document.getElementById('autoBackupEnabled').checked = schedule.enabled;
+    document.getElementById('backupFrequency').value = schedule.frequency || 'daily';
+    document.getElementById('lunchtimeHour').value = String(schedule.lunchtimeHour || 12);
+    document.getElementById('backupTimezone').value = schedule.timezone || 'Asia/Kuala_Lumpur';
+    
+    // Show next backup time if enabled
+    updateBackupScheduleStatus(schedule);
+  }
+
+  function updateBackupScheduleStatus(schedule) {
+    const statusEl = document.getElementById('backup-schedule-status');
+    if (schedule.enabled) {
+      const freq = schedule.frequency === 'daily' ? 'Daily' : 'Weekly (Monday)';
+      statusEl.textContent = `✓ ${freq} backups enabled at ${schedule.lunchtimeHour}:00`;
+    } else {
+      statusEl.textContent = 'Automatic backups are disabled';
+    }
+  }
+
+  // Initialize backup schedule UI
+  populateBackupScheduleUI();
+
+  // Save backup schedule button
+  document.getElementById('saveBackupSchedule').addEventListener('click', async () => {
+    const schedule = {
+      enabled: document.getElementById('autoBackupEnabled').checked,
+      frequency: document.getElementById('backupFrequency').value,
+      lunchtimeHour: parseInt(document.getElementById('lunchtimeHour').value, 10),
+      timezone: document.getElementById('backupTimezone').value,
+      hasBeenSetup: true
+    };
+    
+    await saveBackupSchedule(schedule);
+    updateBackupScheduleStatus(schedule);
+    showSuccess('Backup schedule saved!');
+  });
+
+  // ========== BACKUP SETUP MODAL ==========
+
+  function showBackupSetupModal() {
+    document.getElementById('backupSetupModal').classList.add('active');
+  }
+
+  function hideBackupSetupModal() {
+    document.getElementById('backupSetupModal').classList.remove('active');
+  }
+
+  // Modal skip button
+  document.getElementById('modalSkipBackup').addEventListener('click', async () => {
+    // Mark as setup but not enabled
+    const schedule = await loadBackupSchedule();
+    schedule.hasBeenSetup = true;
+    schedule.enabled = false;
+    await saveBackupSchedule(schedule);
+    hideBackupSetupModal();
+    populateBackupScheduleUI();
+  });
+
+  // Modal enable button
+  document.getElementById('modalEnableBackup').addEventListener('click', async () => {
+    const schedule = {
+      enabled: true,
+      frequency: document.getElementById('modalBackupFrequency').value,
+      lunchtimeHour: parseInt(document.getElementById('modalLunchtimeHour').value, 10),
+      timezone: document.getElementById('modalBackupTimezone').value,
+      hasBeenSetup: true
+    };
+    
+    await saveBackupSchedule(schedule);
+    hideBackupSetupModal();
+    populateBackupScheduleUI();
+    showSuccess('Automatic backups enabled!');
+  });
+
+  // Backup now button with modal logic for first-time setup
+  document.getElementById('backup-now').addEventListener('click', async () => {
+    const statusEl = document.getElementById('backup-status');
+    const button = document.getElementById('backup-now');
+    const schedule = await loadBackupSchedule();
+    
+    button.disabled = true;
+    button.textContent = 'Backing up...';
+    statusEl.textContent = 'Starting backup...';
+    
+    let responseReceived = false;
+    const timeoutId = setTimeout(() => {
+      if (!responseReceived) {
+        statusEl.textContent = 'Error: Backup request timed out';
+        button.disabled = false;
+        button.textContent = 'Backup now to Google Drive';
+      }
+    }, BACKUP_TIMEOUT_MS);
+    
+    try {
+      chrome.runtime.sendMessage({ type: 'RUN_DRIVE_BACKUP_FROM_POPUP' }, (response) => {
+        responseReceived = true;
+        clearTimeout(timeoutId);
+        
+        if (chrome.runtime.lastError) {
+          statusEl.textContent = 'Error: ' + chrome.runtime.lastError.message;
+          console.error('Backup error:', chrome.runtime.lastError);
+        } else if (response && response.ok) {
+          statusEl.textContent = '✓ ' + (response.message || 'Backup completed successfully');
+          showSuccess('Backup completed!');
+          
+          // Show setup modal if this is first time
+          if (!schedule.hasBeenSetup) {
+            setTimeout(() => {
+              showBackupSetupModal();
+            }, MODAL_DELAY_MS);
+          }
+        } else {
+          statusEl.textContent = '✗ ' + (response?.error || 'Backup failed');
+        }
+        
+        button.disabled = false;
+        button.textContent = 'Backup now to Google Drive';
+      });
+    } catch (error) {
+      responseReceived = true;
+      clearTimeout(timeoutId);
+      statusEl.textContent = 'Error: ' + error.message;
+      button.disabled = false;
+      button.textContent = 'Backup now to Google Drive';
+    }
+  });
+  
   // Save preferences button
   document.getElementById('savePreferencesButton').addEventListener('click', async () => {
     const settings = getSettingsFromUI();

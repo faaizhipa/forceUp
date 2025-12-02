@@ -1,3 +1,7 @@
+// ========== DRIVE BACKUP MODULE IMPORT ==========
+// Import the DriveBackup module for Google Drive AppData backup functionality
+import DriveBackup from './modules/driveBackup.js';
+
 // ========== CONTEXT MENU MANAGEMENT ==========
 
 let contextMenusCreated = false;
@@ -172,8 +176,218 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         }
       });
       return true;
+    } else if (request.type === 'RUN_DRIVE_BACKUP_FROM_SF' || request.type === 'RUN_DRIVE_BACKUP_FROM_POPUP') {
+      // Handle Drive backup requests from Salesforce content script or popup
+      (async () => {
+        try {
+          console.log('[Background] Running Drive backup from:', request.type);
+          
+          const result = await DriveBackup.backupNow({ interactive: true });
+          
+          if (result.ok) {
+            // Show success notification
+            chrome.notifications.create({
+              type: 'basic',
+              iconUrl: 'icons/ExtLogoV3.png',
+              title: 'Backup Complete',
+              message: result.message || 'Your data has been backed up to Google Drive.',
+              priority: 1
+            });
+            sendResponse({ ok: true, message: result.message });
+          } else {
+            // Show failure notification
+            chrome.notifications.create({
+              type: 'basic',
+              iconUrl: 'icons/ExtLogoV3.png',
+              title: 'Backup Failed',
+              message: result.error || 'Failed to backup data to Google Drive.',
+              priority: 2
+            });
+            sendResponse({ ok: false, error: result.error });
+          }
+        } catch (error) {
+          console.error('[Background] Drive backup error:', error);
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icons/ExtLogoV3.png',
+            title: 'Backup Failed',
+            message: error.message || 'An unexpected error occurred.',
+            priority: 2
+          });
+          sendResponse({ ok: false, error: error.message });
+        }
+      })();
+      return true; // Indicates async response
+    } else if (request.type === 'RUN_DRIVE_RESTORE') {
+      // Handle Drive restore requests from popup
+      (async () => {
+        try {
+          console.log('[Background] Running Drive restore');
+          
+          const result = await DriveBackup.restoreNow({ interactive: true });
+          
+          if (result.ok) {
+            chrome.notifications.create({
+              type: 'basic',
+              iconUrl: 'icons/ExtLogoV3.png',
+              title: 'Restore Complete',
+              message: result.message || 'Your data has been restored from Google Drive.',
+              priority: 1
+            });
+            sendResponse({ ok: true, message: result.message });
+          } else {
+            chrome.notifications.create({
+              type: 'basic',
+              iconUrl: 'icons/ExtLogoV3.png',
+              title: 'Restore Failed',
+              message: result.error || 'Failed to restore data from Google Drive.',
+              priority: 2
+            });
+            sendResponse({ ok: false, error: result.error });
+          }
+        } catch (error) {
+          console.error('[Background] Drive restore error:', error);
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icons/ExtLogoV3.png',
+            title: 'Restore Failed',
+            message: error.message || 'An unexpected error occurred.',
+            priority: 2
+          });
+          sendResponse({ ok: false, error: error.message });
+        }
+      })();
+      return true; // Indicates async response
+    } else if (request.type === 'UPDATE_BACKUP_SCHEDULE') {
+      // Handle backup schedule updates
+      (async () => {
+        try {
+          const schedule = request.schedule;
+          console.log('[Background] Updating backup schedule:', schedule);
+          
+          // Clear existing alarm
+          await chrome.alarms.clear('scheduled-backup');
+          
+          if (schedule && schedule.enabled) {
+            // Calculate next backup time
+            const nextBackupTime = calculateNextBackupTime(schedule);
+            
+            // Create alarm
+            chrome.alarms.create('scheduled-backup', {
+              when: nextBackupTime.getTime(),
+              periodInMinutes: schedule.frequency === 'daily' ? 24 * 60 : 7 * 24 * 60
+            });
+            
+            console.log('[Background] Scheduled backup alarm created for:', nextBackupTime);
+            sendResponse({ ok: true, nextBackup: nextBackupTime.toISOString() });
+          } else {
+            console.log('[Background] Backup schedule disabled');
+            sendResponse({ ok: true, message: 'Backup schedule disabled' });
+          }
+        } catch (error) {
+          console.error('[Background] Error updating backup schedule:', error);
+          sendResponse({ ok: false, error: error.message });
+        }
+      })();
+      return true;
     }
   });
+
+// ========== SCHEDULED BACKUP HANDLING ==========
+
+/**
+ * Calculate the next backup time based on schedule
+ */
+function calculateNextBackupTime(schedule) {
+  const now = new Date();
+  
+  // Use Intl.DateTimeFormat to get accurate timezone offset including DST
+  function getTimezoneOffset(timezone) {
+    try {
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        hour: 'numeric',
+        hour12: false
+      });
+      
+      // Get current time in the target timezone and UTC
+      const localTime = new Date();
+      const utcHour = localTime.getUTCHours();
+      
+      // Parse the formatted hour in target timezone
+      const parts = formatter.formatToParts(localTime);
+      const tzHour = parseInt(parts.find(p => p.type === 'hour').value, 10);
+      
+      // Calculate offset (hours difference)
+      let offset = tzHour - utcHour;
+      if (offset > 12) offset -= 24;
+      if (offset < -12) offset += 24;
+      
+      return offset;
+    } catch (e) {
+      console.warn('[Background] Failed to get timezone offset for', timezone, e);
+      return 0;
+    }
+  }
+  
+  const offset = getTimezoneOffset(schedule.timezone);
+  const localHour = schedule.lunchtimeHour;
+  
+  // Convert to UTC
+  let utcHour = localHour - offset;
+  if (utcHour < 0) utcHour += 24;
+  if (utcHour >= 24) utcHour -= 24;
+  
+  // Create target date
+  let targetDate = new Date(now);
+  targetDate.setUTCHours(Math.floor(utcHour), (utcHour % 1) * 60, 0, 0);
+  
+  // If target time has passed today, move to tomorrow
+  if (targetDate <= now) {
+    targetDate.setDate(targetDate.getDate() + 1);
+  }
+  
+  // For weekly, adjust to next Monday
+  if (schedule.frequency === 'weekly') {
+    const dayOfWeek = targetDate.getDay();
+    // If it's Monday (1) and time hasn't passed, keep it; otherwise find next Monday
+    if (dayOfWeek !== 1) {
+      // Calculate days until next Monday
+      const daysUntilMonday = (8 - dayOfWeek) % 7;
+      targetDate.setDate(targetDate.getDate() + daysUntilMonday);
+    }
+  }
+  
+  return targetDate;
+}
+
+// Handle alarm trigger
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === 'scheduled-backup') {
+    console.log('[Background] Scheduled backup triggered');
+    
+    try {
+      // Run backup (non-interactive since user might not be present)
+      const result = await DriveBackup.backupNow({ interactive: false });
+      
+      if (result.ok) {
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'icons/ExtLogoV3.png',
+          title: 'Scheduled Backup Complete',
+          message: 'Your data has been automatically backed up to Google Drive.',
+          priority: 1
+        });
+        console.log('[Background] Scheduled backup completed successfully');
+      } else {
+        console.error('[Background] Scheduled backup failed:', result.error);
+        // Don't show notification for silent failures
+      }
+    } catch (error) {
+      console.error('[Background] Scheduled backup error:', error);
+    }
+  }
+});
 
 // ========== EXTENSION UPDATE HANDLING ==========
 
@@ -183,6 +397,18 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('[Background] Extension installed/updated');
   createContextMenus();
+  
+  // Restore backup schedule alarm if enabled
+  chrome.storage.sync.get(['backupSchedule'], (result) => {
+    if (result.backupSchedule && result.backupSchedule.enabled) {
+      const nextBackupTime = calculateNextBackupTime(result.backupSchedule);
+      chrome.alarms.create('scheduled-backup', {
+        when: nextBackupTime.getTime(),
+        periodInMinutes: result.backupSchedule.frequency === 'daily' ? 24 * 60 : 7 * 24 * 60
+      });
+      console.log('[Background] Restored backup schedule alarm for:', nextBackupTime);
+    }
+  });
   
   // Show landing page on update (but not on first install)
   if (details.reason === 'update') {
