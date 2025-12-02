@@ -49,10 +49,28 @@
       const originalText = button.textContent;
       button.textContent = 'Backing up...';
       
+      // Timeout to handle cases where background script doesn't respond
+      const TIMEOUT_MS = 60000; // 60 second timeout for backup operation
+      let responseReceived = false;
+      
+      const timeoutId = setTimeout(() => {
+        if (!responseReceived) {
+          console.warn('[BackupButton] Backup request timed out');
+          button.textContent = 'Timeout!';
+          setTimeout(() => {
+            button.textContent = originalText;
+            button.disabled = false;
+          }, 2000);
+        }
+      }, TIMEOUT_MS);
+      
       try {
         console.log('[BackupButton] Sending backup request to background');
         
         chrome.runtime.sendMessage({ type: 'RUN_DRIVE_BACKUP_FROM_SF' }, (response) => {
+          responseReceived = true;
+          clearTimeout(timeoutId);
+          
           if (chrome.runtime.lastError) {
             console.error('[BackupButton] Runtime error:', chrome.runtime.lastError);
             button.textContent = 'Error!';
@@ -71,6 +89,8 @@
           }, 2000);
         });
       } catch (error) {
+        responseReceived = true;
+        clearTimeout(timeoutId);
         console.error('[BackupButton] Error:', error);
         button.textContent = 'Error!';
         setTimeout(() => {

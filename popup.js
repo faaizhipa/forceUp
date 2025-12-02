@@ -410,6 +410,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // ========== GOOGLE DRIVE BACKUP BUTTONS ==========
 
+  // Timeout for backup/restore operations (60 seconds)
+  const BACKUP_TIMEOUT_MS = 60000;
+
   // Backup now button
   document.getElementById('backup-now').addEventListener('click', async () => {
     const statusEl = document.getElementById('backup-status');
@@ -419,8 +422,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     button.textContent = 'Backing up...';
     statusEl.textContent = 'Starting backup...';
     
+    let responseReceived = false;
+    const timeoutId = setTimeout(() => {
+      if (!responseReceived) {
+        statusEl.textContent = 'Error: Backup request timed out';
+        button.disabled = false;
+        button.textContent = 'Backup now to Google Drive';
+      }
+    }, BACKUP_TIMEOUT_MS);
+    
     try {
       chrome.runtime.sendMessage({ type: 'RUN_DRIVE_BACKUP_FROM_POPUP' }, (response) => {
+        responseReceived = true;
+        clearTimeout(timeoutId);
+        
         if (chrome.runtime.lastError) {
           statusEl.textContent = 'Error: ' + chrome.runtime.lastError.message;
           console.error('Backup error:', chrome.runtime.lastError);
@@ -435,6 +450,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         button.textContent = 'Backup now to Google Drive';
       });
     } catch (error) {
+      responseReceived = true;
+      clearTimeout(timeoutId);
       statusEl.textContent = 'Error: ' + error.message;
       button.disabled = false;
       button.textContent = 'Backup now to Google Drive';
@@ -454,8 +471,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     button.textContent = 'Restoring...';
     statusEl.textContent = 'Starting restore...';
     
+    let responseReceived = false;
+    const timeoutId = setTimeout(() => {
+      if (!responseReceived) {
+        statusEl.textContent = 'Error: Restore request timed out';
+        button.disabled = false;
+        button.textContent = 'Restore from Google Drive';
+      }
+    }, BACKUP_TIMEOUT_MS);
+    
     try {
       chrome.runtime.sendMessage({ type: 'RUN_DRIVE_RESTORE' }, async (response) => {
+        responseReceived = true;
+        clearTimeout(timeoutId);
+        
         if (chrome.runtime.lastError) {
           statusEl.textContent = 'Error: ' + chrome.runtime.lastError.message;
           console.error('Restore error:', chrome.runtime.lastError);
@@ -475,6 +504,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         button.textContent = 'Restore from Google Drive';
       });
     } catch (error) {
+      responseReceived = true;
+      clearTimeout(timeoutId);
       statusEl.textContent = 'Error: ' + error.message;
       button.disabled = false;
       button.textContent = 'Restore from Google Drive';
@@ -495,11 +526,22 @@ document.addEventListener("DOMContentLoaded", async () => {
         return;
       }
       
-      // Check if it's a Salesforce page
-      const isSalesforce = tab.url && (
-        tab.url.includes('salesforce.com') ||
-        tab.url.includes('lightning.force.com')
-      );
+      // Check if it's a Salesforce page using proper URL parsing
+      let isSalesforce = false;
+      try {
+        if (tab.url) {
+          const url = new URL(tab.url);
+          const hostname = url.hostname.toLowerCase();
+          // Check if the hostname ends with salesforce.com or lightning.force.com
+          isSalesforce = hostname.endsWith('.salesforce.com') ||
+                        hostname.endsWith('.lightning.force.com') ||
+                        hostname === 'salesforce.com' ||
+                        hostname === 'lightning.force.com';
+        }
+      } catch (e) {
+        // Invalid URL
+        isSalesforce = false;
+      }
       
       if (!isSalesforce) {
         statusEl.textContent = 'Error: Please navigate to a Salesforce page first';
@@ -508,8 +550,19 @@ document.addEventListener("DOMContentLoaded", async () => {
       
       statusEl.textContent = 'Injecting button...';
       
+      // Timeout for inject operation (10 seconds)
+      let injectResponseReceived = false;
+      const injectTimeoutId = setTimeout(() => {
+        if (!injectResponseReceived) {
+          statusEl.textContent = 'Error: Inject request timed out. Try refreshing the page.';
+        }
+      }, 10000);
+      
       // Send message to content script
       chrome.tabs.sendMessage(tab.id, { type: 'INIT_SF_BACKUP_BUTTON' }, (response) => {
+        injectResponseReceived = true;
+        clearTimeout(injectTimeoutId);
+        
         if (chrome.runtime.lastError) {
           // Content script might not be loaded on this page
           statusEl.textContent = 'Error: Could not reach Salesforce page. Try refreshing the page.';
