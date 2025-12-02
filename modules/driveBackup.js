@@ -1,6 +1,12 @@
 /**
  * Google Drive AppData Backup Module
  * Handles backup/restore of extension settings to Google Drive's AppData space
+ * 
+ * IMPORTANT: To enable Google Drive backup, you must:
+ * 1. Create a Google Cloud project and enable the Drive API
+ * 2. Create OAuth2 credentials (Chrome extension type)
+ * 3. Update manifest.json with your client_id in the oauth2 section
+ * 
  * @module driveBackup
  */
 
@@ -28,6 +34,33 @@ const DriveBackup = (function() {
   
   let cachedFileId = null;
 
+  // ========== CONFIGURATION CHECK ==========
+
+  /**
+   * Check if Google Drive backup is properly configured
+   * @returns {boolean} True if configured, false otherwise
+   */
+  function isConfigured() {
+    try {
+      const manifest = chrome.runtime.getManifest();
+      const oauth2 = manifest.oauth2;
+      
+      if (!oauth2 || !oauth2.client_id) {
+        return false;
+      }
+      
+      // Check for placeholder value
+      if (oauth2.client_id.includes('YOUR_GOOGLE_CLOUD_CLIENT_ID')) {
+        return false;
+      }
+      
+      return true;
+    } catch (error) {
+      console.warn('[DriveBackup] Error checking configuration:', error);
+      return false;
+    }
+  }
+
   // ========== AUTHENTICATION ==========
 
   /**
@@ -36,6 +69,11 @@ const DriveBackup = (function() {
    * @returns {Promise<string>} Access token
    */
   async function getAccessToken(interactive = false) {
+    // Check configuration first
+    if (!isConfigured()) {
+      throw new Error('Google Drive backup not configured. Please update manifest.json with a valid OAuth2 client_id.');
+    }
+
     return new Promise((resolve, reject) => {
       chrome.identity.getAuthToken({ interactive }, (token) => {
         if (chrome.runtime.lastError) {
@@ -509,6 +547,7 @@ const DriveBackup = (function() {
     deleteBackup,
     getTimestamps,
     isAuthenticated,
+    isConfigured,
     revokeToken,
     // Constants for external use
     BACKUP_FILE_NAME,

@@ -1035,6 +1035,31 @@ function showSuccess(message) {
 }
 
 /**
+ * Shows error message
+ */
+function showError(message) {
+  // Create temporary error message
+  const errorDiv = document.createElement('div');
+  errorDiv.style.cssText = `
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #f44336;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 4px;
+    font-size: 13px;
+    z-index: 10000;
+    animation: fadeOut 3s forwards;
+  `;
+  errorDiv.textContent = message;
+  document.body.appendChild(errorDiv);
+  
+  setTimeout(() => errorDiv.remove(), 3000);
+}
+
+/**
  * Load highlighter banner activation UI
  * Shows current URL dismissal status and allows reactivation
  */
@@ -1525,6 +1550,14 @@ async function initDriveBackupUI() {
     return;
   }
 
+  // Check if properly configured
+  if (!DriveBackup.isConfigured()) {
+    statusEl.innerHTML = '<span style="color: #ffa500;">⚠️ Google Drive backup requires configuration.</span><br><small>Contact your administrator to set up OAuth2.</small>';
+    backupBtn.disabled = true;
+    restoreBtn.disabled = true;
+    return;
+  }
+
   // Update status
   await updateDriveBackupStatus();
 
@@ -1540,11 +1573,11 @@ async function initDriveBackupUI() {
         showSuccess('Backup saved to Google Drive!');
         await updateDriveBackupStatus();
       } else {
-        showSuccess('Backup failed: ' + (result.error || 'Unknown error'));
+        showError('Backup failed: ' + (result.error || 'Unknown error'));
       }
     } catch (error) {
       console.error('[Popup] Backup error:', error);
-      showSuccess('Backup failed: ' + error.message);
+      showError('Backup failed: ' + error.message);
     } finally {
       backupBtn.disabled = false;
       backupBtn.textContent = 'Backup to Google Drive';
@@ -1570,11 +1603,11 @@ async function initDriveBackupUI() {
         populateUI(settings);
         await updateDriveBackupStatus();
       } else {
-        showSuccess('Restore failed: ' + (result.error || 'Unknown error'));
+        showError('Restore failed: ' + (result.error || 'Unknown error'));
       }
     } catch (error) {
       console.error('[Popup] Restore error:', error);
-      showSuccess('Restore failed: ' + error.message);
+      showError('Restore failed: ' + error.message);
     } finally {
       restoreBtn.disabled = false;
       restoreBtn.textContent = 'Restore from Google Drive';
