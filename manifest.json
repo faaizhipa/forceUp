@@ -117,7 +117,7 @@
    "name": "Penang CoE Salesforce and Docs Extension",
    "permissions": [ "storage", "tabs", "activeTab", "contextMenus", "clipboardWrite" ],
    "update_url": "https://clients2.google.com/service/update2/crx",
-   "version": "7.2",
+   "version": "7.4",
    "web_accessible_resources": [
       {
          "resources": [
