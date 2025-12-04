@@ -54,7 +54,8 @@ const TimezonePopupWidget = (function() {
     meetingStart: null,
     meetingEnd: null,
     intervalId: null,
-    cleanupHandlers: []
+    cleanupHandlers: [],
+    displayNodes: new Map()
   };
 
   // ============================================================================
@@ -447,7 +448,9 @@ const TimezonePopupWidget = (function() {
     if (_state.activeTab === 'converter') {
       // Time Converter view
       zones.forEach(zone => {
-        content.appendChild(_renderTimezoneRow(zone));
+        const row = _renderTimezoneRow(zone);
+        content.appendChild(row);
+        _registerZoneElements(zone, row);
       });
     } else {
       // Scheduler view with hour grids
@@ -455,6 +458,7 @@ const TimezonePopupWidget = (function() {
         const row = _renderTimezoneRow(zone);
         row.appendChild(_renderHourGrid(zone));
         content.appendChild(row);
+        _registerZoneElements(zone, row);
       });
     }
 
@@ -468,6 +472,7 @@ const TimezonePopupWidget = (function() {
     if (!_state.container) return;
 
     _state.container.innerHTML = '';
+    _state.displayNodes = new Map();
 
     // Header
     const header = document.createElement('div');
@@ -513,7 +518,96 @@ const TimezonePopupWidget = (function() {
   function _updateTime() {
     _state.currentTime = new Date();
     if (!_state.simulationTime && _state.isVisible) {
-      _render();
+      const updated = _updateVisibleTimes();
+      if (!updated) {
+        _render();
+      }
+    }
+  }
+
+  /**
+   * Registers the DOM nodes associated with a timezone row for incremental updates
+   * @param {Object} zone - Zone descriptor
+   * @param {HTMLElement} rowElement - Row element in the DOM
+   */
+  function _registerZoneElements(zone, rowElement) {
+    if (!_state.displayNodes) {
+      _state.displayNodes = new Map();
+    }
+
+    const refs = {
+      row: rowElement,
+      statusDot: rowElement.querySelector('.gsw-status-dot'),
+      timeLabel: rowElement.querySelector('.gsw-time'),
+      dateLabel: rowElement.querySelector('.gsw-date'),
+      infoLabel: rowElement.querySelector('.gsw-timezone-label'),
+      hourBlocks: Array.from(rowElement.querySelectorAll('.gsw-hour-block'))
+    };
+
+    _state.displayNodes.set(zone.timezone, refs);
+  }
+
+  /**
+   * Fast path updates that avoid rebuilding the entire DOM tree every second
+   * @returns {boolean} True if update succeeded, false if full render is needed
+   */
+  function _updateVisibleTimes() {
+    if (!_state.displayNodes || _state.displayNodes.size === 0) {
+      return false;
+    }
+
+    const zones = _getZones();
+    if (!zones.length) {
+      return false;
+    }
+
+    zones.forEach((zone) => {
+      const refs = _state.displayNodes.get(zone.timezone);
+      if (refs) {
+        _updateZoneDisplay(zone, refs);
+      }
+    });
+
+    return true;
+  }
+
+  /**
+   * Updates the UI for a single zone
+   * @param {Object} zone - Zone descriptor
+   * @param {Object} refs - Cached DOM references
+   */
+  function _updateZoneDisplay(zone, refs) {
+    const time = _state.simulationTime || _state.currentTime;
+    const conversion = convertTime(time, zone.timezone);
+
+    if (refs.timeLabel) {
+      refs.timeLabel.textContent = formatTimeForDisplay(time, zone.timezone);
+    }
+
+    if (refs.dateLabel) {
+      refs.dateLabel.textContent = formatDateForDisplay(time, zone.timezone);
+    }
+
+    if (refs.infoLabel) {
+      const abbr = getTimezoneAbbreviation(time, zone.timezone);
+      const offset = getTimezoneOffset(time, zone.timezone);
+      refs.infoLabel.textContent = `${zone.timezone} • ${abbr || offset}`;
+    }
+
+    if (refs.statusDot) {
+      refs.statusDot.classList.remove('gsw-status-business', 'gsw-status-awake', 'gsw-status-sleep');
+      refs.statusDot.classList.add(`gsw-status-${conversion.status}`);
+    }
+
+    if (refs.hourBlocks && refs.hourBlocks.length) {
+      const currentHour = getHourInTimezone(time, zone.timezone);
+      refs.hourBlocks.forEach((block) => {
+        if (parseInt(block.dataset.hour, 10) === currentHour) {
+          block.classList.add('current');
+        } else {
+          block.classList.remove('current');
+        }
+      });
     }
   }
 
@@ -937,7 +1031,16 @@ const TimezonePopupWidget = (function() {
    */
   async function show(customerTimezone) {
     if (!_state.isInitialized) {
-      await init();
+      const initialized = await init();
+      if (!initialized) {
+        console.error('[TimezonePopupWidget] Unable to show popup because initialization failed');
+        return false;
+      }
+    }
+
+    if (!_state.overlay || !_state.popup || !_state.container) {
+      console.error('[TimezonePopupWidget] Popup DOM not ready, aborting show()');
+      return false;
     }
 
     // Update customer timezone
@@ -966,6 +1069,7 @@ const TimezonePopupWidget = (function() {
     _state.intervalId = setInterval(_updateTime, UPDATE_INTERVAL_MS);
 
     console.log('[TimezonePopupWidget] Showing popup with customer timezone:', customerTimezone);
+    return true;
   }
 
   /**
@@ -1039,6 +1143,9 @@ const TimezonePopupWidget = (function() {
       _state.popup = null;
     }
     _state.container = null;
+    if (_state.displayNodes) {
+      _state.displayNodes.clear();
+    }
 
     // Remove styles
     const styles = document.getElementById('exl-timezone-popup-styles');
