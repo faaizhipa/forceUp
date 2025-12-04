@@ -4,6 +4,9 @@
  * Only active on support sites when feature is enabled
  */
 
+// Feature flag to control whether we reserve vertical space for the banner
+const EXL_ENABLE_BANNER_GAP = false;
+
 /**
  * Early page layout adjustment
  * Runs immediately when script loads to prevent layout shift
@@ -17,11 +20,16 @@
  */
 (function earlyLayoutAdjustment() {
   'use strict';
+
+  if (!EXL_ENABLE_BANNER_GAP) {
+    return;
+  }
   
   // Constants (following best practices: no magic numbers)
   const BANNER_HEIGHT_PX = 48; // 3rem = 48px
   const EARLY_STYLE_ID = 'exl-hl-early-layout';
   const STATE_FLAG = '__exlHlEarlyLayoutApplied';
+  //  const STATE_FLAG = true;
   
   // Check if already applied (idempotency)
   if (window[STATE_FLAG]) {
@@ -2929,6 +2937,11 @@
     },
 
     adjustFixedElements() {
+      if (!EXL_ENABLE_BANNER_GAP) {
+        this.removeFixedElementAdjustments();
+        return;
+      }
+
       // CRITICAL: Only adjust elements if banner is actually visible
       // When banner is hidden (mini button shown), ALL styling should be inactive
       if (!this.isBannerVisible()) {
@@ -3044,6 +3057,14 @@
       if (apply && this.bannerMode === 'sticky') {
         console.log('[HighlighterController] Skipping layout adjustments (sticky mode - banner overlays)');
         return;
+      }
+
+      if (!EXL_ENABLE_BANNER_GAP) {
+        if (apply) {
+          console.log('[HighlighterController] Banner gap adjustments disabled globally');
+          return;
+        }
+        // Still allow cleanup path when apply === false
       }
 
       const BANNER_HEIGHT_PX = 48; // 3rem = 48px (constant, not magic number)
@@ -3223,6 +3244,10 @@
      * This ensures fixed headers added after page load are also adjusted
      */
     setupFixedElementObserver() {
+      if (!EXL_ENABLE_BANNER_GAP) {
+        return;
+      }
+
       try {
         // Only observe if banner is visible
         if (!this.bannerElement || this.bannerElement.style.display === 'none') {

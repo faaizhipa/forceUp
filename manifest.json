@@ -44,44 +44,6 @@
         "modules/siteActivationManager.js",
         "modules/timezoneNormalizer.js",
         "modules/customerMasterManager.js",
-        "modules/userCustomerDataManager.js",
-        "modules/interceptorCacheManager.js",
-        "modules/userPreferences.js",
-        "modules/configurationWarningBanner.js",
-        "modules/colorHandlerConfig.js",
-        "modules/colorPicker3D.js",
-        "modules/implementationStatus.js",
-        "modules/textFormatter.js",
-        "modules/keyboardShortcuts.js",
-        "modules/contextMenuHandler.js",
-        "modules/multiTabSync.js",
-        "modules/caseCommentMemory.js",
-        "modules/characterCounter.js",
-        "modules/shadowTextExtractor.js",
-        "content_script_exlibris.js",
-        "modules/persistentBannerBase.js",
-        "modules/persistentBannerCforce.js"
-      ],
-      "matches": [
-        "https://clarivateanalytics.lightning.force.com/*",
-        "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*"
-      ],
-      "run_at": "document_idle",
-      "css": ["modules/styles/persistent-banner-cforce.css"]
-    },
-    {
-      "js": [
-        "content_script.js",
-        "modules/debounceUtils.js",
-        "modules/logger.js",
-        "modules/dataNormalizer.js",
-        "modules/caseDomUtils.js",
-        "modules/caseContextWatcher.js",
-        "modules/caseDataStore.js",
-        "modules/settingsManager.js",
-        "modules/siteActivationManager.js",
-        "modules/timezoneNormalizer.js",
-        "modules/customerMasterManager.js",
         "modules/interceptorCacheManager.js",
         "modules/userCustomerDataManager.js",
         "modules/caseDataExtractor.js",
@@ -113,7 +75,8 @@
         "modules/persistentBanner.js",
         "content_script_exlibris.js"
       ],
-      "matches": ["https://proquestllc.lightning.force.com/*"],
+      "matches": ["https://proquestllc.lightning.force.com/*", "https://clarivateanalytics.lightning.force.com/*",
+        "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*"],
       "run_at": "document_idle",
       "css": [
         "modules/styles/injected-panel.css",
@@ -175,7 +138,7 @@
     "clipboardWrite"
   ],
   "update_url": "https://clients2.google.com/service/update2/crx",
-  "version": "7.2",
+  "version": "7.45",
   "web_accessible_resources": [
     {
       "resources": [
