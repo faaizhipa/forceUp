@@ -1,0 +1,466 @@
+
+// State
+let currentTabUrl = '';
+let currentNoteId = null; // If editing
+let allNotesData = {}; // Cache for 'All Notes' view
+let aiAvailable = false;
+let suggestionDebounceTimer = null;
+let googleAuthToken = null;
+
+// DOM Elements
+const notesListEl = document.getElementById('notes-list');
+const allNotesListEl = document.getElementById('all-notes-list');
+const editorEl = document.getElementById('editor');
+const noteTitleInput = document.getElementById('note-title');
+const noteContentInput = document.getElementById('note-content');
+const searchInput = document.getElementById('search-notes');
+const aiSuggestionBox = document.getElementById('ai-suggestion');
+const suggestionTextEl = document.getElementById('suggestion-text');
+
+// Initialization
+document.addEventListener('DOMContentLoaded', async () => {
+  // Check AI
+  aiAvailable = await AI.init();
+  if (!aiAvailable) {
+    document.querySelector('.ai-tools').style.display = 'none';
+  }
+
+  // Check Auth
+  checkAuthStatus();
+
+  setupTabs();
+  setupEventListeners();
+  await updateCurrentTab();
+  
+  // Listen for tab updates to refresh the view
+  chrome.tabs.onActivated.addListener(updateCurrentTab);
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete' && tab.active) {
+      updateCurrentTab();
+    }
+  });
+});
+
+function setupTabs() {
+  const tabs = {
+    'tab-current': 'content-current',
+    'tab-all': 'content-all',
+    'tab-settings': 'content-settings'
+  };
+
+  Object.keys(tabs).forEach(tabId => {
+    document.getElementById(tabId).addEventListener('click', () => {
+      // Deactivate all
+      document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => {
+        c.classList.add('hidden');
+        c.classList.remove('active');
+      });
+
+      // Activate clicked
+      document.getElementById(tabId).classList.add('active');
+      const contentId = tabs[tabId];
+      const contentEl = document.getElementById(contentId);
+      contentEl.classList.remove('hidden');
+      contentEl.classList.add('active');
+
+      if (tabId === 'tab-all') {
+        renderAllNotes();
+      }
+    });
+  });
+}
+
+function setupEventListeners() {
+  // Add Note Button
+  document.getElementById('btn-add-note').addEventListener('click', () => {
+    openEditor();
+  });
+
+  // Editor Actions
+  document.getElementById('btn-close-editor').addEventListener('click', closeEditor);
+  document.getElementById('btn-save-note').addEventListener('click', saveCurrentNote);
+
+  // AI Actions
+  document.querySelectorAll('.ai-tools button').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const action = e.target.dataset.action;
+      const content = noteContentInput.value;
+      if (!content) return;
+
+      // Show loading state?
+      const originalText = e.target.innerText;
+      e.target.innerText = 'Processing...';
+      e.target.disabled = true;
+
+      try {
+        if (['clear', 'concise', 'simple', 'verbose'].includes(action)) {
+          const newText = await AI.enhanceText(content, action);
+          if (newText) noteContentInput.value = newText;
+        } else if (action === 'review') {
+          const review = await AI.generateReview(content);
+          if (review) createDerivedNote('Flashcards Review', review);
+        } else if (action === 'quiz') {
+          const quiz = await AI.generateQuiz(content);
+          if (quiz) createDerivedNote('Quiz', quiz);
+        }
+      } catch (err) {
+        console.error(err);
+        alert('AI processing failed.');
+      } finally {
+        e.target.innerText = originalText;
+        e.target.disabled = false;
+      }
+    });
+  });
+
+  // Suggest as I type
+  noteContentInput.addEventListener('input', () => {
+    if (!aiAvailable) return;
+    
+    // Clear existing timer
+    if (suggestionDebounceTimer) clearTimeout(suggestionDebounceTimer);
+    
+    // Hide previous suggestion
+    aiSuggestionBox.classList.add('hidden');
+
+    const text = noteContentInput.value;
+    if (text.length < 20) return; // Don't annoy for short text
+
+    suggestionDebounceTimer = setTimeout(async () => {
+      const suggestion = await AI.suggestImprovement(text);
+      if (suggestion) {
+        suggestionTextEl.textContent = suggestion;
+        aiSuggestionBox.classList.remove('hidden');
+      }
+    }, 2000); // 2 seconds pause
+  });
+
+  document.getElementById('btn-accept-suggestion').addEventListener('click', () => {
+    // This is tricky. AI usually returns a full rewritten sentence or just a comment.
+    // If it's a "better phrasing", we might want to replace. 
+    // For now, let's just append or replace? 
+    // The prompt in ai.js asks for "short, single-sentence suggestion".
+    // It might be meta-commentary "Change X to Y".
+    // A safer UX for "Accept" is hard without structured output.
+    // Let's assume the user reads it and manually fixes, OR if the AI returns rewritten text, we replace.
+    // Given the prompt "If there are errors... provide a short suggestion", it might be "Use 'their' instead of 'there'".
+    // Automated replacement is risky. Let's make "Accept" just copy to clipboard or maybe disable "Accept" and just have "Dismiss".
+    // Wait, the prompt I wrote: "rewrite... or suggest".
+    // Let's keep it simple: "Dismiss" hides it. User can manually edit.
+    // Or we update the prompt to be "Rewrite this sentence correctly". 
+    // Let's stick to "Dismiss" only for now to be safe, or make "Accept" append it as a comment.
+    
+    // Actually, let's make Accept replace the content IF the suggestion looks like a full rewrite.
+    // But since we can't guarantee, let's change "Accept" to "Copy to Clipboard" behavior or just remove it.
+    // I will remove the "Accept" button logic from here and the HTML effectively, 
+    // OR just make it copy the suggestion to clipboard.
+    navigator.clipboard.writeText(suggestionTextEl.textContent);
+    alert('Suggestion copied to clipboard.');
+    aiSuggestionBox.classList.add('hidden');
+  });
+
+  document.getElementById('btn-dismiss-suggestion').addEventListener('click', () => {
+    aiSuggestionBox.classList.add('hidden');
+  });
+
+  // Search
+  searchInput.addEventListener('input', (e) => {
+    renderAllNotes(e.target.value);
+  });
+
+  // Backup & Restore
+  document.getElementById('btn-auth').addEventListener('click', async () => {
+    await GoogleDrive.getAuthToken(true);
+    checkAuthStatus();
+  });
+
+  document.getElementById('btn-backup-now').addEventListener('click', async () => {
+    const statusEl = document.getElementById('auth-status');
+    statusEl.innerText = 'Backing up...';
+    try {
+      const data = await Storage.getAllNotes();
+      await GoogleDrive.performBackup(data);
+      statusEl.innerText = 'Backup complete!';
+      setTimeout(checkAuthStatus, 3000);
+    } catch (e) {
+      statusEl.innerText = 'Backup failed: ' + e.message;
+      console.error(e);
+    }
+  });
+
+  document.getElementById('btn-restore').addEventListener('click', async () => {
+    if (!confirm('This will merge notes from Google Drive. Continue?')) return;
+    const statusEl = document.getElementById('auth-status');
+    statusEl.innerText = 'Restoring...';
+    try {
+      const data = await GoogleDrive.restoreBackup();
+      await ExportImport.mergeData(data); // Reuse merge logic
+      statusEl.innerText = 'Restore complete!';
+      setTimeout(checkAuthStatus, 3000);
+      
+      // Refresh
+      if (document.getElementById('tab-all').classList.contains('active')) {
+         renderAllNotes(searchInput.value);
+      }
+    } catch (e) {
+      statusEl.innerText = 'Restore failed: ' + e.message;
+      console.error(e);
+    }
+  });
+  
+  document.getElementById('backup-freq').addEventListener('change', (e) => {
+    const freq = e.target.value;
+    chrome.runtime.sendMessage({ type: 'SET_ALARM', frequency: freq });
+  });
+
+  // Sharing via Drive
+  document.getElementById('btn-share-drive').addEventListener('click', async () => {
+    const email = prompt("Enter the Google email address to share with:");
+    if (!email) return;
+
+    // Use current note content
+    const title = noteTitleInput.value || 'Untitled Note';
+    const content = noteContentInput.value;
+    
+    if (!content) {
+      alert("Note is empty.");
+      return;
+    }
+
+    try {
+       alert("Creating Google Doc and sharing... this may take a moment.");
+       const fileId = await GoogleDrive.createSharedDoc(title, content);
+       await GoogleDrive.shareFile(fileId, email);
+       const link = await GoogleDrive.getWebViewLink(fileId);
+       
+       prompt("Share successful! Here is the link:", link);
+    } catch (e) {
+      alert("Sharing failed: " + e.message);
+      console.error(e);
+    }
+  });
+
+  // Copy to Clipboard
+  document.getElementById('btn-copy').addEventListener('click', () => {
+    const title = noteTitleInput.value || 'Untitled Note';
+    const content = noteContentInput.value || '';
+    const url = editorEl.dataset.editingUrl || currentTabUrl;
+
+    const textToCopy = `Title: ${title}\nURL: ${url}\n\n${content}`;
+    
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      const originalText = document.getElementById('btn-copy').innerText;
+      document.getElementById('btn-copy').innerText = 'Copied!';
+      setTimeout(() => {
+        document.getElementById('btn-copy').innerText = originalText;
+      }, 2000);
+    });
+  });
+
+  // Export Buttons
+  document.getElementById('btn-export-json').addEventListener('click', () => ExportImport.exportJSON());
+  document.getElementById('btn-export-md').addEventListener('click', () => ExportImport.exportMarkdown());
+  document.getElementById('btn-export-txt').addEventListener('click', () => ExportImport.exportText());
+  document.getElementById('btn-export-xml').addEventListener('click', () => ExportImport.exportXML());
+
+  // Import
+  const fileInput = document.getElementById('file-import');
+  document.getElementById('btn-import').addEventListener('click', () => {
+    if (fileInput.files.length > 0) {
+      ExportImport.handleImport(fileInput.files[0]).then(success => {
+        if (success) {
+          // Refresh views
+          if (document.getElementById('tab-all').classList.contains('active')) {
+             renderAllNotes(searchInput.value);
+          }
+          fileInput.value = ''; // Reset
+        }
+      });
+    } else {
+      alert('Please select a file first.');
+    }
+  });
+}
+
+async function checkAuthStatus() {
+  const statusEl = document.getElementById('auth-status');
+  const token = await GoogleDrive.getAuthToken(false);
+  if (token) {
+    statusEl.innerText = 'Connected to Google Drive';
+    statusEl.className = 'status-online';
+    document.getElementById('btn-auth').style.display = 'none';
+  } else {
+    statusEl.innerText = 'Not Connected';
+    statusEl.className = 'status-offline';
+    document.getElementById('btn-auth').style.display = 'inline-block';
+  }
+}
+
+async function updateCurrentTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab && tab.url) {
+    // Normalize URL to avoid query params if desired, or keep exact. 
+    // Requirement says "persists per url", usually exact URL or ignoring fragments.
+    // Let's keep exact URL for now but maybe strip hash.
+    try {
+      const urlObj = new URL(tab.url);
+      currentTabUrl = urlObj.href; // Keep full URL including query params
+      renderCurrentPageNotes();
+    } catch (e) {
+      console.log('Invalid URL', tab.url);
+    }
+  }
+}
+
+async function renderCurrentPageNotes() {
+  notesListEl.innerHTML = '';
+  const notes = await Storage.getNotes(currentTabUrl);
+  
+  if (notes.length === 0) {
+    notesListEl.innerHTML = '<p style="color:#888; text-align:center;">No notes for this page.</p>';
+    return;
+  }
+
+  notes.forEach(note => {
+    const el = createNoteElement(note, currentTabUrl);
+    notesListEl.appendChild(el);
+  });
+}
+
+async function renderAllNotes(filterText = '') {
+  allNotesListEl.innerHTML = '';
+  allNotesData = await Storage.getAllNotes();
+  
+  const filter = filterText.toLowerCase();
+  let hasNotes = false;
+
+  // Iterate over all URLs
+  Object.keys(allNotesData).forEach(url => {
+    const notes = allNotesData[url];
+    notes.forEach(note => {
+      if (note.title.toLowerCase().includes(filter) || note.content.toLowerCase().includes(filter) || url.toLowerCase().includes(filter)) {
+        hasNotes = true;
+        const el = createNoteElement(note, url, true);
+        allNotesListEl.appendChild(el);
+      }
+    });
+  });
+
+  if (!hasNotes) {
+    allNotesListEl.innerHTML = '<p style="color:#888; text-align:center;">No matching notes found.</p>';
+  }
+}
+
+function createDerivedNote(titleSuffix, content) {
+  const title = (noteTitleInput.value || 'Untitled') + ' - ' + titleSuffix;
+  const editingUrl = editorEl.dataset.editingUrl || currentTabUrl;
+  
+  const noteData = {
+    title,
+    content
+  };
+
+  Storage.saveNote(editingUrl, noteData).then(() => {
+    alert(`Created new note: ${title}`);
+    // Refresh if needed
+    if (document.getElementById('tab-current').classList.contains('active')) {
+      renderCurrentPageNotes();
+    }
+  });
+}
+
+function createNoteElement(note, url, showUrl = false) {
+  const div = document.createElement('div');
+  div.className = 'note-item';
+  div.innerHTML = `
+    <h4>${escapeHtml(note.title)}</h4>
+    ${showUrl ? `<small style="display:block; color:#1a73e8; margin-bottom:4px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(url)}</small>` : ''}
+    <p>${escapeHtml(note.content)}</p>
+    <div style="margin-top:8px; display:flex; justify-content:flex-end; gap:8px;">
+       <button class="btn-delete-note" style="background:none; border:none; color:red; cursor:pointer; font-size:12px;">Delete</button>
+    </div>
+  `;
+  
+  div.addEventListener('click', (e) => {
+    // If clicked delete button
+    if (e.target.classList.contains('btn-delete-note')) {
+      e.stopPropagation();
+      if (confirm('Delete this note?')) {
+        Storage.deleteNote(url, note.id).then(() => {
+          if (document.getElementById('tab-current').classList.contains('active')) {
+            renderCurrentPageNotes();
+          } else {
+            renderAllNotes(searchInput.value);
+          }
+        });
+      }
+      return;
+    }
+    openEditor(note, url);
+  });
+  return div;
+}
+
+function openEditor(note = null, url = null) {
+  // If opening from "All Notes", we need to know which URL we are editing for.
+  // If note is null, we assume we are adding to currentTabUrl.
+  
+  currentNoteId = note ? note.id : null;
+  // If we are editing an existing note, we need to preserve its original URL context
+  // If it's a new note, it belongs to currentTabUrl
+  const editingUrl = url || currentTabUrl;
+  
+  // Store the editing URL on the editor element or a variable so save knows where to put it
+  editorEl.dataset.editingUrl = editingUrl;
+
+  noteTitleInput.value = note ? note.title : '';
+  noteContentInput.value = note ? note.content : '';
+  
+  editorEl.classList.remove('hidden');
+}
+
+function closeEditor() {
+  editorEl.classList.add('hidden');
+  currentNoteId = null;
+  
+  // Hide AI suggestion if open
+  document.getElementById('ai-suggestion').classList.add('hidden');
+}
+
+async function saveCurrentNote() {
+  const title = noteTitleInput.value.trim();
+  const content = noteContentInput.value.trim();
+  const editingUrl = editorEl.dataset.editingUrl;
+
+  if (!title && !content) {
+    alert('Note cannot be empty');
+    return;
+  }
+
+  const noteData = {
+    id: currentNoteId, // undefined if new
+    title,
+    content
+  };
+
+  await Storage.saveNote(editingUrl, noteData);
+  closeEditor();
+  
+  // Refresh views
+  if (document.getElementById('tab-current').classList.contains('active')) {
+    renderCurrentPageNotes();
+  } else {
+    renderAllNotes(searchInput.value);
+  }
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}

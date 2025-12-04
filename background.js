@@ -17,7 +17,7 @@ function createContextMenus() {
     // Parent menu - show on both selection and editable fields
     chrome.contextMenus.create({
       id: 'exlibris-text-format',
-      title: 'Ex Libris Format',
+      title: 'Case Comment Formatter',
       contexts: ['selection', 'editable']
     });
 

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Notes</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <nav class="tabs">
+      <button id="tab-current" class="active">Current Page</button>
+      <button id="tab-all">All Notes</button>
+      <button id="tab-settings">Settings</button>
+    </nav>
+
+    <main id="content-current" class="tab-content active">
+      <div id="notes-list"></div>
+      <button id="btn-add-note">+ New Note</button>
+    </main>
+
+    <main id="content-all" class="tab-content hidden">
+      <input type="text" id="search-notes" placeholder="Search notes...">
+      <div id="all-notes-list"></div>
+    </main>
+
+    <main id="content-settings" class="tab-content hidden">
+      <section>
+        <h3>Backup & Restore</h3>
+        <button id="btn-auth">Connect Google Drive</button>
+        <div id="auth-status" class="status-offline">Not Connected</div>
+        
+        <label for="backup-freq">Backup Frequency:</label>
+        <select id="backup-freq">
+          <option value="hourly">Hourly</option>
+          <option value="daily" selected>Daily</option>
+          <option value="weekly">Weekly</option>
+        </select>
+        <button id="btn-backup-now">Backup Now</button>
+        <button id="btn-restore">Restore from Drive</button>
+      </section>
+
+      <section>
+        <h3>Import / Export</h3>
+        <button id="btn-export-json">Export JSON</button>
+        <button id="btn-export-md">Export Markdown</button>
+        <button id="btn-export-txt">Export Text</button>
+        <button id="btn-export-xml">Export XML</button>
+        <hr>
+        <input type="file" id="file-import" accept=".json,.md,.txt,.xml">
+        <button id="btn-import">Import</button>
+      </section>
+    </main>
+
+    <!-- Editor Modal / View -->
+    <div id="editor" class="hidden">
+      <div class="editor-header">
+        <button id="btn-close-editor">Close</button>
+        <button id="btn-save-note">Save</button>
+      </div>
+      <input type="text" id="note-title" placeholder="Title">
+      <textarea id="note-content" placeholder="Write your note here..."></textarea>
+      
+      <div class="ai-tools">
+        <span>AI Tools:</span>
+        <button data-action="clear">Clear</button>
+        <button data-action="concise">Concise</button>
+        <button data-action="simple">Simple</button>
+        <button data-action="verbose">Verbose</button>
+        <button data-action="review">Review (Flashcards)</button>
+        <button data-action="quiz">Quiz</button>
+      </div>
+      
+      <div class="ai-suggestion-box hidden" id="ai-suggestion">
+        <strong>Suggestion:</strong> <span id="suggestion-text"></span>
+        <button id="btn-accept-suggestion">Accept</button>
+        <button id="btn-dismiss-suggestion">Dismiss</button>
+      </div>
+
+      <div class="sharing-tools">
+        <button id="btn-copy">Copy</button>
+        <button id="btn-share-drive">Share via Drive</button>
+      </div>
+    </div>
+  </div>
+  <script src="utils/storage.js"></script>
+  <script src="utils/ai.js"></script>
+  <script src="utils/google-drive.js"></script>
+  <script src="utils/export-import.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

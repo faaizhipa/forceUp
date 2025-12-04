@@ -8,35 +8,54 @@
       "default_popup": "popup.html",
       "default_title": "Penang CoE Salesforce and Docs Extension"
    },
+   "side_panel": {
+    "default_path": "sidepanel.html"
+   },
    "background": {
-      "service_worker": "background.js"
+      "service_worker": ["background.js", "background_backup.js"]
    },
    "content_scripts": [
+   //    {
+   //       "matches": [
+   //          "https://proquestllc.lightning.force.com/*",
+   //          "https://clarivateanalytics.lightning.force.com/*", 
+   //          "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*"
+   //       ],
+   //       "js": [
+   //          "modules/interceptor.js"
+   //       ],
+   //       "world": "MAIN",
+   //       "run_at": "document_start"
+
+   //    },
       {
-         "js": [ "content_script.js" ],
-         "matches": [ 
+         "matches": [
+            "https://proquestllc.lightning.force.com/*",
             "https://clarivateanalytics.lightning.force.com/*", 
-            "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*", 
-            "https://scholarone.my.salesforce.com/*"
+            "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*"
          ],
-         "run_at": "document_idle"
-      },
-      {
          "js": [
+            "modules/interceptor.js",
             "modules/fetchInterceptor.js",
-            "content_script.js",
             "modules/debounceUtils.js",
             "modules/logger.js",
             "modules/pageContextValidator.js",
             "modules/pageIdentifier.js",
             "modules/caseDomUtils.js",
             "modules/caseContextWatcher.js",
+            "content_script.js",
             "modules/caseDataStore.js",
             "modules/settingsManager.js",
             "modules/siteActivationManager.js",
             "modules/customerDataManager.js",
             "modules/customerTimezoneLookup.js",
             "modules/userCustomerDataManager.js",
+         ],
+         "run_at": "document_start"
+
+      },
+      {
+         "js": [
             "modules/caseDataExtractor.js",
             "modules/caseCommentExtractor.js",
             "modules/casePageDataExtractor.js",
@@ -66,9 +85,11 @@
             "content_script_exlibris.js"
          ],
          "matches": [
-            "https://proquestllc.lightning.force.com/*"
+            "https://proquestllc.lightning.force.com/*",
+            "https://clarivateanalytics.lightning.force.com/*", 
+            "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*", 
          ],
-         "run_at": "document_start",
+         "run_at": "document_idle",
          "css": [ 
             "modules/styles/injected-panel.css",
             "modules/styles/persistent-banner.css"
@@ -115,9 +136,14 @@
    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwEtsrKbUbSe0JeeMtKca1Ka786YKcryHy5uKYPXm5Zm7QUnr/pn8YU/zGjs0ByOkO5309ro9sRsVKscYpYLfqiiQQGNvS5hnYSUh/z43QrS//ItbDHMmjlkJdryctqLO87pUVdbo97knNZ4fXAYkZNZFjjMG8UergCmOgkSt+9k6aQnSE+r1vmME+v3Tl44Wr8GOkM0TohvH1GdQODSh7tNcVpEtj3GnEmHR9NhABR95+cNLwIv9e3d/hWYpdPOm1gwf5bxWKlgbdtA93rFVALZiLcJ6HfBBElnWrXAl9vBMnqzFy+urtuF9ZJb3Qf64gdBa9IOnF0KVBDLI1DTm+wIDAQAB",
    "manifest_version": 3,
    "name": "Penang CoE Salesforce and Docs Extension",
-   "permissions": [ "storage", "tabs", "activeTab", "contextMenus", "clipboardWrite" ],
+   "permissions": [ "storage", "tabs", "activeTab", "contextMenus", "clipboardWrite", "sidePanel", "alarms", "identity" ],
    "update_url": "https://clients2.google.com/service/update2/crx",
    "version": "7.4",
+   "oauth2": {
+      "client_id": "579244704820-qnr13ra9r013jgs22cmuk38jkn938dn7.apps.googleusercontent.com",
+      "scopes": [ "https://www.googleapis.com/auth/drive.appdata",
+      "https://www.googleapis.com/auth/drive.file"]
+   },
    "web_accessible_resources": [
       {
          "resources": [

@@ -8,6 +8,7 @@
  * @version 1.0.0
  */
 
+
 const ConfigurationWarningBanner = (function() {
   'use strict';
 
@@ -21,12 +22,17 @@ const ConfigurationWarningBanner = (function() {
       z-index: 999999;
       background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
       color: white;
-      padding: 16px 24px;
+      height: ${CONFIG_BANNER_HEIGHT}px;
+      min-height: ${CONFIG_BANNER_HEIGHT}px;
+      max-height: ${CONFIG_BANNER_HEIGHT}px;
+      padding: 0 24px;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      box-sizing: border-box;
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 12px;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
       animation: slideDown 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
     }
 
@@ -43,44 +49,50 @@ const ConfigurationWarningBanner = (function() {
 
     #${BANNER_ID}-icon {
       flex-shrink: 0;
-      width: 32px;
-      height: 32px;
+      width: 24px;
+      height: 24px;
+      min-width: 24px;
+      min-height: 24px;
       display: flex;
       align-items: center;
       justify-content: center;
       background: rgba(255, 255, 255, 0.2);
       border-radius: 50%;
-      font-size: 20px;
+      font-size: 16px;
     }
 
     #${BANNER_ID}-content {
       flex: 1;
       min-width: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      overflow: hidden;
     }
 
     #${BANNER_ID}-title {
-      font-size: 15px;
+      font-size: 13px;
       font-weight: 600;
-      margin: 0 0 4px 0;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      margin: 0;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     #${BANNER_ID}-message {
-      font-size: 13px;
-      line-height: 1.5;
-      margin: 0;
-      opacity: 0.95;
+      font-size: 11px;
+      line-height: 1.1;
+      margin: 1px 0 0 0;
+      opacity: 0.85;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     #${BANNER_ID}-defaults {
-      font-size: 12px;
-      margin: 8px 0 0 0;
-      padding: 8px 12px;
-      background: rgba(0, 0, 0, 0.15);
-      border-radius: 6px;
-      border-left: 3px solid rgba(255, 255, 255, 0.5);
+      display: none;
     }
 
     #${BANNER_ID}-defaults-title {
@@ -116,14 +128,19 @@ const ConfigurationWarningBanner = (function() {
 
     #${BANNER_ID}-btn-configure,
     #${BANNER_ID}-btn-dismiss {
-      padding: 10px 20px;
+      padding: 6px 16px;
       border: none;
-      border-radius: 6px;
-      font-size: 13px;
+      border-radius: 4px;
+      font-size: 12px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s ease;
       white-space: nowrap;
+      height: 32px;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     #${BANNER_ID}-btn-configure {

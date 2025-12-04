@@ -26,7 +26,7 @@ const CaseDomUtils = {
    */
   getVisibleCaseHeaderElement() {
     const container = this.getVisibleHighlightsContainer();
-    if (!container) {
+    if (!container || this.isElementVisible(container) === false) {
       return null;
     }
 
@@ -41,7 +41,7 @@ const CaseDomUtils = {
    */
   getVisibleCaseHeaderText() {
     const headerElement = this.getVisibleCaseHeaderElement();
-    if (!headerElement) {
+    if (!headerElement || this.isElementVisible(headerElement) === false) {
       return null;
     }
 

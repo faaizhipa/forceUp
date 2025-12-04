@@ -118,6 +118,7 @@ const CaseDataExtractor = {
     if (typeof CaseDomUtils !== 'undefined') {
       const subject = CaseDomUtils.getVisibleCaseSubject();
       if (subject) {
+        console.log('Using visible case subject: [caseDataExtractor].getSubject()', subject);
         return subject;
       }
     }
@@ -125,7 +126,9 @@ const CaseDataExtractor = {
     const header = this.getHeaderText();
     if (!header) return null;
     const parts = header.split(' - ');
+     console.log('Using visible case subject: [caseDataExtractor].getHeaderText()', parts);
     return parts.length > 1 ? parts.slice(1).join(' - ').trim() : header.trim();
+   
   },
 
   /**
@@ -136,7 +139,7 @@ const CaseDataExtractor = {
   getHeaderText() {
     if (typeof CaseDomUtils !== 'undefined') {
       const header = CaseDomUtils.getVisibleCaseHeaderText();
-      if (header) {
+      if (header ) {
         return header;
       }
     }
