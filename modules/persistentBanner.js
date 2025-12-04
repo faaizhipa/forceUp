@@ -4072,6 +4072,14 @@ const PersistentBanner = {
             });
         }
 
+        // Handle timezone field click - opens timezone comparison popup
+        if (this.elements.timezoneItem) {
+            this.elements.timezoneItem.addEventListener('click', (event) => {
+                event.stopPropagation();
+                this.handleTimezoneClick();
+            });
+        }
+
         // Handle environment button clicks (from popup menu)
         banner.addEventListener('click', (event) => {
             const envButton = event.target.closest('[data-env-url]');
@@ -6129,6 +6137,42 @@ const PersistentBanner = {
             });
             this.elements.wikiPopupContent.appendChild(button);
         });
+    },
+
+    /**
+     * Handle timezone field click - opens timezone comparison popup
+     * Shows the TimezonePopupWidget with customer timezone as target
+     * and user's local timezone as source
+     */
+    async handleTimezoneClick() {
+        console.log('[PersistentBanner] Timezone field clicked');
+
+        // Get customer timezone from metadata
+        const customerTimezone = this.customerMetadata?.timezone || 
+                                 this.fullCaseMetadata?.timezone ||
+                                 null;
+
+        if (!customerTimezone) {
+            console.warn('[PersistentBanner] No customer timezone available');
+            this.showNotification('Customer timezone not available', 'warning');
+            return;
+        }
+
+        // Check if TimezonePopupWidget is available
+        if (typeof TimezonePopupWidget === 'undefined') {
+            console.error('[PersistentBanner] TimezonePopupWidget module not loaded');
+            this.showNotification('Timezone widget not available', 'error');
+            return;
+        }
+
+        try {
+            // Show the popup with customer timezone
+            await TimezonePopupWidget.show(customerTimezone);
+            console.log('[PersistentBanner] Timezone popup opened for:', customerTimezone);
+        } catch (error) {
+            console.error('[PersistentBanner] Error opening timezone popup:', error);
+            this.showNotification('Failed to open timezone comparison', 'error');
+        }
     },
 
     /**

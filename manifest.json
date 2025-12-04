@@ -60,6 +60,7 @@
             "modules/configurationWarningBanner.js",
             "modules/colorHandlerConfig.js",
             "modules/colorPicker3D.js",
+            "modules/timezonePopupWidget.js",
             "modules/persistentBanner.js",
             "modules/implementationStatus.js",
             "content_script_exlibris.js"

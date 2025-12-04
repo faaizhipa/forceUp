@@ -216,6 +216,23 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     font-size: 11px;
 }
 
+/* Clickable timezone item */
+#exl-banner-timezone-item {
+    pointer-events: auto;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+}
+
+#exl-banner-timezone-item:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+#exl-banner-timezone-item:active {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
 /* Actions section */
 .exl-banner-actions {
     flex: 0 0 auto;

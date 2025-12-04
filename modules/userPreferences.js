@@ -45,6 +45,9 @@ const UserPreferences = (function() {
       detected: null  // Last detected SF timezone
     },
 
+    // Favorite Timezones for timezone comparison widget
+    favoriteTimezones: [],  // Array of IANA timezone identifiers
+
     // IRT (Initial Response Time) Expectations
     irt: {
       useTeamDefaults: true,  // Use team-specific IRT from teamConfigs
