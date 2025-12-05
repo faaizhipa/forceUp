@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Global Sync Widget</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      width: 400px;
+      min-height: 300px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+    }
+
+    .popup-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px;
+      border-bottom: 1px solid #2d2d44;
+    }
+
+    .popup-header h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .settings-btn {
+      padding: 6px 10px;
+      font-size: 11px;
+      border: 1px solid #4a4a6a;
+      background: transparent;
+      color: #fff;
+      cursor: pointer;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+
+    .settings-btn:hover {
+      background: #4a4a6a;
+    }
+
+    #widget-container {
+      padding: 16px;
+    }
+
+    .settings-panel {
+      padding: 16px;
+      display: none;
+    }
+
+    .settings-panel.active {
+      display: block;
+    }
+
+    .settings-group {
+      margin-bottom: 16px;
+    }
+
+    .settings-group label {
+      display: block;
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 6px;
+    }
+
+    .settings-group select,
+    .settings-group input {
+      width: 100%;
+      padding: 10px;
+      font-size: 13px;
+      background: #2d2d44;
+      border: 1px solid #4a4a6a;
+      border-radius: 6px;
+      color: #fff;
+    }
+
+    .settings-group select:focus,
+    .settings-group input:focus {
+      outline: none;
+      border-color: #6366f1;
+    }
+
+    .favorites-list {
+      margin-top: 8px;
+    }
+
+    .favorite-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      background: #2d2d44;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+
+    .favorite-item button {
+      padding: 4px 8px;
+      font-size: 10px;
+      border: none;
+      background: #ef4444;
+      color: #fff;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+
+    .add-favorite-btn {
+      width: 100%;
+      padding: 10px;
+      font-size: 12px;
+      border: 1px dashed #4a4a6a;
+      background: transparent;
+      color: #888;
+      cursor: pointer;
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+
+    .add-favorite-btn:hover {
+      border-color: #6366f1;
+      color: #6366f1;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .btn-primary {
+      flex: 1;
+      padding: 10px;
+      font-size: 13px;
+      border: none;
+      background: #6366f1;
+      color: #fff;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+
+    .btn-primary:hover {
+      background: #5558dd;
+    }
+
+    .btn-secondary {
+      flex: 1;
+      padding: 10px;
+      font-size: 13px;
+      border: 1px solid #4a4a6a;
+      background: transparent;
+      color: #fff;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+
+    .btn-secondary:hover {
+      background: #2d2d44;
+    }
+
+    .search-container {
+      position: relative;
+      margin-bottom: 8px;
+    }
+
+    .search-container input {
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 12px;
+      background: #2d2d44;
+      border: 1px solid #4a4a6a;
+      border-radius: 6px;
+      color: #fff;
+    }
+
+    .timezone-dropdown {
+      max-height: 200px;
+      overflow-y: auto;
+      background: #2d2d44;
+      border: 1px solid #4a4a6a;
+      border-radius: 6px;
+      display: none;
+    }
+
+    .timezone-dropdown.active {
+      display: block;
+    }
+
+    .timezone-option {
+      padding: 8px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .timezone-option:hover {
+      background: #4a4a6a;
+    }
+  </style>
+</head>
+<body>
+  <div class="popup-header">
+    <h1>Global Sync</h1>
+    <button class="settings-btn" id="toggle-settings">Settings</button>
+  </div>
+
+  <div id="widget-container"></div>
+
+  <div class="settings-panel" id="settings-panel">
+    <div class="settings-group">
+      <label>My Timezone</label>
+      <select id="local-timezone"></select>
+    </div>
+
+    <div class="settings-group">
+      <label>Customer Timezone</label>
+      <select id="customer-timezone"></select>
+    </div>
+
+    <div class="settings-group">
+      <label>Favorite Timezones</label>
+      <div class="favorites-list" id="favorites-list"></div>
+      <div class="search-container" id="add-favorite-container" style="display: none;">
+        <input type="text" id="favorite-search" placeholder="Search timezone...">
+        <div class="timezone-dropdown" id="timezone-dropdown"></div>
+      </div>
+      <button class="add-favorite-btn" id="add-favorite-btn">+ Add Favorite</button>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn-secondary" id="cancel-btn">Cancel</button>
+      <button class="btn-primary" id="save-btn">Save</button>
+    </div>
+  </div>
+
+  <script src="modules/timezoneUtils.js"></script>
+  <script src="modules/globalSyncWidget.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

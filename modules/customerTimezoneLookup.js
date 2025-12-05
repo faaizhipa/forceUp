@@ -21,7 +21,7 @@ const CustomerTimezoneLookup = (function() {
   // ========= PUBLIC API =========
 
   return {
-    async init() {
+    async  init() {
       if (isInitialized) return;
       if (!initPromise) {
         initPromise = initialize();

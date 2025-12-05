@@ -1,6 +1,6 @@
 # Salesforce Chrome Extension - Copilot Instructions
 
-**IMPORTANT:** Before making any changes, review **[PROJECT_RULES.md](../PROJECT_RULES.md)** for comprehensive project rules and agent guidelines.
+**IMPORTANT:** Before making any changes, review **[PROJECT_RULES.md](../PROJECT_RULES.md)** _and_ the condensed knowledge base in **[explaination.md](../explaination.md)** so new work aligns with current architecture and lessons learned.
 
 ## Project Overview
 This is a **Manifest V3 Chrome Extension** for Salesforce (Lightning/Console/Visualforce), specifically targeting ProQuest/Ex Libris case management workflows. The extension provides dynamic menus, field highlighting, URL generation, comment memory, and text formatting capabilities.
@@ -265,9 +265,13 @@ new MutationObserver(() => {
    - Include lessons learned
    - Link to related issues/PRs
 
+4. **Knowledge Base Sync**
+  - Update `../explaination.md` whenever you learn something new about architecture, data flow, or best practices
+  - Mirror any high-level discoveries back into this instruction file if they affect agent guidance
+
 ### Common Patterns
 
-See **[BEST_PRACTICES.md](../../BEST_PRACTICES.md)** for:
+See **[BEST_PRACTICES.md](../BEST_PRACTICES.md)** for:
 - Complete do's/don'ts list
 - Coding patterns (IIFE, Object, Initialization, Cleanup)
 - Redundancies and inconsistencies
@@ -279,7 +283,8 @@ See **[BEST_PRACTICES.md](../../BEST_PRACTICES.md)** for:
 - **Entry points**: `content_script_exlibris.js` (controller), `background.js` (router)
 - **Core modules**: `pageIdentifier.js`, `caseDataExtractor.js`, `dynamicMenu.js`, `cacheManager.js`
 - **Comprehensive Docs**: 
-  - `explanation.md` (overview with navigation links)
+  - `explaination.md` (condensed knowledge base + do/don't list)
+  - `explanation.md` (legacy overview with navigation links)
   - `FUNCTIONS.md` (complete function catalog)
   - `SELECTORS.md` (DOM selector registry)
   - `DEPENDENCIES.md` (dependency graph)

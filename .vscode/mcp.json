@@ -1,17 +1,37 @@
 {
-  "servers": {
-    "m365agentstoolkit": {
-      "command": "npx",
-      "args": [
-        "@microsoft/m365agentstoolkit-mcp@latest",
-        "server",
-        "start"
-      ]
-    },
-    "browsermcp": {
-      "command": "npx",
-      // "@browsermcp/mcp@latest" runs the Browser MCP server for local development and testing.
-      "args": ["@browsermcp/mcp@latest"]
-    }
-  }
+	"servers": {
+		"m365agentstoolkit": {
+			"command": "npx",
+			"args": [
+				"@microsoft/m365agentstoolkit-mcp@latest",
+				"server",
+				"start"
+			],
+			"type": "stdio"
+		},
+		"browsermcp": {
+			"command": "npx",
+			"args": [
+				"@browsermcp/mcp@latest"
+			],
+			"type": "stdio"
+		},
+		"io.github.github/github-mcp-server": {
+			"type": "http",
+			"url": "https://api.githubcopilot.com/mcp/",
+			"headers": {
+				"Authorization": "${input:Authorization}"
+			},
+			"gallery": "https://api.mcp.github.com",
+			"version": "0.24.0"
+		}
+	},
+	"inputs": [
+		{
+			"id": "Authorization",
+			"type": "promptString",
+			"description": "Authentication token (PAT or App token)",
+			"password": true
+		}
+	]
 }

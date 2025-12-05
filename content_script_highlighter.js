@@ -34,9 +34,10 @@
   function isDefaultBannerDomain() {
     const DEFAULT_BANNER_DOMAINS = [
       'support.clarivate.com',
-      'developers.exlibrisgroup.com',
-      'knowledge.exlibrisgroup.com',
-      'wiki.clarivate.io'
+      'wiki.clarivate.io',
+      'jira.clarivate.io',
+      'exlibrisgroup.com',
+
     ];
     
     try {
