@@ -12,22 +12,9 @@
     "default_path": "sidepanel.html"
    },
    "background": {
-      "service_worker": ["background.js", "background_backup.js"]
+      "service_worker": "background.js"
    },
    "content_scripts": [
-   //    {
-   //       "matches": [
-   //          "https://proquestllc.lightning.force.com/*",
-   //          "https://clarivateanalytics.lightning.force.com/*", 
-   //          "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*"
-   //       ],
-   //       "js": [
-   //          "modules/interceptor.js"
-   //       ],
-   //       "world": "MAIN",
-   //       "run_at": "document_start"
-
-   //    },
       {
          "matches": [
             "https://proquestllc.lightning.force.com/*",
@@ -50,6 +37,8 @@
             "modules/customerDataManager.js",
             "modules/customerTimezoneLookup.js",
             "modules/userCustomerDataManager.js",
+            "modules/TimezoneUtils.js",
+            "modules/globalSyncWidget.js"
          ],
          "run_at": "document_start"
 
@@ -82,12 +71,13 @@
             "modules/timezonePopupWidget.js",
             "modules/persistentBanner.js",
             "modules/implementationStatus.js",
+            "modules/timezoneSyncWidget.js",
             "content_script_exlibris.js"
          ],
          "matches": [
             "https://proquestllc.lightning.force.com/*",
             "https://clarivateanalytics.lightning.force.com/*", 
-            "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*", 
+            "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*"
          ],
          "run_at": "document_idle",
          "css": [ 

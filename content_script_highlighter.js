@@ -132,6 +132,58 @@
     closeButtonElement: null,
 
     /**
+     * Safe storage helpers to tolerate invalidated contexts
+     */
+    safeLocalGet(keys, cb) {
+      try {
+        chrome.storage.local.get(keys, (result) => {
+          const err = chrome.runtime.lastError;
+          if (err) {
+            console.warn('[HighlighterController] storage.local.get failed:', err);
+            cb({});
+            return;
+          }
+          cb(result || {});
+        });
+      } catch (error) {
+        console.warn('[HighlighterController] storage.local.get threw:', error);
+        cb({});
+      }
+    },
+
+    safeLocalSet(items, cb = () => {}) {
+      try {
+        chrome.storage.local.set(items, () => {
+          const err = chrome.runtime.lastError;
+          if (err) {
+            console.warn('[HighlighterController] storage.local.set failed:', err);
+          }
+          cb();
+        });
+      } catch (error) {
+        console.warn('[HighlighterController] storage.local.set threw:', error);
+        cb();
+      }
+    },
+
+    safeSyncGet(keys, cb) {
+      try {
+        chrome.storage.sync.get(keys, (result) => {
+          const err = chrome.runtime.lastError;
+          if (err) {
+            console.warn('[HighlighterController] storage.sync.get failed:', err);
+            cb({});
+            return;
+          }
+          cb(result || {});
+        });
+      } catch (error) {
+        console.warn('[HighlighterController] storage.sync.get threw:', error);
+        cb({});
+      }
+    },
+
+    /**
      * Initialize controller
      * Follows best practices: feature flag check, early returns, error handling
      */
@@ -257,7 +309,7 @@
       
       // Fallback to direct storage check with consistent logic
       return new Promise((resolve) => {
-        chrome.storage.sync.get(['exlibris'], (result) => {
+        this.safeSyncGet(['exlibris'], (result) => {
           // Consistent check: !== false (undefined/true = enabled, false = disabled)
           const enabled = result.exlibris?.features?.highlighterEnabled !== false;
           resolve(enabled);
@@ -295,7 +347,7 @@
      */
     async isInBannerWhitelist(url) {
       return new Promise((resolve) => {
-        chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
+        this.safeLocalGet(['exl_hl_banner_whitelist'], (result) => {
           const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
           
           try {
@@ -349,7 +401,7 @@
      */
     async isDomainPermanentlyDismissed(domain) {
       return new Promise((resolve) => {
-        chrome.storage.local.get(['exl_hl_banner_dismissals'], (result) => {
+        this.safeLocalGet(['exl_hl_banner_dismissals'], (result) => {
           const dismissals = result.exl_hl_banner_dismissals || {};
           const domainData = dismissals[domain] || {};
           resolve(domainData.dismissed === true);
@@ -364,7 +416,7 @@
      */
     async isUrlPermanentlyDismissed(url) {
       return new Promise((resolve) => {
-        chrome.storage.local.get(['exl_hl_banner_page_dismissals'], (result) => {
+        this.safeLocalGet(['exl_hl_banner_page_dismissals'], (result) => {
           const pageDismissals = result.exl_hl_banner_page_dismissals || {};
           resolve(pageDismissals[url] === true);
         });
@@ -469,7 +521,7 @@
      */
     async trackBannerDismissal(domain, url) {
       return new Promise((resolve) => {
-        chrome.storage.local.get(['exl_hl_banner_dismissals'], (result) => {
+        this.safeLocalGet(['exl_hl_banner_dismissals'], (result) => {
           const dismissals = result.exl_hl_banner_dismissals || {};
           
           if (!dismissals[domain]) {
@@ -488,7 +540,7 @@
           // Check if we should show modal (3rd attempt and modal not shown yet)
           const shouldShowModal = dismissals[domain].count === 3 && !dismissals[domain].modalShown;
           
-          chrome.storage.local.set({ exl_hl_banner_dismissals: dismissals }, () => {
+          this.safeLocalSet({ exl_hl_banner_dismissals: dismissals }, () => {
             console.log(`[HighlighterController] Tracked dismissal for ${domain}, count: ${dismissals[domain].count}`);
             resolve({
               count: dismissals[domain].count,
@@ -524,10 +576,10 @@
      */
     async dismissBannerPermanentlyForUrl(url) {
       return new Promise((resolve) => {
-        chrome.storage.local.get(['exl_hl_banner_page_dismissals'], (result) => {
+        this.safeLocalGet(['exl_hl_banner_page_dismissals'], (result) => {
           const pageDismissals = result.exl_hl_banner_page_dismissals || {};
           pageDismissals[url] = true;
-          chrome.storage.local.set({ exl_hl_banner_page_dismissals: pageDismissals }, () => {
+          this.safeLocalSet({ exl_hl_banner_page_dismissals: pageDismissals }, () => {
             console.log('[HighlighterController] Banner permanently dismissed for URL:', url);
             resolve();
           });
@@ -542,7 +594,7 @@
      */
     async dismissBannerPermanentlyForDomain(domain) {
       return new Promise((resolve) => {
-        chrome.storage.local.get(['exl_hl_banner_dismissals'], (result) => {
+        this.safeLocalGet(['exl_hl_banner_dismissals'], (result) => {
           const dismissals = result.exl_hl_banner_dismissals || {};
           
           if (!dismissals[domain]) {
@@ -552,7 +604,7 @@
           dismissals[domain].dismissed = true;
           dismissals[domain].count = 0; // Reset count
           
-          chrome.storage.local.set({ exl_hl_banner_dismissals: dismissals }, () => {
+          this.safeLocalSet({ exl_hl_banner_dismissals: dismissals }, () => {
             console.log('[HighlighterController] Banner permanently dismissed for domain:', domain);
             resolve();
           });
@@ -567,7 +619,7 @@
      */
     async markModalShownForDomain(domain) {
       return new Promise((resolve) => {
-        chrome.storage.local.get(['exl_hl_banner_dismissals'], (result) => {
+        this.safeLocalGet(['exl_hl_banner_dismissals'], (result) => {
           const dismissals = result.exl_hl_banner_dismissals || {};
           
           if (!dismissals[domain]) {
@@ -577,7 +629,7 @@
           dismissals[domain].modalShown = true;
           dismissals[domain].count = 0; // Reset count
           
-          chrome.storage.local.set({ exl_hl_banner_dismissals: dismissals }, () => {
+          this.safeLocalSet({ exl_hl_banner_dismissals: dismissals }, () => {
             resolve();
           });
         });
@@ -592,7 +644,7 @@
      */
     async addToBannerWhitelist(type, value) {
       return new Promise((resolve) => {
-        chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
+        this.safeLocalGet(['exl_hl_banner_whitelist'], (result) => {
           const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
           
           try {
@@ -608,7 +660,7 @@
               }
             }
             
-            chrome.storage.local.set({ exl_hl_banner_whitelist: whitelist }, () => {
+            this.safeLocalSet({ exl_hl_banner_whitelist: whitelist }, () => {
               console.log('[HighlighterController] Added to whitelist:', type, value);
               resolve(true);
             });
@@ -628,7 +680,7 @@
      */
     async removeFromBannerWhitelist(type, value) {
       return new Promise((resolve) => {
-        chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
+        this.safeLocalGet(['exl_hl_banner_whitelist'], (result) => {
           const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
           
           try {
@@ -639,7 +691,7 @@
               whitelist.urls = whitelist.urls.filter(u => u !== value);
             }
             
-            chrome.storage.local.set({ exl_hl_banner_whitelist: whitelist }, () => {
+            this.safeLocalSet({ exl_hl_banner_whitelist: whitelist }, () => {
               console.log('[HighlighterController] Removed from whitelist:', type, value);
               resolve(true);
             });
@@ -1294,7 +1346,7 @@
       
       // Clear permanent URL dismissal
       return new Promise((resolve) => {
-        chrome.storage.local.get(['exl_hl_banner_page_dismissals', 'exl_hl_banner_dismissals'], (result) => {
+        this.safeLocalGet(['exl_hl_banner_page_dismissals', 'exl_hl_banner_dismissals'], (result) => {
           const pageDismissals = result.exl_hl_banner_page_dismissals || {};
           const dismissals = result.exl_hl_banner_dismissals || {};
           
@@ -1308,7 +1360,7 @@
             dismissals[currentDomain].modalShown = false;
           }
           
-          chrome.storage.local.set({
+          this.safeLocalSet({
             exl_hl_banner_page_dismissals: pageDismissals,
             exl_hl_banner_dismissals: dismissals
           }, () => {
@@ -1850,6 +1902,13 @@
       const ADJUSTMENT_ATTR = 'data-exl-hl-adjusted';
       
       try {
+        // Only adjust when banner (or early padding) is actually in play
+        const bannerActive = !!(this.bannerElement && this.bannerElement.isConnected && this.bannerElement.offsetParent !== null);
+        const earlyApplied = !!window.__exlHlEarlyLayoutApplied;
+        if (!bannerActive && !earlyApplied) {
+          return;
+        }
+
         // Find all elements that might be fixed headers
         const allElements = document.querySelectorAll('*');
         const fixedElements = [];
@@ -1858,7 +1917,8 @@
           // Skip if already adjusted or if it's our banner
           if (el.hasAttribute(ADJUSTMENT_ATTR) || 
               el.id === 'exl-hl-banner' || 
-              el.classList.contains('exl-hl-banner')) {
+              el.classList.contains('exl-hl-banner') ||
+              el.closest(`[${ADJUSTMENT_ATTR}]`)) {
             return;
           }
           
@@ -1868,7 +1928,7 @@
           
           // Check if element is fixed/sticky and at top of page
           if ((position === 'fixed' || position === 'sticky') && 
-              (isNaN(top) || top <= 10)) {
+              (isNaN(top) || top <= 2)) {
             fixedElements.push(el);
           }
         });
@@ -1876,7 +1936,7 @@
         // Adjust fixed elements
         fixedElements.forEach(el => {
           const currentTop = parseInt(window.getComputedStyle(el).top, 10);
-          const newTop = isNaN(currentTop) || currentTop < BANNER_HEIGHT_PX 
+          const newTop = isNaN(currentTop) || currentTop >= BANNER_HEIGHT_PX 
             ? BANNER_HEIGHT_PX 
             : currentTop + BANNER_HEIGHT_PX;
           
@@ -1944,13 +2004,14 @@
               }
             `;
             document.head.appendChild(earlyStyle);
+            return;
           }
           
           // Strategy 2: Apply inline styles as backup (padding only, no margin)
           if (document.body) {
             // Check element existence (best practice)
             const currentPadding = parseInt(window.getComputedStyle(document.body).paddingTop, 10);
-            if (isNaN(currentPadding) || currentPadding < BANNER_HEIGHT_PX) {
+            if (isNaN(currentPadding) || currentPadding < 2 || currentPadding < BANNER_HEIGHT_PX) {
               document.body.style.paddingTop = `${BANNER_HEIGHT_PX}px`;
             }
             // Remove margin to prevent double spacing

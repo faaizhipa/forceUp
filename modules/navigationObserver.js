@@ -4,7 +4,10 @@
  * Handles route changes without full page reloads
  */
 
-const NavigationObserver = {
+const NavigationObserver = (function(){
+    'use strict';
+
+    let observer = {
     callbacks: [],
     priorityCallbacks: [], // Callbacks that should run first (e.g., PageIdentifier)
     currentUrl: null,
@@ -305,8 +308,11 @@ const NavigationObserver = {
 
         console.log('[EXL] NavigationObserver: Stopped');
     }
-};
+}
 
+    return observer;
+})();
+    
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = NavigationObserver;

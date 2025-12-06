@@ -35,6 +35,40 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2025-12-06] - Documentation - Knowledge base snapshot refresh
+
+**Description**: Added a concise snapshot section to `explaination.md` capturing purpose, surfaces, critical modules, data flow, dependencies, and doc hygiene expectations so new contributors and AI agents can orient quickly.
+
+**Files Changed**:
+
+- `explaination.md`
+- `CHANGES.md`
+
+**Lessons Learned**:
+
+- Front-loading a snapshot reduces context-switching and duplication across docs; keep it updated whenever architecture or practices change.
+- Documentation changes still need traceability—log them with dates and file lists to avoid silent drift.
+
+**Related Issues/PRs**: n/a
+
+### [2025-12-06] - Bug Fixes - Restore utility scripts for background/side panel
+
+**Description**: Added the missing `utils` scripts (Storage, Google Drive, AI helpers, export/import) alongside the packaged extension so the background service worker and side panel can load their dependencies without `importScripts` failures.
+
+**Files Changed**:
+
+- `utils/storage.js`
+- `utils/google-drive.js`
+- `utils/ai.js`
+- `utils/export-import.js`
+
+**Lessons Learned**:
+
+- Service worker import paths must point to shipped files; keep source and packaged directories in sync.
+- Shared utility scripts used by multiple extension surfaces (background, side panel) need to live in the distributed root, not only in `/src`.
+
+**Related Issues/PRs**: n/a
+
 ### [2025-12-05] - Documentation - Condensed Knowledge Base & Copilot Guidance Refresh
 
 **Description**: Created `explaination.md` as the single-stop knowledge base that maps structure, data flow, dependencies, best practices, and open questions for the extension. Updated `.github/copilot-instructions.md` to reference the new document, require ongoing synchronization, and corrected the broken link to `BEST_PRACTICES.md`.

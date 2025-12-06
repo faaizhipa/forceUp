@@ -21,15 +21,16 @@
   const ExLibrisExtension = {
     currentPage: null,
     currentCaseId: null,
-    lastUrl: null, // Track last URL for navigation detection
+    lastUrl: window.location.href, // Track last URL for navigation detection
     isInitialized: false,
     initializationDebounceTimer: null,
     isInitializing: false,
     
-    // API-sourced case data (from FetchInterceptor)
-    apiCaseData: null,           // Flattened field map from API response
-    apiCaseDataTimestamp: null,  // Timestamp when data was captured
-    apiCaseDataRaw: null,        // Full API response (optional, for debugging)
+    // Legacy API data (deprecated - kept for backwards compatibility)
+    // New data flow uses InterceptorCacheManager via EXLIBRIS_DATA_UPDATED event
+    apiCaseData: null,
+    apiCaseDataTimestamp: null,
+    apiCaseDataRaw: null,
     
     caseToolkit: {
       metadata: null,
@@ -62,6 +63,13 @@
         Logger.info('Logger initialized');
       }
 
+      // NOTE: Legacy _pendingApiCaseData pattern removed
+      // New data flow uses InterceptorCacheManager via EXLIBRIS_DATA_UPDATED event
+
+      // NOTE: window._pendingFectchedCaseData pattern removed
+      // interceptor.js runs in MAIN world, content scripts in ISOLATED world
+      // Cross-world window access doesn't work - use event-based communication instead
+
       // Initialize SettingsManager first
       if (typeof SettingsManager !== 'undefined') {
         await SettingsManager.init();
@@ -71,20 +79,12 @@
         console.warn('[ExLibris Extension] SettingsManager not loaded, using defaults');
       }
 
-      // Initialize CustomerDataManager
-      if (typeof CustomerDataManager !== 'undefined') {
-        await CustomerDataManager.init();
-        console.log('[ExLibris Extension] CustomerDataManager initialized');
+      // Initialize CustomerMasterManager (unified customer data and timezone resolution)
+      if (typeof CustomerMasterManager !== 'undefined') {
+        await CustomerMasterManager.init();
+        console.log('[ExLibris Extension] CustomerMasterManager initialized');
       } else {
-        console.warn('[ExLibris Extension] CustomerDataManager not loaded');
-      }
-
-      // Initialize CustomerTimezoneLookup
-      if (typeof CustomerTimezoneLookup !== 'undefined') {
-        await CustomerTimezoneLookup.init();
-        console.log('[ExLibris Extension] CustomerTimezoneLookup initialized');
-      } else {
-        console.warn('[ExLibris Extension] CustomerTimezoneLookup not loaded');
+        console.warn('[ExLibris Extension] CustomerMasterManager not loaded');
       }
 
       // Initialize NavigationObserver for SPA navigation
@@ -97,6 +97,22 @@
         });
         Logger?.info('NavigationObserver initialized');
       }
+
+      // Listen for pageInfoInitializer updates (from document_start initialization)
+      // This provides early page identification before DOM is fully ready
+      document.addEventListener('exLibrisPageInfoUpdated', (event) => {
+        const { pageInfo, source, previousPageInfo } = event.detail || {};
+        Logger?.info('Received exLibrisPageInfoUpdated event:', {
+          type: pageInfo?.type,
+          source,
+          changed: previousPageInfo?.type !== pageInfo?.type
+        });
+        
+        // Only trigger page change if page type actually changed
+        if (pageInfo && (!previousPageInfo || previousPageInfo.type !== pageInfo.type)) {
+          this.handlePageChange(pageInfo);
+        }
+      });
 
       // Initialize CaseContextWatcher (depends on NavigationObserver signals)
       if (typeof CaseContextWatcher !== 'undefined') {
@@ -112,6 +128,44 @@
       } else {
         console.warn('[ExLibris Extension] CaseDataStore not loaded');
       }
+
+      // Legacy caseDataFromApi listener (deprecated - kept for backwards compatibility)
+      document.addEventListener('caseDataFromApi', (event) => {
+        const { data, timestamp } = event.detail;
+        this.apiCaseData = data;
+        this.apiCaseDataTimestamp = timestamp;
+        console.log('[ExLibris Extension] Received legacy API case data via event:', {
+          caseNumber: data?.CaseNumber,
+          fieldCount: Object.keys(data || {}).length
+        });
+      });
+
+      // Listen for EXLIBRIS_DATA_UPDATED events from interceptor.js (MAIN world)
+      // IMPORTANT: interceptor.js dispatches on window, so we must listen on window
+      window.addEventListener('EXLIBRIS_DATA_UPDATED', async (event) => {
+        const rawCaseData = event.detail;
+        console.log('[ExLibris Extension] Received interceptor data:', rawCaseData?.CaseNumber);
+
+        // Store and enrich via InterceptorCacheManager
+        if (rawCaseData?.CaseNumber && typeof InterceptorCacheManager !== 'undefined') {
+          try {
+            const enrichedData = await InterceptorCacheManager.store(rawCaseData.CaseNumber, rawCaseData);
+            console.log('[ExLibris Extension] Cached enriched interceptor data for case:', rawCaseData.CaseNumber);
+          } catch (error) {
+            console.error('[ExLibris Extension] Failed to cache interceptor data:', error);
+          }
+        }
+
+        // Send to popup/background script
+        try {
+          chrome.runtime.sendMessage({
+            type: "CASE_DATA_CAPTURED",
+            payload: rawCaseData
+          });
+        } catch (error) {
+          // Ignore if popup is not open
+        }
+      });
 
       // Listen for caseDataMismatch events to trigger re-extraction
       document.addEventListener('caseDataMismatch', async (event) => {
@@ -304,6 +358,10 @@
       this.isInitializing = true;
       
       try {
+        if (pageInfo.url === this.lastUrl) {
+          console.log('[ExLibris Extension] Page same as last URL, skipping initialization');
+          return;
+        }
         console.log('[ExLibris Extension] Page changed:', pageInfo);
 
         // Track URL to detect actual navigation
@@ -331,17 +389,16 @@
             status: null,
             subStatus: null
           });
+          if (urlChanged) {
+            console.log('[ExLibris Extension] URL changed, waiting for page to settle...');
+            // Clear any existing features (but NOT PersistentBanner - it persists)
+            console.log('[ExLibris Extension] Cleaning up previous page features (URL changed: ' + urlChanged + ')');
+            this.cleanup();
+            await new Promise(resolve => setTimeout(resolve, 800));
+          }
         }
-
-        // Clear any existing features (but NOT PersistentBanner - it persists)
-        console.log('[ExLibris Extension] Cleaning up previous page features (URL changed: ' + urlChanged + ')');
-        this.cleanup();
 
         // If URL changed, add a delay to allow DOM to settle
-        if (urlChanged) {
-          console.log('[ExLibris Extension] URL changed, waiting for page to settle...');
-          await new Promise(resolve => setTimeout(resolve, 800));
-        }
 
         // Initialize features based on page type
         console.log('[ExLibris Extension] Checking page type:', pageInfo.type);
@@ -460,6 +517,12 @@
         console.log('[ExLibris Extension] MultiTabSync initialized');
       }
 
+      // Enable Case Comment Extractor on Communications tab
+      this.ensureCaseCommentExtractor({
+        type: PageIdentifier?.pageTypes?.CASE_PAGE,
+        view: PageIdentifier?.detectCasePageView?.() || this.currentPage?.view
+      });
+
       console.log('[ExLibris Extension] Case page features initialized');
     },
 
@@ -481,6 +544,37 @@
       if (typeof CharacterCounter !== 'undefined' &&
           SettingsManager.isFeatureEnabled('characterCounter')) {
         CharacterCounter.init();
+      }
+
+      // Ensure Case Comment Extractor is active on comments view
+      this.ensureCaseCommentExtractor({
+        type: PageIdentifier?.pageTypes?.CASE_COMMENTS,
+        view: 'case_comments'
+      });
+    },
+
+    /**
+     * Initializes or cleans up CaseCommentExtractor based on page context
+     * @param {Object} pageInfo
+     */
+    ensureCaseCommentExtractor(pageInfo) {
+      if (typeof CaseCommentExtractor === 'undefined') {
+        return;
+      }
+
+      const isCaseCommentsPage = pageInfo?.type === PageIdentifier?.pageTypes?.CASE_COMMENTS;
+      const isCommunicationTab = pageInfo?.type === PageIdentifier?.pageTypes?.CASE_PAGE && pageInfo?.view === 'communication';
+
+      if (isCaseCommentsPage || isCommunicationTab) {
+        CaseCommentExtractor.initialize();
+        if (typeof CaseCommentExtractor.setupNavigationMonitoring === 'function') {
+          CaseCommentExtractor.setupNavigationMonitoring();
+        }
+        return;
+      }
+
+      if (typeof CaseCommentExtractor.cleanup === 'function') {
+        CaseCommentExtractor.cleanup();
       }
     },
 
@@ -731,12 +825,29 @@
     async handleNavigationChange(url) {
       Logger?.info('Handling navigation to:', url);
       
+      // Clear legacy API data on navigation (for backwards compatibility)
+      // New data flow uses InterceptorCacheManager which handles its own cache
+      this.apiCaseData = null;
+      this.apiCaseDataTimestamp = null;
+      console.log('[ExLibris Extension] Cleared legacy API case data on navigation');
+      
       // Teardown existing features
       this.cleanup();
       
       // Re-identify page type
-      if (typeof PageIdentifier !== 'undefined') {
-        const pageInfo = PageIdentifier.identifyPage(url);
+      // Priority 1: Use window.exLibrisPageInfo if available (from pageInfoInitializer.js)
+      // Priority 2: Fall back to PageIdentifier.identifyPage()
+      let pageInfo = null;
+      
+      if (window.exLibrisPageInfo?.ready && window.exLibrisPageInfo?.current) {
+        pageInfo = window.exLibrisPageInfo.current;
+        Logger?.info('Using window.exLibrisPageInfo:', pageInfo?.type);
+      } else if (typeof PageIdentifier !== 'undefined') {
+        pageInfo = PageIdentifier.identifyPage(url);
+        Logger?.info('Using PageIdentifier.identifyPage():', pageInfo?.type);
+      }
+      
+      if (pageInfo) {
         await this.handlePageChange(pageInfo);
       }
     },
@@ -788,6 +899,11 @@
         CaseCommentMemory.cleanup();
       }
 
+      // Cleanup CaseCommentExtractor
+      if (typeof CaseCommentExtractor !== 'undefined' && CaseCommentExtractor.cleanup) {
+        CaseCommentExtractor.cleanup();
+      }
+
       // Cleanup MultiTabSync
       if (typeof MultiTabSync !== 'undefined' && MultiTabSync.cleanup) {
         MultiTabSync.cleanup();
@@ -810,8 +926,8 @@
       this.cleanup();
 
       // Cleanup all modules
-      if (typeof CustomerDataManager !== 'undefined' && CustomerDataManager.cleanup) {
-        CustomerDataManager.cleanup();
+      if (typeof CustomerMasterManager !== 'undefined' && CustomerMasterManager.cleanup) {
+        CustomerMasterManager.cleanup();
       }
       if (typeof CaseCommentMemory !== 'undefined' && CaseCommentMemory.cleanup) {
         CaseCommentMemory.cleanup();

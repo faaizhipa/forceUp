@@ -5,6 +5,96 @@
 
 let currentSettings = null;
 
+function safeSyncGet(keys) {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.sync.get(keys, (result) => {
+        if (chrome.runtime?.lastError) {
+          console.warn('[Popup] sync.get failed:', chrome.runtime.lastError);
+          resolve({});
+          return;
+        }
+        resolve(result || {});
+      });
+    } catch (error) {
+      console.warn('[Popup] sync.get threw:', error);
+      resolve({});
+    }
+  });
+}
+
+function safeSyncSet(items) {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.sync.set(items, () => {
+        if (chrome.runtime?.lastError) {
+          console.warn('[Popup] sync.set failed:', chrome.runtime.lastError);
+          resolve(false);
+          return;
+        }
+        resolve(true);
+      });
+    } catch (error) {
+      console.warn('[Popup] sync.set threw:', error);
+      resolve(false);
+    }
+  });
+}
+
+function safeLocalGet(keys) {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get(keys, (result) => {
+        if (chrome.runtime?.lastError) {
+          console.warn('[Popup] local.get failed:', chrome.runtime.lastError);
+          resolve({});
+          return;
+        }
+        resolve(result || {});
+      });
+    } catch (error) {
+      console.warn('[Popup] local.get threw:', error);
+      resolve({});
+    }
+  });
+}
+
+function safeLocalSet(items) {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.set(items, () => {
+        if (chrome.runtime?.lastError) {
+          console.warn('[Popup] local.set failed:', chrome.runtime.lastError);
+          resolve(false);
+          return;
+        }
+        resolve(true);
+      });
+    } catch (error) {
+      console.warn('[Popup] local.set threw:', error);
+      resolve(false);
+    }
+  });
+}
+
+function safeLocalRemove(keys) {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.remove(keys, () => {
+        if (chrome.runtime?.lastError) {
+          console.warn('[Popup] local.remove failed:', chrome.runtime.lastError);
+          resolve(false);
+          return;
+        }
+        resolve(true);
+      });
+    } catch (error) {
+      console.warn('[Popup] local.remove threw:', error);
+      resolve(false);
+    }
+  });
+}
+
 async function getActiveTabURL() {
   const tabs = await chrome.tabs.query({
     currentWindow: true,
@@ -17,20 +107,10 @@ async function getActiveTabURL() {
  * Loads settings from storage
  */
 async function loadSettings() {
-  return new Promise((resolve) => {
-    chrome.storage.sync.get(null, (items) => {
-      if (chrome.runtime.lastError) {
-        console.error('Error loading settings:', chrome.runtime.lastError);
-        resolve(getDefaultSettings());
-        return;
-      }
-      
-      // Merge with defaults
-      const settings = mergeWithDefaults(items);
-      currentSettings = settings;
-      resolve(settings);
-    });
-  });
+  const items = await safeSyncGet(null);
+  const settings = mergeWithDefaults(items || {});
+  currentSettings = settings;
+  return settings;
 }
 
 /**
@@ -49,18 +129,12 @@ async function saveSettings(settings) {
     }
   }
   
-  return new Promise((resolve, reject) => {
-    chrome.storage.sync.set(settings, () => {
-      if (chrome.runtime.lastError) {
-        console.error('Error saving settings:', chrome.runtime.lastError);
-        reject(chrome.runtime.lastError);
-        return;
-      }
-      currentSettings = settings;
-      console.log('Settings saved:', settings);
-      resolve();
-    });
-  });
+  const saved = await safeSyncSet(settings);
+  if (saved) {
+    currentSettings = settings;
+    console.log('Settings saved:', settings);
+  }
+  return saved;
 }
 
 /**
@@ -918,15 +992,23 @@ function getSettingsFromUI() {
  * Gets storage info
  */
 async function updateStorageInfo() {
-  chrome.storage.sync.getBytesInUse(null, (bytes) => {
-    const maxBytes = chrome.storage.sync.QUOTA_BYTES || 102400;
-    const percentage = Math.round((bytes / maxBytes) * 100);
-    const kb = (bytes / 1024).toFixed(2);
-    const maxKb = (maxBytes / 1024).toFixed(0);
-    
-    document.getElementById('storageInfo').textContent = 
-      `Using ${kb} KB / ${maxKb} KB (${percentage}%)`;
-  });
+  try {
+    chrome.storage.sync.getBytesInUse(null, (bytes) => {
+      if (chrome.runtime?.lastError) {
+        console.warn('[Popup] getBytesInUse failed:', chrome.runtime.lastError);
+        return;
+      }
+      const maxBytes = chrome.storage.sync.QUOTA_BYTES || 102400;
+      const percentage = Math.round((bytes / maxBytes) * 100);
+      const kb = (bytes / 1024).toFixed(2);
+      const maxKb = (maxBytes / 1024).toFixed(0);
+      
+      document.getElementById('storageInfo').textContent = 
+        `Using ${kb} KB / ${maxKb} KB (${percentage}%)`;
+    });
+  } catch (error) {
+    console.warn('[Popup] getBytesInUse threw:', error);
+  }
 }
 
 /**
@@ -1001,56 +1083,33 @@ async function loadHighlighterBannerActivationUI() {
       }
     });
 
-    const isInWhitelist = await new Promise((resolve) => {
-      chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
-        const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
-        try {
-          const urlObj = new URL(currentUrl);
-          const hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
-          const urlPath = urlObj.href;
-          
-          if (whitelist.urls.includes(urlPath)) {
-            resolve(true);
-            return;
-          }
-          
-          if (whitelist.domains.some(domain => {
-            const checkDomain = domain.toLowerCase().replace(/^www\./, '');
-            return hostname === checkDomain || hostname.endsWith('.' + checkDomain);
-          })) {
-            resolve(true);
-            return;
-          }
-          
-          resolve(false);
-        } catch (e) {
-          resolve(false);
+    const whitelistResult = await safeLocalGet(['exl_hl_banner_whitelist']);
+    const whitelist = whitelistResult.exl_hl_banner_whitelist || { domains: [], urls: [] };
+    const isInWhitelist = (() => {
+      try {
+        const urlObj = new URL(currentUrl);
+        const hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
+        const urlPath = urlObj.href;
+        
+        if (whitelist.urls.includes(urlPath)) {
+          return true;
         }
-      });
-    });
+        
+        return whitelist.domains.some(domain => {
+          const checkDomain = domain.toLowerCase().replace(/^www\./, '');
+          return hostname === checkDomain || hostname.endsWith('.' + checkDomain);
+        });
+      } catch (_) {
+        return false;
+      }
+    })();
 
     // Check if dismissed
     const domain = new URL(currentUrl).hostname.toLowerCase().replace(/^www\./, '');
-    const isDismissed = await new Promise((resolve) => {
-      chrome.storage.local.get(['exl_hl_banner_dismissals', 'exl_hl_banner_page_dismissals'], (result) => {
-        const dismissals = result.exl_hl_banner_dismissals || {};
-        const pageDismissals = result.exl_hl_banner_page_dismissals || {};
-        
-        // Check URL dismissal
-        if (pageDismissals[currentUrl]) {
-          resolve(true);
-          return;
-        }
-        
-        // Check domain dismissal
-        if (dismissals[domain] && dismissals[domain].dismissed) {
-          resolve(true);
-          return;
-        }
-        
-        resolve(false);
-      });
-    });
+    const dismissalResult = await safeLocalGet(['exl_hl_banner_dismissals', 'exl_hl_banner_page_dismissals']);
+    const dismissals = dismissalResult.exl_hl_banner_dismissals || {};
+    const pageDismissals = dismissalResult.exl_hl_banner_page_dismissals || {};
+    const isDismissed = Boolean(pageDismissals[currentUrl] || (dismissals[domain] && dismissals[domain].dismissed));
 
     // Banner should show if: (isDefault OR inWhitelist) AND not dismissed
     const shouldShow = (isDefaultDomain || isInWhitelist) && !isDismissed;
@@ -1087,11 +1146,9 @@ async function loadHighlighterBannerActivationUI() {
           
           if (response && response.success) {
             if (showBanner) {
-              // Clear dismissals
-              clearBannerDismissals(domain, currentUrl);
+              await clearBannerDismissals(domain, currentUrl);
             } else {
-              // Dismiss banner
-              dismissBannerInPopup(domain, currentUrl);
+              await dismissBannerInPopup(domain, currentUrl);
             }
             updateHighlighterBannerUI(showBanner);
             showSuccess(showBanner ? 'Banner restored!' : 'Banner hidden');
@@ -1226,11 +1283,8 @@ async function renderBannerWhitelist() {
   if (!listContainer) return;
 
   try {
-    const whitelist = await new Promise((resolve) => {
-      chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
-        resolve(result.exl_hl_banner_whitelist || { domains: [], urls: [] });
-      });
-    });
+    const whitelistResult = await safeLocalGet(['exl_hl_banner_whitelist']);
+    const whitelist = whitelistResult.exl_hl_banner_whitelist || { domains: [], urls: [] };
 
     if (whitelist.domains.length === 0 && whitelist.urls.length === 0) {
       listContainer.innerHTML = '<p class="info-text" style="font-size: 11px; margin: 0;">No sites added yet. Add domains or URLs to enable the banner on those sites.</p>';
@@ -1298,46 +1352,37 @@ async function renderBannerWhitelist() {
  * @returns {Promise<boolean>} True if successful
  */
 async function addToBannerWhitelist(type, value) {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
-      const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
-      
-      try {
-        if (type === 'domain') {
-          const domain = value.toLowerCase().replace(/^www\./, '').replace(/^https?:\/\//, '').split('/')[0];
-          if (!domain) {
-            resolve(false);
-            return;
-          }
-          if (!whitelist.domains.includes(domain)) {
-            whitelist.domains.push(domain);
-          }
-        } else if (type === 'url') {
-          let url = value.trim();
-          // Ensure URL has protocol
-          if (!url.startsWith('http://') && !url.startsWith('https://')) {
-            url = 'https://' + url;
-          }
-          try {
-            new URL(url); // Validate URL
-            if (!whitelist.urls.includes(url)) {
-              whitelist.urls.push(url);
-            }
-          } catch (e) {
-            resolve(false); // Invalid URL
-            return;
-          }
-        }
-        
-        chrome.storage.local.set({ exl_hl_banner_whitelist: whitelist }, () => {
-          resolve(true);
-        });
-      } catch (error) {
-        console.error('[Popup] Error adding to whitelist:', error);
-        resolve(false);
+  const whitelistResult = await safeLocalGet(['exl_hl_banner_whitelist']);
+  const whitelist = whitelistResult.exl_hl_banner_whitelist || { domains: [], urls: [] };
+  try {
+    if (type === 'domain') {
+      const domain = value.toLowerCase().replace(/^www\./, '').replace(/^https?:\/\//, '').split('/')[0];
+      if (!domain) {
+        return false;
       }
-    });
-  });
+      if (!whitelist.domains.includes(domain)) {
+        whitelist.domains.push(domain);
+      }
+    } else if (type === 'url') {
+      let url = value.trim();
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://' + url;
+      }
+      try {
+        new URL(url);
+        if (!whitelist.urls.includes(url)) {
+          whitelist.urls.push(url);
+        }
+      } catch (_) {
+        return false;
+      }
+    }
+    await safeLocalSet({ exl_hl_banner_whitelist: whitelist });
+    return true;
+  } catch (error) {
+    console.error('[Popup] Error adding to whitelist:', error);
+    return false;
+  }
 }
 
 /**
@@ -1347,26 +1392,20 @@ async function addToBannerWhitelist(type, value) {
  * @returns {Promise<boolean>} True if successful
  */
 async function removeFromBannerWhitelist(type, value) {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
-      const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
-      
-      try {
-        if (type === 'domain') {
-          whitelist.domains = whitelist.domains.filter(d => d !== value);
-        } else if (type === 'url') {
-          whitelist.urls = whitelist.urls.filter(u => u !== value);
-        }
-        
-        chrome.storage.local.set({ exl_hl_banner_whitelist: whitelist }, () => {
-          resolve(true);
-        });
-      } catch (error) {
-        console.error('[Popup] Error removing from whitelist:', error);
-        resolve(false);
-      }
-    });
-  });
+  const whitelistResult = await safeLocalGet(['exl_hl_banner_whitelist']);
+  const whitelist = whitelistResult.exl_hl_banner_whitelist || { domains: [], urls: [] };
+  try {
+    if (type === 'domain') {
+      whitelist.domains = whitelist.domains.filter(d => d !== value);
+    } else if (type === 'url') {
+      whitelist.urls = whitelist.urls.filter(u => u !== value);
+    }
+    await safeLocalSet({ exl_hl_banner_whitelist: whitelist });
+    return true;
+  } catch (error) {
+    console.error('[Popup] Error removing from whitelist:', error);
+    return false;
+  }
 }
 
 /**
@@ -1375,28 +1414,21 @@ async function removeFromBannerWhitelist(type, value) {
  * @param {string} url - Full URL
  */
 async function clearBannerDismissals(domain, url) {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['exl_hl_banner_page_dismissals', 'exl_hl_banner_dismissals'], (result) => {
-      const pageDismissals = result.exl_hl_banner_page_dismissals || {};
-      const dismissals = result.exl_hl_banner_dismissals || {};
-      
-      // Remove URL dismissal
-      delete pageDismissals[url];
-      
-      // Remove domain permanent dismissal
-      if (dismissals[domain]) {
-        dismissals[domain].dismissed = false;
-        dismissals[domain].count = 0;
-        dismissals[domain].modalShown = false;
-      }
-      
-      chrome.storage.local.set({
-        exl_hl_banner_page_dismissals: pageDismissals,
-        exl_hl_banner_dismissals: dismissals
-      }, () => {
-        resolve();
-      });
-    });
+  const dismissalResult = await safeLocalGet(['exl_hl_banner_page_dismissals', 'exl_hl_banner_dismissals']);
+  const pageDismissals = dismissalResult.exl_hl_banner_page_dismissals || {};
+  const dismissals = dismissalResult.exl_hl_banner_dismissals || {};
+
+  delete pageDismissals[url];
+
+  if (dismissals[domain]) {
+    dismissals[domain].dismissed = false;
+    dismissals[domain].count = 0;
+    dismissals[domain].modalShown = false;
+  }
+
+  await safeLocalSet({
+    exl_hl_banner_page_dismissals: pageDismissals,
+    exl_hl_banner_dismissals: dismissals
   });
 }
 
@@ -1406,22 +1438,17 @@ async function clearBannerDismissals(domain, url) {
  * @param {string} url - Full URL
  */
 async function dismissBannerInPopup(domain, url) {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['exl_hl_banner_dismissals'], (result) => {
-      const dismissals = result.exl_hl_banner_dismissals || {};
-      
-      if (!dismissals[domain]) {
-        dismissals[domain] = {};
-      }
-      
-      dismissals[domain].dismissed = true;
-      dismissals[domain].count = 0;
-      
-      chrome.storage.local.set({ exl_hl_banner_dismissals: dismissals }, () => {
-        resolve();
-      });
-    });
-  });
+  const dismissalResult = await safeLocalGet(['exl_hl_banner_dismissals']);
+  const dismissals = dismissalResult.exl_hl_banner_dismissals || {};
+
+  if (!dismissals[domain]) {
+    dismissals[domain] = {};
+  }
+
+  dismissals[domain].dismissed = true;
+  dismissals[domain].count = 0;
+
+  await safeLocalSet({ exl_hl_banner_dismissals: dismissals });
 }
 
 // Initialize on load
@@ -1556,21 +1583,23 @@ document.addEventListener("DOMContentLoaded", async () => {
   
   // Clear cache button
   document.getElementById('clearCacheButton').addEventListener('click', async () => {
-    chrome.storage.local.get(null, (items) => {
-      const keysToRemove = Object.keys(items).filter(key => 
-        key.startsWith('caseData_') || key === 'caseDataCache'
-      );
-      
-      if (keysToRemove.length === 0) {
-        showSuccess('Cache is already empty');
-        return;
-      }
-      
-      chrome.storage.local.remove(keysToRemove, () => {
-        showSuccess(`Cleared ${keysToRemove.length} cache entries`);
-        updateStorageInfo();
-      });
-    });
+    const items = await safeLocalGet(null);
+    const keysToRemove = Object.keys(items).filter(key => 
+      key.startsWith('caseData_') || key === 'caseDataCache'
+    );
+    
+    if (keysToRemove.length === 0) {
+      showSuccess('Cache is already empty');
+      return;
+    }
+    
+    const removed = await safeLocalRemove(keysToRemove);
+    if (removed) {
+      showSuccess(`Cleared ${keysToRemove.length} cache entries`);
+      updateStorageInfo();
+    } else {
+      showSuccess('Unable to clear cache (storage unavailable)');
+    }
   });
   
   // Reset button

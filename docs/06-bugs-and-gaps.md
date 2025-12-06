@@ -21,6 +21,13 @@
 
 ## Known Issues
 
+### 0. To include (NEWLY FOUND)
+
+The styling of the floating banne of the highlighter banner is not consistent across websites probably due to reliant on the site's styling. Sometimes circles becomes obloids, and the emoji becomes monotone.
+
+debug line 4405 from xontent_script_exlibris - this decided the instcode account
+
+
 ### 1. Stale Data Display (PARTIALLY RESOLVED)
 
 **Status**: 🟡 Partially Fixed  

@@ -1,11 +1,13 @@
-importScripts('modules/dataMigration.js');
+// Service worker entry
+importScripts('modules/dataMigration.js', 'utils/storage.js', 'utils/google-drive.js');
 
 // ========== CONTEXT MENU MANAGEMENT ==========
 
 let contextMenusCreated = false;
+const ALARM_NAME = 'backup_alarm';
 
 /**
- * Creates context menus for text formatting
+ * Creates context menus for text formatting 
  */
 function createContextMenus() {
   if (contextMenusCreated) {
@@ -174,8 +176,44 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         }
       });
       return true;
+    } else if (request.type === 'SET_ALARM') {
+      // Update backup frequency alarm
+      let minutes = 1440; // default daily
+      switch (request.frequency) {
+        case 'hourly': minutes = 60; break;
+        case 'daily': minutes = 1440; break;
+        case 'weekly': minutes = 10080; break;
+      }
+
+      chrome.alarms.clear(ALARM_NAME, () => {
+        chrome.alarms.create(ALARM_NAME, { periodInMinutes: minutes });
+        console.log(`[Background] Backup frequency set to ${request.frequency || 'daily'} (${minutes} mins)`);
+      });
+      sendResponse({ success: true });
+      return true;
     }
   });
+
+// ========== BACKUP ALARMS ==========
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== ALARM_NAME) return;
+
+  console.log('[Background] Starting scheduled backup...');
+  try {
+    const token = await GoogleDrive.getAuthToken?.(false);
+    if (!token) {
+      console.log('[Background] Skipping backup: Not authenticated.');
+      return;
+    }
+
+    const data = await Storage.getAllNotes?.();
+    await GoogleDrive.performBackup?.(data);
+    console.log('[Background] Scheduled backup complete.');
+  } catch (e) {
+    console.error('[Background] Scheduled backup failed:', e);
+  }
+});
 
 // ========== EXTENSION UPDATE HANDLING ==========
 
@@ -184,6 +222,8 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
  */
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('[Background] Extension installed/updated');
+  // Ensure backup alarm exists (default daily)
+  chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1440 });
   createContextMenus();
   
   // Show landing page on update (but not on first install)

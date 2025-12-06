@@ -144,6 +144,7 @@ new MutationObserver(() => {
 3. **Use Check-Then-Observe pattern** for any new DOM queries
 4. **Test in ProQuest Salesforce** (`proquestllc.lightning.force.com`)
 5. **Update cache keys** if changing data extraction logic
+6. **Refresh the snapshot in `explaination.md`** when architecture, data flow, or best practices change, and log the update in `CHANGES.md` (Date, Category, Description, Files, Lessons Learned, Related Issues).
 
 ### When Adding New Modules
 1. Create in `modules/` directory with single responsibility

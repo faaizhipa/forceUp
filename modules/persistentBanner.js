@@ -81,6 +81,19 @@ const PersistentBanner = {
         institutionCode: null,
         timezone: null
     },
+
+    // Timezone sync state
+    TIMEZONE_DEFAULTS: {
+        customer: 'America/New_York',
+        local: 'Asia/Kuala_Lumpur'
+    },
+    TIMEZONE_BUTTON_COLORS: {
+        ready: '#2563eb',
+        fallback: '#b45309'
+    },
+    timezoneButtonState: 'idle',
+    timezoneSyncSessionKey: 'exl-last-timezone-sync',
+    lastTimezoneSyncArgs: null,
     
     // Customer time refresh interval
     customerTimeInterval: null,
@@ -1809,6 +1822,9 @@ const PersistentBanner = {
         
         // Load navigation history from sessionStorage
         this.loadNavigationHistory();
+
+        // Load last timezone sync args for session reuse
+        this.loadTimezoneSyncSessionArgs();
         
         // Create and inject banner
         this.createBanner();
@@ -3761,6 +3777,37 @@ const PersistentBanner = {
     },
 
     /**
+     * Load last-used timezone sync arguments from session storage
+     */
+    loadTimezoneSyncSessionArgs() {
+        try {
+            const stored = sessionStorage.getItem(this.timezoneSyncSessionKey);
+            if (stored) {
+                this.lastTimezoneSyncArgs = JSON.parse(stored);
+                console.log('[PersistentBanner] Loaded timezone sync args from session:', this.lastTimezoneSyncArgs);
+            }
+        } catch (error) {
+            console.warn('[PersistentBanner] Failed to load timezone sync args:', error);
+            this.lastTimezoneSyncArgs = null;
+        }
+    },
+
+    /**
+     * Persist last-used timezone sync arguments for the current session
+     * @param {Object} args
+     */
+    saveTimezoneSyncSessionArgs(args) {
+        if (!args) return;
+
+        this.lastTimezoneSyncArgs = args;
+        try {
+            sessionStorage.setItem(this.timezoneSyncSessionKey, JSON.stringify(args));
+        } catch (error) {
+            console.warn('[PersistentBanner] Failed to save timezone sync args:', error);
+        }
+    },
+
+    /**
      * Save navigation history to sessionStorage
      */
     saveNavigationHistory() {
@@ -3934,7 +3981,7 @@ const PersistentBanner = {
                         <span class="exl-banner-meta-item"><span class="exl-meta-label">Server:</span><strong id="exl-banner-server">—</strong></span>
                         <span class="exl-banner-meta-item" id="exl-banner-timezone-item"><span class="exl-meta-label">Timezone:</span><strong id="exl-banner-timezone">—</strong></span>
                         <span class="exl-banner-meta-item" id="exl-banner-customer-time-item"><span class="exl-meta-label">Customer Time:</span><strong id="exl-banner-customer-time">—</strong></span>
-                        <span class="exl-refresh-emoji" id="exl-refresh-emoji" data-action="refresh" title="Refresh and display the correct data and codes from the currently-viewed case">🔄</span>
+                        <span class="exl-refresh-emoji" id="exl-refresh-emoji" data-action="refresh" title="Refresh and display the correct data and codes from the currently-viewed case">↺</span>
                         <div class="exl-customer-data-notification" id="exl-customer-data-notification" style="display: none;">
                             <span class="exl-notification-text">Hmm...looks like we do not have this customer's internal details in memory.</span>
                             <button class="exl-banner-btn exl-customer-data-btn" id="exl-customer-data-btn" tabindex="0">Add/Modify Customer Data</button>
@@ -3957,6 +4004,7 @@ const PersistentBanner = {
                     <button class="exl-banner-btn exl-popup-trigger" data-popup="env" title="Open Customer Environment menu" tabindex="0">Customer Env</button>
                     <button class="exl-banner-btn exl-popup-trigger" data-popup="tools" title="Open Tools menu" tabindex="0">Tools</button>
                     <button class="exl-banner-btn exl-popup-trigger" data-popup="wiki" title="Open Wiki Shortcuts menu" tabindex="0">Wiki Shortcuts</button>
+                    <button class="exl-banner-btn exl-timezone-sync-btn" data-action="timezone-sync" title="Open Timezone Sync" tabindex="0">Timezone Sync</button>
                 </div>
                 
                 <!-- Tools popup menu -->
@@ -3996,6 +4044,7 @@ const PersistentBanner = {
 
         this.elements.banner = banner;
         this.cacheElements();
+        this.updateTimezoneSyncButtonState('idle', 'Open Timezone Sync');
         this.wireEventHandlers();
 
         return banner;
@@ -4039,6 +4088,7 @@ const PersistentBanner = {
         this.elements.toolsPopup = banner.querySelector('#exl-tools-popup');
         this.elements.wikiPopup = banner.querySelector('#exl-wiki-popup');
         this.elements.wikiPopupContent = banner.querySelector('#exl-wiki-popup-content');
+        this.elements.timezoneSyncBtn = banner.querySelector('.exl-timezone-sync-btn');
     },
 
     /**
@@ -4076,7 +4126,23 @@ const PersistentBanner = {
         if (this.elements.timezoneItem) {
             this.elements.timezoneItem.addEventListener('click', (event) => {
                 event.stopPropagation();
-                this.handleTimezoneClick();
+                this.handleTimezoneClick('timezone-field');
+            });
+        }
+
+        // Handle customer time field click - also opens timezone widget
+        if (this.elements.customerTimeItem) {
+            this.elements.customerTimeItem.addEventListener('click', (event) => {
+                event.stopPropagation();
+                this.handleTimezoneClick('customer-time-field');
+            });
+        }
+
+        // Handle timezone sync action button
+        if (this.elements.timezoneSyncBtn) {
+            this.elements.timezoneSyncBtn.addEventListener('click', (event) => {
+                event.stopPropagation();
+                this.handleTimezoneClick('timezone-button');
             });
         }
 
@@ -4227,6 +4293,9 @@ const PersistentBanner = {
                 break;
             case 'action3':
                 this.handleCaseDetailExtractor();
+                break;
+            case 'timezone-sync':
+                this.handleTimezoneClick('action-menu');
                 break;
             case 'exit-tool':
                 this.exitActionFocusedMode();
@@ -5087,6 +5156,10 @@ const PersistentBanner = {
         } else {
             this.elements.timezone.textContent = '—';
         }
+
+        const buttonState = timezone ? 'ready' : (this.lastTimezoneSyncArgs?.customerTimezone ? 'ready' : 'fallback');
+        const buttonTitle = timezone ? 'Open Timezone Sync' : 'Open Timezone Sync (using fallback timezones)';
+        this.updateTimezoneSyncButtonState(buttonState, buttonTitle);
     },
     
     /**
@@ -5869,19 +5942,28 @@ const PersistentBanner = {
      * @returns {Promise<boolean>}
      */
     async shouldShowMessages() {
-        // Check if feature is enabled
-        const featureEnabled = await this.isBannerMessagesEnabled();
-        if (!featureEnabled) {
-            return false;
+        try {
+            // Check if feature is enabled
+            const featureEnabled = await this.isBannerMessagesEnabled();
+            if (!featureEnabled) {
+                return false;
+            }
+            
+            // Check if we have active messages
+            if (this.activeMessages.length === 0) {
+                return false;
+            }
+            
+            // All checks passed - can show messages (including on case pages)
+            return true;
+        } catch (error) {
+            // Some environments throw on Function.caller access; treat as disabled instead of breaking UI
+            if (error && /caller|callee|arguments/gi.test(error.message || '')) {
+                console.warn('[PersistentBanner] Suppressing message display due to caller/callee access restrictions');
+                return false;
+            }
+            throw error;
         }
-        
-        // Check if we have active messages
-        if (this.activeMessages.length === 0) {
-            return false;
-        }
-        
-        // All checks passed - can show messages (including on case pages)
-        return true;
     },
 
     /**
@@ -6140,38 +6222,132 @@ const PersistentBanner = {
     },
 
     /**
-     * Handle timezone field click - opens timezone comparison popup
-     * Shows the TimezonePopupWidget with customer timezone as target
-     * and user's local timezone as source
+     * Handle timezone interactions (metadata fields or action button)
+     * @param {string} source - Trigger source identifier
      */
-    async handleTimezoneClick() {
-        console.log('[PersistentBanner] Timezone field clicked');
+    async handleTimezoneClick(source = 'unknown') {
+        console.log(`[PersistentBanner] Timezone trigger (${source}) clicked`);
 
-        // Get customer timezone from metadata
-        const customerTimezone = this.customerMetadata?.timezone || 
-                                 this.fullCaseMetadata?.timezone ||
-                                 null;
-
-        if (!customerTimezone) {
-            console.warn('[PersistentBanner] No customer timezone available');
-            this.showNotification('Customer timezone not available', 'warning');
-            return;
-        }
-
-        // Check if TimezonePopupWidget is available
-        if (typeof TimezonePopupWidget === 'undefined') {
-            console.error('[PersistentBanner] TimezonePopupWidget module not loaded');
+        if (typeof TimezoneSyncWidget === 'undefined') {
+            console.error('[PersistentBanner] TimezoneSyncWidget not loaded');
             this.showNotification('Timezone widget not available', 'error');
             return;
         }
 
+        const { options, usedFallback } = await this.buildTimezoneSyncOptions();
+        const state = usedFallback ? 'fallback' : 'ready';
+        const titleSuffix = usedFallback ? ' (using fallback timezones)' : '';
+        this.updateTimezoneSyncButtonState(state, `Open Timezone Sync${titleSuffix}`);
+
+        if (!options.customerTimezone) {
+            console.warn('[PersistentBanner] No customer timezone available for widget');
+            this.showNotification('Customer timezone not available', 'warning');
+            return;
+        }
+
         try {
-            // Show the popup with customer timezone
-            await TimezonePopupWidget.show(customerTimezone);
-            console.log('[PersistentBanner] Timezone popup opened for:', customerTimezone);
+            const shown = await TimezoneSyncWidget.show(options);
+            if (shown) {
+                this.saveTimezoneSyncSessionArgs(options);
+                console.log('[PersistentBanner] Timezone sync widget opened with options:', options);
+            } else {
+                console.warn('[PersistentBanner] Timezone sync widget did not open');
+                this.updateTimezoneSyncButtonState('idle', 'Open Timezone Sync');
+            }
         } catch (error) {
-            console.error('[PersistentBanner] Error opening timezone popup:', error);
-            this.showNotification('Failed to open timezone comparison', 'error');
+            console.error('[PersistentBanner] Error opening timezone sync widget:', error);
+            this.updateTimezoneSyncButtonState('idle', 'Open Timezone Sync');
+            this.showNotification('Failed to open timezone sync', 'error');
+        }
+    },
+
+    /**
+     * Build timezone sync options with graceful fallbacks
+     * @returns {Promise<{options: {customerTimezone: string, localTimezone: string, favoriteTimezones: Array<string>}, usedFallback: boolean}>}
+     */
+    async buildTimezoneSyncOptions() {
+        let usedFallback = false;
+
+        // Prefer resolved metadata, then displayed label
+        let customerTimezone = this.customerMetadata?.timezone ||
+                               this.fullCaseMetadata?.timezone ||
+                               this.currentPage.timezone ||
+                               null;
+
+        if (!customerTimezone && this.elements.timezone) {
+            const displayTz = (this.elements.timezone.textContent || '').trim();
+            if (displayTz && displayTz !== '—') {
+                customerTimezone = displayTz;
+            }
+        }
+
+        // Reuse last session args if available
+        if (!customerTimezone && this.lastTimezoneSyncArgs?.customerTimezone) {
+            customerTimezone = this.lastTimezoneSyncArgs.customerTimezone;
+        }
+
+        if (!customerTimezone) {
+            customerTimezone = this.TIMEZONE_DEFAULTS.customer;
+            usedFallback = true;
+        }
+
+        let localTimezone = null;
+        let favoriteTimezones = [];
+
+        try {
+            if (typeof UserPreferences !== 'undefined') {
+                const prefs = await UserPreferences.load();
+                localTimezone = UserPreferences.getEffectiveUserTimezone(prefs);
+                favoriteTimezones = (prefs?.favoriteTimezones || []).filter(Boolean);
+            }
+        } catch (error) {
+            console.warn('[PersistentBanner] Failed to read user preferences for timezone:', error);
+        }
+
+        if (!localTimezone && typeof TimezoneUtils !== 'undefined' && typeof TimezoneUtils.getBrowserTimezone === 'function') {
+            localTimezone = TimezoneUtils.getBrowserTimezone();
+        }
+
+        if (!localTimezone) {
+            localTimezone = this.TIMEZONE_DEFAULTS.local;
+            usedFallback = true;
+        }
+
+        if (!favoriteTimezones.length && this.lastTimezoneSyncArgs?.favoriteTimezones) {
+            favoriteTimezones = this.lastTimezoneSyncArgs.favoriteTimezones.filter(Boolean);
+        }
+
+        const options = {
+            customerTimezone,
+            localTimezone,
+            favoriteTimezones
+        };
+
+        return { options, usedFallback };
+    },
+
+    /**
+     * Update timezone sync button state and color
+     * @param {'idle'|'ready'|'fallback'} state
+     * @param {string} title
+     */
+    updateTimezoneSyncButtonState(state = 'idle', title = 'Open Timezone Sync') {
+        this.timezoneButtonState = state;
+        if (!this.elements.timezoneSyncBtn) return;
+
+        const btn = this.elements.timezoneSyncBtn;
+        btn.title = title;
+
+        // Clear styles first
+        btn.style.backgroundColor = '';
+        btn.style.borderColor = '';
+
+        if (state === 'ready') {
+            btn.style.backgroundColor = this.TIMEZONE_BUTTON_COLORS.ready;
+            btn.style.borderColor = this.TIMEZONE_BUTTON_COLORS.ready;
+        } else if (state === 'fallback') {
+            btn.style.backgroundColor = this.TIMEZONE_BUTTON_COLORS.fallback;
+            btn.style.borderColor = this.TIMEZONE_BUTTON_COLORS.fallback;
         }
     },
 

@@ -139,10 +139,13 @@ const CaseDataExtractor = {
   getHeaderText() {
     if (typeof CaseDomUtils !== 'undefined') {
       const header = CaseDomUtils.getVisibleCaseHeaderText();
+      const isVisible = typeof CaseDomUtils.isElementVisible === 'function' && CaseDomUtils.isElementVisible(header) ? true : false;
       if (header ) {
         return header;
       }
     }
+
+    console.log('Visible case header not found via CaseDomUtils, falling back to direct DOM query.');
 
     // Fallback: check visibility of header field
     const candidates = document.querySelectorAll('slot[name="primaryField"] lightning-formatted-text, records-formula-output[slot="primaryField"] lightning-formatted-text');
@@ -153,6 +156,7 @@ const CaseDataExtractor = {
       headerField = candidates[0];
     }
     return headerField ? (headerField.textContent || '').trim() : null;
+    console.log('Using visible case header: [caseDataExtractor].getHeaderText()', headerField, candidates[0], candidates[1]);
   },
 
   /**
@@ -548,7 +552,7 @@ const CaseDataExtractor = {
       try {
         const timezoneInfo = await CustomerDataManager.getCustomerTimezone({
           accountName: processed.accountName || processed.customerName, // Primary lookup key
-          institutionCode: processed.institutionCode || processed.customerCode, // Fallback lookup
+          institutionCode: processed.institutionCode, // Fallback lookup
           customer: customerRecord
           // customerId and instID no longer used for timezone lookup
         });
@@ -556,7 +560,7 @@ const CaseDataExtractor = {
         if (timezoneInfo && timezoneInfo.timezone) {
           processed.customerTimezone = timezoneInfo.timezone;
           processed.customerTimezoneSource = timezoneInfo.source || 'customerDataManager';
-          processed.customerOrgCode = timezoneInfo.orgCode || timezoneInfo.accountName || processed.institutionCode || processed.customerCode || null;
+          processed.customerOrgCode = timezoneInfo.orgCode || processed.institutionCode || null;
           processed.customerOrgName = timezoneInfo.orgName || timezoneInfo.accountName || processed.customerName || null;
           processed.customerDbServers = timezoneInfo.dbServers || []; // Empty array as dbServers no longer available in CSV
           console.log('[CaseDataExtractor] Timezone resolved via CustomerDataManager:', {
@@ -565,7 +569,7 @@ const CaseDataExtractor = {
           });
         } else {
           console.log('[CaseDataExtractor] Timezone not found in CustomerDataManager for:', {
-            institutionCode: processed.institutionCode || processed.customerCode,
+            institutionCode: processed.institutionCode,
             accountName: processed.accountName
           });
         }
