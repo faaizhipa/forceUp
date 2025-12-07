@@ -8,7 +8,9 @@ const DataMigration = (function() {
   'use strict';
 
   const BACKUP_PREFIX = 'exl_highlighter_backup_';
+  const FULL_BACKUP_PREFIX = 'exl_backup_';
   const MAX_BACKUPS = 5;
+  const FULL_BACKUP_LIMIT = 5;
   const STORAGE_QUOTA_WARNING_THRESHOLD = 0.8; // 80% of quota
   const WORKSPACE_PREFIXES = [
     'exl_highlights_',
@@ -48,6 +50,144 @@ const DataMigration = (function() {
         resolve(items || {});
       });
     });
+  }
+
+  async function getSyncSnapshot() {
+    return new Promise((resolve) => {
+      chrome.storage.sync.get(null, (items) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[DataMigration] Error loading sync settings:', chrome.runtime.lastError);
+          resolve({});
+          return;
+        }
+        resolve(items || {});
+      });
+    });
+  }
+
+  async function getFullBackupList() {
+    const allData = await getAllStorageItems();
+    return Object.entries(allData)
+      .filter(([key]) => key.startsWith(FULL_BACKUP_PREFIX))
+      .map(([key, payload]) => ({
+        key,
+        payload,
+        timestamp: payload?.timestamp || parseInt(key.substring(FULL_BACKUP_PREFIX.length), 10) || 0
+      }))
+      .sort((a, b) => b.timestamp - a.timestamp);
+  }
+
+  async function pruneFullBackups() {
+    const backups = await getFullBackupList();
+    if (backups.length <= FULL_BACKUP_LIMIT) {
+      return;
+    }
+
+    const toDelete = backups.slice(FULL_BACKUP_LIMIT).map(({ key }) => key);
+    await new Promise((resolve) => {
+      chrome.storage.local.remove(toDelete, () => {
+        if (chrome.runtime.lastError) {
+          console.warn('[DataMigration] Error pruning full backups:', chrome.runtime.lastError);
+        }
+        resolve();
+      });
+    });
+  }
+
+  async function createFullBackup() {
+    try {
+      const timestamp = Date.now();
+      const [syncData, localDataRaw] = await Promise.all([getSyncSnapshot(), getAllStorageItems()]);
+
+      // Avoid nesting previous backups inside new backups
+      const localData = Object.fromEntries(
+        Object.entries(localDataRaw).filter(([key]) =>
+          !key.startsWith(FULL_BACKUP_PREFIX) && !key.startsWith(BACKUP_PREFIX)
+        )
+      );
+
+      const payload = {
+        timestamp,
+        manifestVersion: (chrome.runtime?.getManifest?.() || {}).version || 'unknown',
+        data: {
+          sync: syncData,
+          local: localData
+        }
+      };
+
+      const backupKey = `${FULL_BACKUP_PREFIX}${timestamp}`;
+
+      await new Promise((resolve) => {
+        chrome.storage.local.set({ [backupKey]: payload }, () => {
+          if (chrome.runtime.lastError) {
+            console.error('[DataMigration] Error writing full backup:', chrome.runtime.lastError);
+          } else {
+            console.log('[DataMigration] Created full backup at', backupKey);
+          }
+          resolve();
+        });
+      });
+
+      await pruneFullBackups();
+      return { backupKey, timestamp };
+    } catch (error) {
+      console.error('[DataMigration] Failed to create full backup:', error);
+      return { backupKey: null, error };
+    }
+  }
+
+  async function restoreFullBackup(backupKey = null, options = {}) {
+    const { clearExisting = true } = options;
+    const backups = await getFullBackupList();
+    const target = backupKey
+      ? backups.find((b) => b.key === backupKey)
+      : backups[0];
+
+    if (!target || !target.payload?.data) {
+      return { restored: false, reason: 'no_backup' };
+    }
+
+    const { local = {}, sync = {} } = target.payload.data;
+
+    if (clearExisting) {
+      const current = await getAllStorageItems();
+      const keysToRemove = Object.keys(current).filter((key) =>
+        !key.startsWith(FULL_BACKUP_PREFIX) && !key.startsWith(BACKUP_PREFIX)
+      );
+      if (keysToRemove.length) {
+        await new Promise((resolve) => {
+          chrome.storage.local.remove(keysToRemove, () => {
+            if (chrome.runtime.lastError) {
+              console.warn('[DataMigration] Error clearing before restore:', chrome.runtime.lastError);
+            }
+            resolve();
+          });
+        });
+      }
+    }
+
+    // Restore local payload
+    await new Promise((resolve) => {
+      chrome.storage.local.set(local, () => {
+        if (chrome.runtime.lastError) {
+          console.error('[DataMigration] Error restoring local backup data:', chrome.runtime.lastError);
+        }
+        resolve();
+      });
+    });
+
+    // Restore sync payload
+    await new Promise((resolve) => {
+      chrome.storage.sync.set(sync, () => {
+        if (chrome.runtime.lastError) {
+          console.error('[DataMigration] Error restoring sync backup data:', chrome.runtime.lastError);
+        }
+        resolve();
+      });
+    });
+
+    console.log('[DataMigration] Restored full backup from', target.key);
+    return { restored: true, backupKey: target.key };
   }
 
   async function getWorkspaceSnapshot(options = {}) {
@@ -679,8 +819,10 @@ const DataMigration = (function() {
     migrateBookmarks,
     findOldData,
     createBackup,
+    createFullBackup,
     exportAllData,
     importAllData,
+    restoreFullBackup,
     cleanupOldVersions,
     cleanupOldBackups,
     checkStorageQuota,

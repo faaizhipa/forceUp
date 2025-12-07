@@ -39,13 +39,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateCurrentTab();
     }
   });
+
+  // Listen for focus requests from other contexts (e.g., screenshots)
+  chrome.runtime.onMessage.addListener((req) => {
+    if (req.type === 'SIDEpanel_FOCUS') {
+      focusTab(req.tab || 'captured', req.payload || null);
+    }
+  });
 });
 
 function setupTabs() {
   const tabs = {
     'tab-current': 'content-current',
     'tab-all': 'content-all',
-    'tab-settings': 'content-settings'
+    'tab-settings': 'content-settings',
+    'tab-captured': 'content-captured',
+    'tab-recorded': 'content-recorded',
+    'tab-saved': 'content-saved'
   };
 
   Object.keys(tabs).forEach(tabId => {
@@ -64,9 +74,10 @@ function setupTabs() {
       contentEl.classList.remove('hidden');
       contentEl.classList.add('active');
 
-      if (tabId === 'tab-all') {
-        renderAllNotes();
-      }
+      if (tabId === 'tab-all') renderAllNotes();
+      if (tabId === 'tab-captured') renderCaptured();
+      if (tabId === 'tab-recorded') renderRecorded();
+      if (tabId === 'tab-saved') renderSaved();
     });
   });
 }
@@ -463,4 +474,363 @@ function escapeHtml(text) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+// ============ Screenshot Panels ============
+
+const SCREENSHOT_PAGE_SIZE = 10;
+const screenshotPageState = {};
+const screenshotHighlightState = {};
+const recordingPageState = {};
+const recordingHighlightState = {};
+
+function activateTab(tabId, contentId) {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => {
+    c.classList.add('hidden');
+    c.classList.remove('active');
+  });
+
+  const tabEl = document.getElementById(tabId);
+  const contentEl = document.getElementById(contentId);
+  if (tabEl) tabEl.classList.add('active');
+  if (contentEl) {
+    contentEl.classList.remove('hidden');
+    contentEl.classList.add('active');
+  }
+}
+
+function focusTab(name, payload) {
+  const tabId = `tab-${name}`;
+  const contentId = `content-${name}`;
+  activateTab(tabId, contentId);
+  if (name === 'captured') {
+    renderCaptured(payload);
+  } else if (name === 'recorded') {
+    renderRecorded(payload);
+  } else if (name === 'saved') {
+    renderSaved(payload);
+  }
+}
+
+async function renderCaptured(payload = {}) {
+  await renderScreenshots('captured-list', payload);
+}
+
+async function renderRecorded(payload = {}) {
+  await renderRecordings('recorded-list', payload);
+}
+
+async function renderSaved(payload = {}) {
+  await renderScreenshots('saved-list', payload);
+}
+
+async function renderScreenshots(containerId, payload = {}) {
+  const listEl = document.getElementById(containerId);
+  if (!listEl) return;
+  listEl.innerHTML = 'Loading...';
+
+  try {
+    const all = await chrome.storage.local.get(null);
+    const entries = Object.entries(all)
+      .filter(([k]) => k.startsWith('exl_screenshots_v1_'))
+      .map(([key, v]) => ({ ...v, key }))
+      .sort((a, b) => b.timestamp - a.timestamp);
+
+    if (!entries.length) {
+      listEl.innerHTML = '<p style="color:#888; text-align:center;">No screenshots yet.</p>';
+      return;
+    }
+
+    const highlightId = payload.justSavedId || screenshotHighlightState[containerId];
+    if (payload.justSavedId) {
+      screenshotHighlightState[containerId] = payload.justSavedId;
+    }
+
+    // Choose page, ensuring highlighted item is visible
+    let currentPage = payload.page || screenshotPageState[containerId] || 1;
+    if (highlightId) {
+      const idx = entries.findIndex(item => item.id === highlightId);
+      if (idx >= 0) {
+        currentPage = Math.floor(idx / SCREENSHOT_PAGE_SIZE) + 1;
+      }
+    }
+
+    const totalPages = Math.max(1, Math.ceil(entries.length / SCREENSHOT_PAGE_SIZE));
+    currentPage = Math.min(Math.max(1, currentPage), totalPages);
+    screenshotPageState[containerId] = currentPage;
+
+    const start = (currentPage - 1) * SCREENSHOT_PAGE_SIZE;
+    const pagedEntries = entries.slice(start, start + SCREENSHOT_PAGE_SIZE);
+
+    listEl.innerHTML = '';
+
+    const paginationTop = renderScreenshotPagination(containerId, currentPage, totalPages, payload, highlightId);
+    if (paginationTop) listEl.appendChild(paginationTop);
+
+    pagedEntries.forEach(item => listEl.appendChild(renderScreenshotCard(item, { ...payload, justSavedId: highlightId })));
+
+    const paginationBottom = renderScreenshotPagination(containerId, currentPage, totalPages, payload, highlightId);
+    if (paginationBottom) listEl.appendChild(paginationBottom);
+  } catch (err) {
+    listEl.innerHTML = '<p style="color:#c00; text-align:center;">Failed to load screenshots.</p>';
+    console.error('[Sidepanel] Failed to render screenshots', err);
+  }
+}
+
+function renderScreenshotPagination(containerId, currentPage, totalPages, payload, highlightId) {
+  if (totalPages <= 1) return null;
+
+  const nav = document.createElement('div');
+  nav.className = 'screenshot-pagination';
+
+  const prev = document.createElement('button');
+  prev.textContent = 'Prev';
+  prev.disabled = currentPage === 1;
+  prev.addEventListener('click', () => {
+    renderScreenshots(containerId, { ...payload, page: currentPage - 1, justSavedId: highlightId });
+  });
+
+  const info = document.createElement('span');
+  info.textContent = `Page ${currentPage} of ${totalPages}`;
+
+  const next = document.createElement('button');
+  next.textContent = 'Next';
+  next.disabled = currentPage === totalPages;
+  next.addEventListener('click', () => {
+    renderScreenshots(containerId, { ...payload, page: currentPage + 1, justSavedId: highlightId });
+  });
+
+  nav.appendChild(prev);
+  nav.appendChild(info);
+  nav.appendChild(next);
+  return nav;
+}
+
+function renderScreenshotCard(item, payload) {
+  const card = document.createElement('div');
+  card.className = 'screenshot-card';
+  card.innerHTML = `
+    <div class="screenshot-thumb-wrap"><img src="${item.thumbnail || item.dataUrl}" class="screenshot-thumb"></div>
+    <div class="screenshot-meta">
+      <div class="screenshot-url" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</div>
+      <div class="screenshot-time">${new Date(item.timestamp).toLocaleString()}</div>
+    </div>
+    <div class="screenshot-actions">
+      <button data-act="open">Open</button>
+      <button data-act="png">PNG</button>
+      <button data-act="jpg">JPEG</button>
+      <button data-act="copy">Copy</button>
+      <button data-act="delete">Delete</button>
+    </div>`;
+
+  card.addEventListener('click', async (e) => {
+    const act = e.target.dataset.act;
+    if (!act) return;
+    e.stopPropagation();
+    switch (act) {
+      case 'open':
+        chrome.tabs.create({ url: item.dataUrl });
+        break;
+      case 'png':
+        downloadDataUrl(item.dataUrl, `${item.id || 'screenshot'}.png`);
+        break;
+      case 'jpg':
+        downloadDataUrl(item.dataUrl.replace('image/png', 'image/jpeg'), `${item.id || 'screenshot'}.jpg`);
+        break;
+      case 'copy':
+        await copyDataUrl(item.dataUrl);
+        break;
+      case 'delete':
+        await deleteScreenshot(item);
+        card.remove();
+        break;
+      default:
+        break;
+    }
+  });
+
+  if (payload && payload.justSavedId && payload.justSavedId === item.id) {
+    card.classList.add('highlight');
+  }
+
+  return card;
+}
+
+// ============ Recordings (video) ============
+
+async function renderRecordings(containerId, payload = {}) {
+  const listEl = document.getElementById(containerId);
+  if (!listEl) return;
+  listEl.innerHTML = 'Loading...';
+
+  try {
+    const all = await chrome.storage.local.get(null);
+    const entries = Object.entries(all)
+      .filter(([k]) => k.startsWith('exl_recordings_v1_'))
+      .map(([key, v]) => ({ ...v, key }))
+      .sort((a, b) => b.timestamp - a.timestamp);
+
+    if (!entries.length) {
+      listEl.innerHTML = '<p style="color:#888; text-align:center;">No recordings yet.</p>';
+      return;
+    }
+
+    const highlightId = payload.justSavedId || recordingHighlightState[containerId];
+    if (payload.justSavedId) {
+      recordingHighlightState[containerId] = payload.justSavedId;
+    }
+
+    let currentPage = payload.page || recordingPageState[containerId] || 1;
+    if (highlightId) {
+      const idx = entries.findIndex(item => item.id === highlightId);
+      if (idx >= 0) {
+        currentPage = Math.floor(idx / SCREENSHOT_PAGE_SIZE) + 1;
+      }
+    }
+
+    const totalPages = Math.max(1, Math.ceil(entries.length / SCREENSHOT_PAGE_SIZE));
+    currentPage = Math.min(Math.max(1, currentPage), totalPages);
+    recordingPageState[containerId] = currentPage;
+
+    const start = (currentPage - 1) * SCREENSHOT_PAGE_SIZE;
+    const pagedEntries = entries.slice(start, start + SCREENSHOT_PAGE_SIZE);
+
+    listEl.innerHTML = '';
+
+    const paginationTop = renderRecordingPagination(containerId, currentPage, totalPages, payload, highlightId);
+    if (paginationTop) listEl.appendChild(paginationTop);
+
+    pagedEntries.forEach(item => listEl.appendChild(renderRecordingCard(item, { ...payload, justSavedId: highlightId })));
+
+    const paginationBottom = renderRecordingPagination(containerId, currentPage, totalPages, payload, highlightId);
+    if (paginationBottom) listEl.appendChild(paginationBottom);
+  } catch (err) {
+    listEl.innerHTML = '<p style="color:#c00; text-align:center;">Failed to load recordings.</p>';
+    console.error('[Sidepanel] Failed to render recordings', err);
+  }
+}
+
+function renderRecordingPagination(containerId, currentPage, totalPages, payload, highlightId) {
+  if (totalPages <= 1) return null;
+
+  const nav = document.createElement('div');
+  nav.className = 'screenshot-pagination';
+
+  const prev = document.createElement('button');
+  prev.textContent = 'Prev';
+  prev.disabled = currentPage === 1;
+  prev.addEventListener('click', () => {
+    renderRecordings(containerId, { ...payload, page: currentPage - 1, justSavedId: highlightId });
+  });
+
+  const info = document.createElement('span');
+  info.textContent = `Page ${currentPage} of ${totalPages}`;
+
+  const next = document.createElement('button');
+  next.textContent = 'Next';
+  next.disabled = currentPage === totalPages;
+  next.addEventListener('click', () => {
+    renderRecordings(containerId, { ...payload, page: currentPage + 1, justSavedId: highlightId });
+  });
+
+  nav.appendChild(prev);
+  nav.appendChild(info);
+  nav.appendChild(next);
+  return nav;
+}
+
+function renderRecordingCard(item, payload) {
+  const card = document.createElement('div');
+  card.className = 'screenshot-card';
+  card.innerHTML = `
+    <div class="screenshot-thumb-wrap"><img src="${item.poster || item.thumbnail || ''}" class="screenshot-thumb"></div>
+    <div class="screenshot-meta">
+      <div class="screenshot-url" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</div>
+      <div class="screenshot-time">${new Date(item.timestamp).toLocaleString()}</div>
+      <div class="screenshot-time">Duration: ${formatDuration(item.durationMs)}</div>
+      <div class="screenshot-time">Size: ${formatSize(item.sizeBytes)}</div>
+    </div>
+    <div class="screenshot-actions">
+      <button data-act="play">Play</button>
+      <button data-act="download">Download</button>
+      <button data-act="copy">Copy</button>
+      <button data-act="delete">Delete</button>
+    </div>`;
+
+  card.addEventListener('click', async (e) => {
+    const act = e.target.dataset.act;
+    if (!act) return;
+    e.stopPropagation();
+    switch (act) {
+      case 'play':
+        playRecording(item);
+        break;
+      case 'download':
+        downloadDataUrl(item.dataUrl, `${item.id || 'recording'}.webm`);
+        break;
+      case 'copy':
+        await copyDataUrl(item.dataUrl);
+        break;
+      case 'delete':
+        await deleteRecording(item);
+        card.remove();
+        break;
+      default:
+        break;
+    }
+  });
+
+  if (payload && payload.justSavedId && payload.justSavedId === item.id) {
+    card.classList.add('highlight');
+  }
+
+  return card;
+}
+
+function playRecording(item) {
+  if (!item || !item.dataUrl) return;
+  const url = item.dataUrl.startsWith('blob:') ? item.dataUrl : item.dataUrl;
+  chrome.tabs.create({ url });
+}
+
+async function deleteRecording(item) {
+  if (!item.key) return;
+  await chrome.storage.local.remove(item.key);
+}
+
+function formatDuration(ms) {
+  if (!ms || Number.isNaN(ms)) return '—';
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function formatSize(bytes) {
+  if (!bytes || Number.isNaN(bytes)) return '—';
+  const mb = bytes / (1024 * 1024);
+  return `${mb.toFixed(1)} MB`;
+}
+
+async function deleteScreenshot(item) {
+  if (!item.key) return;
+  await chrome.storage.local.remove(item.key);
+}
+
+function downloadDataUrl(dataUrl, filename) {
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = filename;
+  a.click();
+}
+
+async function copyDataUrl(dataUrl) {
+  try {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+  } catch (err) {
+    console.warn('[Sidepanel] Copy failed', err);
+  }
 }

@@ -3631,12 +3631,12 @@ const PersistentBanner = {
         }
 
         // Update customerMetadata fields
-        if (fields.customerId !== undefined) {
-            this.customerMetadata.customerId = fields.customerId;
-        }
-        if (fields.institutionId !== undefined) {
-            this.customerMetadata.institutionId = fields.institutionId;
-        }
+        // if (fields.customerId !== undefined) {
+        //     this.customerMetadata.customerId = fields.customerId;
+        // }
+        // if (fields.institutionId !== undefined) {
+        //     this.customerMetadata.institutionId = fields.institutionId;
+        // }
         if (fields.server !== undefined) {
             this.customerMetadata.server = fields.server;
         }
@@ -4015,6 +4015,7 @@ const PersistentBanner = {
                         <button class="exl-popup-menu-item" data-tool="customer-data" title="Open Add/Modify Customer Data tool" tabindex="0">Add/Modify Customer Data</button>
                         <button class="exl-popup-menu-item" data-tool="color-handler-settings" title="Configure colors for status, anchor, and case highlighting" tabindex="0">Color Handler Settings</button>
                         <button class="exl-popup-menu-item" data-action="action1" title="Extract and enable copy buttons for case comments" tabindex="0">Extract Case Comments</button>
+                        <button class="exl-popup-menu-item" data-action="open-screenshot-panel" title="Open screenshots side panel" tabindex="0">Screenshots Panel</button>
                         <button class="exl-popup-menu-item" data-action="action3" title="Copy case details as XML or TSV" tabindex="0">Copy Case Details</button>
                     </div>
                 </div>
@@ -4293,6 +4294,13 @@ const PersistentBanner = {
                 break;
             case 'action3':
                 this.handleCaseDetailExtractor();
+                break;
+            case 'open-screenshot-panel':
+                try {
+                    chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL', tab: 'captured' });
+                } catch (err) {
+                    console.warn('[PersistentBanner] Failed to open screenshots panel', err);
+                }
                 break;
             case 'timezone-sync':
                 this.handleTimezoneClick('action-menu');

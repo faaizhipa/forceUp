@@ -439,6 +439,29 @@ const ScreenshotManager = (function() {
     cancelBtn.addEventListener('click', closeAnnotationUI);
     toolbar.appendChild(cancelBtn);
 
+    // Send to panel (keeps annotation open)
+    const panelBtn = document.createElement('button');
+    panelBtn.textContent = '↗ Panel';
+    panelBtn.style.cssText = `
+      padding: 8px 12px;
+      border: 1px solid #ccc;
+      background: white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    `;
+    panelBtn.addEventListener('click', () => {
+      try {
+        chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL', tab: 'captured' });
+      } catch (err) {
+        if (typeof Logger !== 'undefined') {
+          Logger.warn('[ScreenshotManager] Failed to open side panel', err);
+        }
+      }
+    });
+    toolbar.appendChild(panelBtn);
+
     return toolbar;
   }
 
@@ -626,6 +649,19 @@ const ScreenshotManager = (function() {
 
         // Copy to clipboard
         await copyToClipboard(finalDataUrl);
+
+        // Open side panel on Captured to show the new item
+        try {
+          chrome.runtime.sendMessage({
+            type: 'OPEN_SIDEPANEL',
+            tab: 'captured',
+            payload: { justSavedId: screenshotData.id, url: screenshotData.url }
+          });
+        } catch (err) {
+          if (typeof Logger !== 'undefined') {
+            Logger.warn('[ScreenshotManager] Failed to open side panel after save', err);
+          }
+        }
 
         // Show success message
         showSuccessToast('Screenshot saved and copied to clipboard');

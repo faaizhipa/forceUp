@@ -191,6 +191,18 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
       });
       sendResponse({ success: true });
       return true;
+    } else if (request.type === 'OPEN_SIDEPANEL') {
+      (async () => {
+        try {
+          await chrome.sidePanel.open({ windowId: sender.tab?.windowId });
+          await chrome.runtime.sendMessage({ type: 'SIDEpanel_FOCUS', tab: request.tab || 'captured', payload: request.payload || null });
+          sendResponse({ success: true });
+        } catch (err) {
+          console.warn('[Background] sidePanel.open failed', err);
+          sendResponse({ success: false, error: err?.message });
+        }
+      })();
+      return true;
     }
   });
 

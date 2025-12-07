@@ -12,6 +12,9 @@
       <button id="tab-current" class="active">Current Page</button>
       <button id="tab-all">All Notes</button>
       <button id="tab-settings">Settings</button>
+      <button id="tab-captured">Captured</button>
+      <button id="tab-recorded">Recorded</button>
+      <button id="tab-saved">Saved</button>
     </nav>
 
     <main id="content-current" class="tab-content active">
@@ -50,6 +53,18 @@
         <input type="file" id="file-import" accept=".json,.md,.txt,.xml">
         <button id="btn-import">Import</button>
       </section>
+    </main>
+
+    <main id="content-captured" class="tab-content hidden">
+      <div id="captured-list" class="screenshot-list"></div>
+    </main>
+
+    <main id="content-recorded" class="tab-content hidden">
+      <div id="recorded-list" class="screenshot-list"></div>
+    </main>
+
+    <main id="content-saved" class="tab-content hidden">
+      <div id="saved-list" class="screenshot-list"></div>
     </main>
 
     <!-- Editor Modal / View -->

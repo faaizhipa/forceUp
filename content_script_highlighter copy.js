@@ -34,10 +34,9 @@
   function isDefaultBannerDomain() {
     const DEFAULT_BANNER_DOMAINS = [
       'support.clarivate.com',
-      'wiki.clarivate.io',
-      'jira.clarivate.io',
-      'exlibrisgroup.com',
-
+      'developers.exlibrisgroup.com',
+      'knowledge.exlibrisgroup.com',
+      'wiki.clarivate.io'
     ];
     
     try {
@@ -128,194 +127,24 @@
     currentUrl: null,
     urlCheckInterval: null,
     floatingButtonElement: null,
+    floatingBannerElement: null,
     undoNotificationTimer: null,
     closeButtonElement: null,
-
-    // Radial menu + floating button state
+    bannerMode: 'hidden', // 'hidden' | 'floating' | 'sticky'
+    isDragging: false,
+    dragStartPos: { x: 0, y: 0 },
+    buttonPosition: { x: null, y: null },
+    
+    // Radial menu state
     radialMenuState: {
       isExpanded: false,
       menuElement: null,
       items: [],
-      radius: 70,
-      innerRadius: 45,
-      animationDelay: 30,
-      keyboardHandler: null
-    },
-    floatingButtonPosition: { x: null, y: null },
-
-    /**
-     * Safe storage helpers to tolerate invalidated contexts
-     */
-    safeLocalGet(keys, cb) {
-      try {
-        chrome.storage.local.get(keys, (result) => {
-          const err = chrome.runtime.lastError;
-          if (err) {
-            console.warn('[HighlighterController] storage.local.get failed:', err);
-            cb({});
-            return;
-          }
-          cb(result || {});
-        });
-      } catch (error) {
-        console.warn('[HighlighterController] storage.local.get threw:', error);
-        cb({});
-      }
-    },
-
-    safeLocalSet(items, cb = () => {}) {
-      try {
-        chrome.storage.local.set(items, () => {
-          const err = chrome.runtime.lastError;
-          if (err) {
-            console.warn('[HighlighterController] storage.local.set failed:', err);
-          }
-          cb();
-        });
-      } catch (error) {
-        console.warn('[HighlighterController] storage.local.set threw:', error);
-        cb();
-      }
-    },
-
-    safeSyncGet(keys, cb) {
-      try {
-        chrome.storage.sync.get(keys, (result) => {
-          const err = chrome.runtime.lastError;
-          if (err) {
-            console.warn('[HighlighterController] storage.sync.get failed:', err);
-            cb({});
-            return;
-          }
-          cb(result || {});
-        });
-      } catch (error) {
-        console.warn('[HighlighterController] storage.sync.get threw:', error);
-        cb({});
-      }
-    },
-
-    ensureRadialStyles() {
-      const STYLE_ID = 'exl-hl-radial-styles';
-      if (document.getElementById(STYLE_ID)) return;
-
-      const style = document.createElement('style');
-      style.id = STYLE_ID;
-      style.textContent = `
-        .exl-hl-floating-btn {
-          position: fixed;
-          right: 16px;
-          bottom: 24px;
-          width: 48px;
-          height: 48px;
-          border-radius: 50%;
-          border: none;
-          background: linear-gradient(135deg, #7c3aed, #2563eb);
-          color: #fff;
-          font-size: 20px;
-          box-shadow: 0 8px 20px rgba(0,0,0,0.2);
-          cursor: pointer;
-          z-index: 2147483000;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .exl-hl-floating-btn:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 12px 26px rgba(0,0,0,0.22);
-        }
-
-        .exl-hl-floating-btn.dragging {
-          opacity: 0.85;
-          cursor: grabbing;
-        }
-
-        .exl-hl-floating-btn.expanded {
-          box-shadow: 0 12px 28px rgba(0,0,0,0.28);
-        }
-
-        .exl-hl-radial-overlay {
-          position: fixed;
-          inset: 0;
-          background: transparent;
-          z-index: 2147482998;
-        }
-
-        .exl-hl-radial-menu {
-          position: fixed;
-          left: 0;
-          top: 0;
-          transform: translate(-50%, -50%);
-          width: 1px;
-          height: 1px;
-          z-index: 2147482999;
-        }
-
-        .exl-hl-radial-menu button {
-          position: absolute;
-          left: 0;
-          top: 0;
-          width: 44px;
-          height: 44px;
-          border-radius: 50%;
-          border: none;
-          background: #111827;
-          color: #fff;
-          font-size: 18px;
-          box-shadow: 0 8px 20px rgba(0,0,0,0.22);
-          cursor: pointer;
-          opacity: 0;
-          transform: translate(0,0) scale(0.2);
-          animation: exl-hl-radial-in 180ms ease-out forwards;
-        }
-
-        .exl-hl-radial-item {
-          background: linear-gradient(135deg, #1f2937, #111827);
-        }
-
-        .exl-hl-radial-color-chip {
-          width: 36px;
-          height: 36px;
-          border: 2px solid #fff;
-          box-shadow: 0 6px 16px rgba(0,0,0,0.18);
-        }
-
-        .exl-hl-radial-color-chip.selected {
-          outline: 3px solid #2563eb;
-        }
-
-        .exl-hl-radial-menu.collapsing button {
-          animation: exl-hl-radial-out 140ms ease-in forwards;
-        }
-
-        @keyframes exl-hl-radial-in {
-          from { opacity: 0; transform: translate(0,0) scale(0.2); }
-          to { opacity: 1; transform: translate(var(--final-x, 0), var(--final-y, 0)) scale(1); }
-        }
-
-        @keyframes exl-hl-radial-out {
-          from { opacity: 1; transform: translate(var(--final-x, 0), var(--final-y, 0)) scale(1); }
-          to { opacity: 0; transform: translate(0,0) scale(0.2); }
-        }
-      `;
-
-      (document.head || document.documentElement || document.body)?.appendChild(style);
-    },
-
-    async coerceBannerMode() {
-      return new Promise((resolve) => {
-        this.safeLocalGet(['exl_hl_banner_mode'], (result) => {
-          const mode = result.exl_hl_banner_mode;
-          if (mode === 'floating') {
-            console.log('[HighlighterController] Migrated banner mode from floating to sticky');
-            this.safeLocalSet({ exl_hl_banner_mode: 'sticky' }, resolve);
-            return;
-          }
-          resolve();
-        });
-      });
+      arcAngle: 180,      // Degrees of arc (semi-circle)
+      startAngle: -90,    // Start from top (pointing left when button on right)
+      radius: 70,         // Distance from center
+      innerRadius: 45,    // Inner radius for color palette
+      animationDelay: 30  // Stagger delay between items (ms)
     },
 
     /**
@@ -357,9 +186,6 @@
           }
         }
 
-        // Coerce legacy floating banner mode back to sticky (radial menu uses floating button only)
-        await this.coerceBannerMode();
-
         // Initialize modules (sequential - best practice for dependencies)
         // LayerManager must be initialized first as other modules depend on it
         if (typeof LayerManager !== 'undefined') {
@@ -368,20 +194,48 @@
         await Highlighter.init();
         await StickyNotes.init();
         await BookmarkManager.init();
+        
+        // Initialize highlights sidepanel
+        if (typeof HighlightsSidepanel !== 'undefined') {
+          await HighlightsSidepanel.init();
+        }
 
+        // Initialize cloud storage (if available)
+        if (typeof HybridStorageManager !== 'undefined') {
+          await HybridStorageManager.init();
+        }
+
+        // Load banner mode from storage
+        await this.loadBannerMode();
+        
+        // Load saved banner color and sync to sticky notes
+        chrome.storage.local.get(['exl_hl_current_banner_color'], (result) => {
+          const colorId = result.exl_hl_current_banner_color;
+          if (typeof colorId === 'number' && colorId >= 1 && colorId <= 11) {
+            this.currentBannerColor = colorId;
+            // Sync to sticky notes
+            if (typeof StickyNotes !== 'undefined' && StickyNotes.setDefaultColor) {
+              StickyNotes.setDefaultColor(colorId);
+            }
+          }
+        });
+        
         // Check if banner should be shown using new decision logic BEFORE creating UI
         const bannerResult = await this.shouldShowBannerForSite();
         
-        if (bannerResult.show) {
-          // Banner should show - create it
+        if (bannerResult.show && this.bannerMode !== 'floating') {
+          // Banner should show - create it as sticky
           this.createBanner();
           this.setupListeners();
           
-          // Setup MutationObserver to watch for dynamically added fixed elements
-          this.setupFixedElementObserver();
+          // Setup MutationObserver to watch for dynamically added fixed elements (only for sticky mode)
+          if (this.bannerMode === 'sticky') {
+            this.setupFixedElementObserver();
+          }
           
-          // Hide floating button
+          // Hide floating button and floating banner
           this.hideFloatingButton();
+          this.hideFloatingBanner();
         } else {
           console.log('[HighlighterController] Banner should not show:', bannerResult.reason);
           // Banner should not show - create it but keep it hidden, show floating button instead
@@ -398,6 +252,8 @@
           }
           this.adjustPageLayout(false);
           this.removeEarlyLayoutAdjustment();
+          // CRITICAL: Clean up ALL fixed element adjustments when banner is not shown
+          this.removeFixedElementAdjustments();
           
           // Ensure gaps are removed - force cleanup after a short delay
           setTimeout(() => {
@@ -411,14 +267,24 @@
                 document.body.style.setProperty('margin-top', '0', 'important');
               }
             }
+            // Clean up fixed element adjustments again to ensure nothing is missed
+            this.removeFixedElementAdjustments();
           }, 100);
           
           // Show floating button (for non-default/non-whitelisted sites or dismissed sites)
-          await this.checkAndShowFloatingButton();
-          
-          // Ensure floating button is shown even if check failed
-          if (!this.floatingButtonElement || this.floatingButtonElement.style.display === 'none') {
-            this.showFloatingButton();
+          // Only show if banner mode is not explicitly set to sticky
+          if (this.bannerMode !== 'sticky') {
+            await this.checkAndShowFloatingButton();
+            
+            // Ensure floating button is shown even if check failed
+            if (!this.floatingButtonElement || this.floatingButtonElement.style.display === 'none') {
+              await this.showFloatingButton();
+            }
+            
+            // If banner mode is floating, show floating banner instead of button if already expanded
+            if (this.bannerMode === 'floating') {
+              // Floating banner will be shown on button click
+            }
           }
         }
 
@@ -447,7 +313,7 @@
       
       // Fallback to direct storage check with consistent logic
       return new Promise((resolve) => {
-        this.safeSyncGet(['exlibris'], (result) => {
+        chrome.storage.sync.get(['exlibris'], (result) => {
           // Consistent check: !== false (undefined/true = enabled, false = disabled)
           const enabled = result.exlibris?.features?.highlighterEnabled !== false;
           resolve(enabled);
@@ -485,7 +351,7 @@
      */
     async isInBannerWhitelist(url) {
       return new Promise((resolve) => {
-        this.safeLocalGet(['exl_hl_banner_whitelist'], (result) => {
+        chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
           const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
           
           try {
@@ -539,7 +405,7 @@
      */
     async isDomainPermanentlyDismissed(domain) {
       return new Promise((resolve) => {
-        this.safeLocalGet(['exl_hl_banner_dismissals'], (result) => {
+        chrome.storage.local.get(['exl_hl_banner_dismissals'], (result) => {
           const dismissals = result.exl_hl_banner_dismissals || {};
           const domainData = dismissals[domain] || {};
           resolve(domainData.dismissed === true);
@@ -554,7 +420,7 @@
      */
     async isUrlPermanentlyDismissed(url) {
       return new Promise((resolve) => {
-        this.safeLocalGet(['exl_hl_banner_page_dismissals'], (result) => {
+        chrome.storage.local.get(['exl_hl_banner_page_dismissals'], (result) => {
           const pageDismissals = result.exl_hl_banner_page_dismissals || {};
           resolve(pageDismissals[url] === true);
         });
@@ -659,7 +525,7 @@
      */
     async trackBannerDismissal(domain, url) {
       return new Promise((resolve) => {
-        this.safeLocalGet(['exl_hl_banner_dismissals'], (result) => {
+        chrome.storage.local.get(['exl_hl_banner_dismissals'], (result) => {
           const dismissals = result.exl_hl_banner_dismissals || {};
           
           if (!dismissals[domain]) {
@@ -678,7 +544,7 @@
           // Check if we should show modal (3rd attempt and modal not shown yet)
           const shouldShowModal = dismissals[domain].count === 3 && !dismissals[domain].modalShown;
           
-          this.safeLocalSet({ exl_hl_banner_dismissals: dismissals }, () => {
+          chrome.storage.local.set({ exl_hl_banner_dismissals: dismissals }, () => {
             console.log(`[HighlighterController] Tracked dismissal for ${domain}, count: ${dismissals[domain].count}`);
             resolve({
               count: dismissals[domain].count,
@@ -714,10 +580,10 @@
      */
     async dismissBannerPermanentlyForUrl(url) {
       return new Promise((resolve) => {
-        this.safeLocalGet(['exl_hl_banner_page_dismissals'], (result) => {
+        chrome.storage.local.get(['exl_hl_banner_page_dismissals'], (result) => {
           const pageDismissals = result.exl_hl_banner_page_dismissals || {};
           pageDismissals[url] = true;
-          this.safeLocalSet({ exl_hl_banner_page_dismissals: pageDismissals }, () => {
+          chrome.storage.local.set({ exl_hl_banner_page_dismissals: pageDismissals }, () => {
             console.log('[HighlighterController] Banner permanently dismissed for URL:', url);
             resolve();
           });
@@ -732,7 +598,7 @@
      */
     async dismissBannerPermanentlyForDomain(domain) {
       return new Promise((resolve) => {
-        this.safeLocalGet(['exl_hl_banner_dismissals'], (result) => {
+        chrome.storage.local.get(['exl_hl_banner_dismissals'], (result) => {
           const dismissals = result.exl_hl_banner_dismissals || {};
           
           if (!dismissals[domain]) {
@@ -742,7 +608,7 @@
           dismissals[domain].dismissed = true;
           dismissals[domain].count = 0; // Reset count
           
-          this.safeLocalSet({ exl_hl_banner_dismissals: dismissals }, () => {
+          chrome.storage.local.set({ exl_hl_banner_dismissals: dismissals }, () => {
             console.log('[HighlighterController] Banner permanently dismissed for domain:', domain);
             resolve();
           });
@@ -757,7 +623,7 @@
      */
     async markModalShownForDomain(domain) {
       return new Promise((resolve) => {
-        this.safeLocalGet(['exl_hl_banner_dismissals'], (result) => {
+        chrome.storage.local.get(['exl_hl_banner_dismissals'], (result) => {
           const dismissals = result.exl_hl_banner_dismissals || {};
           
           if (!dismissals[domain]) {
@@ -767,7 +633,7 @@
           dismissals[domain].modalShown = true;
           dismissals[domain].count = 0; // Reset count
           
-          this.safeLocalSet({ exl_hl_banner_dismissals: dismissals }, () => {
+          chrome.storage.local.set({ exl_hl_banner_dismissals: dismissals }, () => {
             resolve();
           });
         });
@@ -782,7 +648,7 @@
      */
     async addToBannerWhitelist(type, value) {
       return new Promise((resolve) => {
-        this.safeLocalGet(['exl_hl_banner_whitelist'], (result) => {
+        chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
           const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
           
           try {
@@ -798,7 +664,7 @@
               }
             }
             
-            this.safeLocalSet({ exl_hl_banner_whitelist: whitelist }, () => {
+            chrome.storage.local.set({ exl_hl_banner_whitelist: whitelist }, () => {
               console.log('[HighlighterController] Added to whitelist:', type, value);
               resolve(true);
             });
@@ -818,7 +684,7 @@
      */
     async removeFromBannerWhitelist(type, value) {
       return new Promise((resolve) => {
-        this.safeLocalGet(['exl_hl_banner_whitelist'], (result) => {
+        chrome.storage.local.get(['exl_hl_banner_whitelist'], (result) => {
           const whitelist = result.exl_hl_banner_whitelist || { domains: [], urls: [] };
           
           try {
@@ -829,7 +695,7 @@
               whitelist.urls = whitelist.urls.filter(u => u !== value);
             }
             
-            this.safeLocalSet({ exl_hl_banner_whitelist: whitelist }, () => {
+            chrome.storage.local.set({ exl_hl_banner_whitelist: whitelist }, () => {
               console.log('[HighlighterController] Removed from whitelist:', type, value);
               resolve(true);
             });
@@ -890,6 +756,19 @@
       // Section 1: Title and Highlight Action
       const titleSection = document.createElement('div');
       titleSection.className = 'exl-banner-section';
+      
+      // Add button to convert sticky banner to floating banner
+      const stickyToFloatBtn = document.createElement('button');
+      stickyToFloatBtn.className = 'exl-hl-sticky-to-float-btn';
+      stickyToFloatBtn.innerHTML = '⤋';
+      stickyToFloatBtn.title = 'Switch to floating banner';
+      stickyToFloatBtn.setAttribute('aria-label', 'Switch to floating banner');
+      stickyToFloatBtn.setAttribute('tabindex', '0');
+      stickyToFloatBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await this.switchToFloatingMode();
+      });
+      titleSection.appendChild(stickyToFloatBtn);
       
       const titleLabel = document.createElement('div');
       titleLabel.className = 'exl-banner-label';
@@ -966,23 +845,10 @@
       bookmarkBtn.addEventListener('click', () => {
         this.showBookmarkDialog();
       });
-
-      const screenshotBtn = document.createElement('button');
-      screenshotBtn.className = 'exl-hl-btn';
-      screenshotBtn.innerHTML = '📸 Screens';
-      screenshotBtn.title = 'Open screenshots side panel';
-      screenshotBtn.addEventListener('click', () => {
-        try {
-          chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL', tab: 'captured' });
-        } catch (err) {
-          console.warn('[HighlighterController] Failed to open screenshots panel', err);
-        }
-      });
       
       actionsSection.appendChild(noteBtn);
       actionsSection.appendChild(collectionsBtn);
       actionsSection.appendChild(bookmarkBtn);
-      actionsSection.appendChild(screenshotBtn);
       container.appendChild(actionsSection);
 
       // Add close button (top-right corner)
@@ -997,16 +863,19 @@
       // Ensure banner height is at least 48px
       this.ensureBannerHeight();
 
-      // Adjust page content to avoid banner overlap
-      this.adjustPageLayout(true);
-      
-      // Handle "skip to main content" links that might overlap
-      this.handleSkipToContentLinks();
-      
-      // Also adjust fixed elements after banner is inserted (in case DOM changed)
-      setTimeout(() => {
-        this.adjustFixedElements();
-      }, 200);
+      // Only adjust page layout if NOT in sticky mode (sticky mode overlays content, no adjustments needed)
+      if (this.bannerMode !== 'sticky') {
+        // Adjust page content to avoid banner overlap
+        this.adjustPageLayout(true);
+        
+        // Handle "skip to main content" links that might overlap
+        this.handleSkipToContentLinks();
+        
+        // Also adjust fixed elements after banner is inserted (in case DOM changed)
+        setTimeout(() => {
+          this.adjustFixedElements();
+        }, 200);
+      }
     },
 
     /**
@@ -1440,9 +1309,171 @@
     },
 
     /**
+     * Load banner mode from storage
+     */
+    async loadBannerMode() {
+      return new Promise((resolve) => {
+        chrome.storage.local.get(['exl_hl_banner_mode'], (result) => {
+          const mode = result.exl_hl_banner_mode;
+          if (mode === 'floating' || mode === 'sticky' || mode === 'hidden') {
+            this.bannerMode = mode;
+          } else {
+            this.bannerMode = 'hidden';
+          }
+          resolve(this.bannerMode);
+        });
+      });
+    },
+
+    /**
+     * Save banner mode to storage
+     */
+    async saveBannerMode(mode) {
+      if (mode !== 'floating' && mode !== 'sticky' && mode !== 'hidden') {
+        console.warn('[HighlighterController] Invalid banner mode:', mode);
+        return;
+      }
+      this.bannerMode = mode;
+      chrome.storage.local.set({ exl_hl_banner_mode: mode }, () => {
+        console.log('[HighlighterController] Saved banner mode:', mode);
+      });
+    },
+
+    /**
+     * Load floating button position from storage
+     */
+    async loadFloatingButtonPosition() {
+      return new Promise((resolve) => {
+        chrome.storage.local.get(['exl_hl_floating_button_position'], (result) => {
+          const pos = result.exl_hl_floating_button_position;
+          if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
+            this.buttonPosition = { x: pos.x, y: pos.y };
+            resolve(this.buttonPosition);
+          } else {
+            resolve(null);
+          }
+        });
+      });
+    },
+
+    /**
+     * Save floating button position to storage
+     */
+    async saveFloatingButtonPosition(x, y) {
+      this.buttonPosition = { x, y };
+      chrome.storage.local.set({ exl_hl_floating_button_position: { x, y } }, () => {
+        console.log('[HighlighterController] Saved floating button position:', x, y);
+      });
+    },
+
+    /**
+     * Make floating button draggable
+     */
+    makeFloatingButtonDraggable(button) {
+      if (!button) return;
+
+      let isDragging = false;
+      let startX = 0;
+      let startY = 0;
+      let initialLeft = 0;
+      let initialTop = 0;
+
+      const startDrag = (e) => {
+        // Don't start drag on button click (only on drag gesture)
+        if (e.target !== button && !button.contains(e.target)) return;
+        
+        // Prevent drag if clicking on button (to allow toggle functionality)
+        const clickThreshold = 5; // pixels
+        const mouseDownX = e.clientX;
+        const mouseDownY = e.clientY;
+        let hasMoved = false;
+
+        const onMouseMove = (e) => {
+          const deltaX = Math.abs(e.clientX - mouseDownX);
+          const deltaY = Math.abs(e.clientY - mouseDownY);
+          
+          if (deltaX > clickThreshold || deltaY > clickThreshold) {
+            hasMoved = true;
+            if (!isDragging) {
+              isDragging = true;
+              this.isDragging = true;
+              button.classList.add('dragging');
+              
+              const rect = button.getBoundingClientRect();
+              startX = e.clientX;
+              startY = e.clientY;
+              initialLeft = rect.left;
+              initialTop = rect.top;
+              
+              // Prevent text selection during drag
+              document.body.style.userSelect = 'none';
+              document.body.style.cursor = 'grabbing';
+            }
+            
+            // Calculate new position
+            const deltaX = e.clientX - startX;
+            const deltaY = e.clientY - startY;
+            
+            let newLeft = initialLeft + deltaX;
+            let newTop = initialTop + deltaY;
+            
+            // Constrain to viewport boundaries
+            const buttonWidth = button.offsetWidth;
+            const buttonHeight = button.offsetHeight;
+            const maxX = window.innerWidth - buttonWidth;
+            const maxY = window.innerHeight - buttonHeight;
+            
+            newLeft = Math.max(0, Math.min(newLeft, maxX));
+            newTop = Math.max(0, Math.min(newTop, maxY));
+            
+            // Update position
+            button.style.left = `${newLeft}px`;
+            button.style.top = `${newTop}px`;
+            button.style.right = 'auto';
+            button.style.transform = 'none';
+          }
+        };
+
+        const onMouseUp = (e) => {
+          if (isDragging) {
+            isDragging = false;
+            this.isDragging = false;
+            button.classList.remove('dragging');
+            
+            // Restore cursor and selection
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
+            
+            // Save position
+            const rect = button.getBoundingClientRect();
+            this.saveFloatingButtonPosition(rect.left, rect.top);
+          } else if (!hasMoved) {
+            // It was a click, not a drag - toggle radial menu
+            this.toggleRadialMenu();
+          }
+          
+          document.removeEventListener('mousemove', onMouseMove);
+          document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      };
+
+      button.addEventListener('mousedown', startDrag);
+      
+      // Prevent context menu on long press
+      button.addEventListener('contextmenu', (e) => {
+        if (isDragging) {
+          e.preventDefault();
+        }
+      });
+    },
+
+    /**
      * Create and show floating button
      */
-    showFloatingButton() {
+    async showFloatingButton() {
       // Ensure body exists before appending
       if (!document.body) {
         // Wait for DOM to be ready
@@ -1458,20 +1489,33 @@
       // Don't create if already exists
       if (this.floatingButtonElement) {
         this.floatingButtonElement.style.display = 'block';
-        // Restore saved position if available
-        this.applyFloatingButtonPosition();
+        // Load saved position
+        await this.loadFloatingButtonPosition();
+        if (this.buttonPosition.x !== null && this.buttonPosition.y !== null) {
+          this.floatingButtonElement.style.left = `${this.buttonPosition.x}px`;
+          this.floatingButtonElement.style.top = `${this.buttonPosition.y}px`;
+          this.floatingButtonElement.style.right = 'auto';
+          this.floatingButtonElement.style.transform = 'none';
+        }
         return;
       }
       
-      this.ensureRadialStyles();
-
       const floatingBtn = document.createElement('button');
       floatingBtn.className = 'exl-hl-floating-btn';
       floatingBtn.innerHTML = '✨';
-      floatingBtn.title = 'Highlighter quick actions';
-      floatingBtn.setAttribute('aria-label', 'Highlighter quick actions');
-
-      // Drag vs click detection is inside makeFloatingButtonDraggable
+      floatingBtn.title = 'Show Highlighter Banner';
+      floatingBtn.setAttribute('aria-label', 'Show Highlighter Banner');
+      
+      // Load saved position or use default
+      await this.loadFloatingButtonPosition();
+      if (this.buttonPosition.x !== null && this.buttonPosition.y !== null) {
+        floatingBtn.style.left = `${this.buttonPosition.x}px`;
+        floatingBtn.style.top = `${this.buttonPosition.y}px`;
+        floatingBtn.style.right = 'auto';
+        floatingBtn.style.transform = 'none';
+      }
+      
+      // Make button draggable
       this.makeFloatingButtonDraggable(floatingBtn);
       
       document.body.appendChild(floatingBtn);
@@ -1488,99 +1532,11 @@
       }
     },
 
-    async loadFloatingButtonPosition() {
-      return new Promise((resolve) => {
-        this.safeLocalGet(['exl_hl_floating_btn_pos'], (result) => {
-          const pos = result.exl_hl_floating_btn_pos;
-          if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
-            this.floatingButtonPosition = { x: pos.x, y: pos.y };
-          }
-          resolve();
-        });
-      });
-    },
+    // ========== RADIAL MENU IMPLEMENTATION ==========
 
-    applyFloatingButtonPosition() {
-      if (!this.floatingButtonElement) return;
-      const { x, y } = this.floatingButtonPosition;
-      if (x === null || y === null) return;
-      this.floatingButtonElement.style.left = `${x}px`;
-      this.floatingButtonElement.style.top = `${y}px`;
-      this.floatingButtonElement.style.right = 'auto';
-      this.floatingButtonElement.style.bottom = 'auto';
-      this.floatingButtonElement.style.transform = 'none';
-    },
-
-    saveFloatingButtonPosition(x, y) {
-      this.floatingButtonPosition = { x, y };
-      this.safeLocalSet({ exl_hl_floating_btn_pos: { x, y } });
-    },
-
-    makeFloatingButtonDraggable(button) {
-      if (!button) return;
-
-      // Load saved position then apply
-      this.loadFloatingButtonPosition().then(() => this.applyFloatingButtonPosition());
-
-      let isDragging = false;
-      let startX = 0;
-      let startY = 0;
-      let originX = 0;
-      let originY = 0;
-      const DRAG_THRESHOLD = 5;
-
-      const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
-
-      const onMouseMove = (e) => {
-        if (!isDragging) return;
-        const deltaX = e.clientX - startX;
-        const deltaY = e.clientY - startY;
-        const newX = clamp(originX + deltaX, 8, window.innerWidth - 56);
-        const newY = clamp(originY + deltaY, 8, window.innerHeight - 56);
-        button.style.left = `${newX}px`;
-        button.style.top = `${newY}px`;
-        button.style.right = 'auto';
-        button.style.bottom = 'auto';
-      };
-
-      const onMouseUp = (e) => {
-        if (isDragging) {
-          const moved = Math.abs(e.clientX - startX) > DRAG_THRESHOLD || Math.abs(e.clientY - startY) > DRAG_THRESHOLD;
-          const rect = button.getBoundingClientRect();
-          this.saveFloatingButtonPosition(rect.left, rect.top);
-          button.classList.remove('dragging');
-          document.removeEventListener('mousemove', onMouseMove);
-          document.removeEventListener('mouseup', onMouseUp);
-          isDragging = false;
-          if (!moved) {
-            // Treat as click
-            this.toggleRadialMenu();
-          }
-        }
-      };
-
-      button.addEventListener('mousedown', (e) => {
-        startX = e.clientX;
-        startY = e.clientY;
-        const rect = button.getBoundingClientRect();
-        originX = rect.left;
-        originY = rect.top;
-        isDragging = true;
-        button.classList.add('dragging');
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', onMouseUp);
-      });
-
-      // Prevent context menu during drag
-      button.addEventListener('contextmenu', (e) => {
-        if (isDragging) {
-          e.preventDefault();
-        }
-      });
-    },
-
-    // ========== RADIAL MENU ========== 
-
+    /**
+     * Toggle radial menu visibility
+     */
     toggleRadialMenu() {
       if (this.radialMenuState.isExpanded) {
         this.hideRadialMenu();
@@ -1589,36 +1545,42 @@
       }
     },
 
+    /**
+     * Show radial menu with fan-out animation
+     */
     showRadialMenu() {
       if (this.radialMenuState.isExpanded || !this.floatingButtonElement) return;
 
-      // Ensure styles are present
-      this.ensureRadialStyles();
-
-      // Remove any existing menu first
+      // Remove existing menu if any
       this.hideRadialMenu();
 
       const buttonRect = this.floatingButtonElement.getBoundingClientRect();
       const centerX = buttonRect.left + buttonRect.width / 2;
       const centerY = buttonRect.top + buttonRect.height / 2;
 
+      // Determine which side the button is on to adjust menu direction
       const isOnRightSide = centerX > window.innerWidth / 2;
       const isOnBottomHalf = centerY > window.innerHeight / 2;
 
+      // Create menu container
       const menu = document.createElement('div');
       menu.className = 'exl-hl-radial-menu';
       menu.id = 'exl-hl-radial-menu';
       menu.style.left = `${centerX}px`;
       menu.style.top = `${centerY}px`;
 
+      // Add overlay to capture clicks outside
       const overlay = document.createElement('div');
       overlay.className = 'exl-hl-radial-overlay';
       overlay.addEventListener('click', () => this.hideRadialMenu());
       document.body.appendChild(overlay);
 
+      // Define menu items with their actions
       const menuItems = this.getRadialMenuItems();
 
-      let startAngle = isOnRightSide ? 90 : -90;
+      // Calculate positions for radial layout
+      // Adjust start angle based on button position
+      let startAngle = isOnRightSide ? 90 : -90; // Point away from edge
       if (isOnBottomHalf) {
         startAngle = isOnRightSide ? 135 : -135;
       }
@@ -1627,6 +1589,7 @@
       const angleStep = arcAngle / (menuItems.length - 1 || 1);
       const radius = this.radialMenuState.radius;
 
+      // Create menu items
       menuItems.forEach((item, index) => {
         const angle = startAngle + (index * angleStep);
         const radian = (angle * Math.PI) / 180;
@@ -1639,24 +1602,41 @@
         menuItem.title = item.label;
         menuItem.setAttribute('aria-label', item.label);
         menuItem.setAttribute('tabindex', '0');
+        
+        // Set initial position (at center, scale 0)
         menuItem.style.setProperty('--final-x', `${x}px`);
         menuItem.style.setProperty('--final-y', `${y}px`);
         menuItem.style.animationDelay = `${index * this.radialMenuState.animationDelay}ms`;
 
+        // Handle special items
+        if (item.type === 'colorPalette') {
+          menuItem.classList.add('exl-hl-radial-color');
+          menuItem.style.backgroundColor = item.color;
+          menuItem.dataset.colorId = item.colorId;
+          if (item.isSelected) {
+            menuItem.classList.add('selected');
+          }
+        }
+
+        // Add click handler
         menuItem.addEventListener('click', (e) => {
           e.stopPropagation();
           if (item.action) {
             item.action();
           }
-          this.hideRadialMenu();
+          // Don't close menu for color selection
+          if (item.type !== 'colorPalette') {
+            this.hideRadialMenu();
+          }
         });
 
         menu.appendChild(menuItem);
         this.radialMenuState.items.push(menuItem);
       });
 
-      const colors = (typeof Highlighter !== 'undefined' && Highlighter.getColors) ? Highlighter.getColors() : [];
-      const currentColor = (typeof Highlighter !== 'undefined' && Highlighter.getCurrentColor) ? Highlighter.getCurrentColor() : null;
+      // Add color palette as inner arc
+      const colors = Highlighter.getColors ? Highlighter.getColors() : [];
+      const currentColor = Highlighter.getCurrentColor ? Highlighter.getCurrentColor() : null;
       const colorArcAngle = 160;
       const colorStartAngle = startAngle + 10;
       const colorAngleStep = colorArcAngle / (colors.length - 1 || 1);
@@ -1674,6 +1654,7 @@
         colorItem.title = color.name;
         colorItem.setAttribute('aria-label', `Color: ${color.name}`);
         colorItem.dataset.colorId = color.id;
+        
         colorItem.style.setProperty('--final-x', `${x}px`);
         colorItem.style.setProperty('--final-y', `${y}px`);
         colorItem.style.animationDelay = `${(menuItems.length + index) * this.radialMenuState.animationDelay}ms`;
@@ -1695,37 +1676,40 @@
       this.radialMenuState.menuElement = menu;
       this.radialMenuState.isExpanded = true;
 
+      // Add expanded class to button
       this.floatingButtonElement.classList.add('expanded');
       this.floatingButtonElement.setAttribute('aria-expanded', 'true');
 
+      // Setup keyboard handler
       this.setupRadialMenuKeyboard(menu);
+
+      console.log('[HighlighterController] Radial menu shown');
     },
 
+    /**
+     * Get radial menu items configuration
+     */
     getRadialMenuItems() {
       return [
         {
           icon: '🖍️',
           label: 'Highlight Selection',
           action: () => {
-            if (typeof Highlighter !== 'undefined' && Highlighter.createHighlight) {
-              Highlighter.createHighlight();
-            }
+            Highlighter.createHighlight();
           }
         },
         {
           icon: '📝',
           label: 'Add Note',
           action: () => {
-            if (typeof StickyNotes !== 'undefined' && StickyNotes.createNote) {
-              StickyNotes.createNote();
-            }
+            StickyNotes.createNote();
           }
         },
         {
           icon: '📋',
           label: 'Manage Highlights & Notes',
           action: () => {
-            if (typeof HighlightsSidepanel !== 'undefined' && HighlightsSidepanel.openPanel) {
+            if (typeof HighlightsSidepanel !== 'undefined') {
               HighlightsSidepanel.openPanel();
             }
           }
@@ -1734,9 +1718,7 @@
           icon: '📚',
           label: 'Collections',
           action: () => {
-            if (typeof BookmarkManager !== 'undefined' && BookmarkManager.openPanel) {
-              BookmarkManager.openPanel();
-            }
+            BookmarkManager.openPanel();
           }
         },
         {
@@ -1750,17 +1732,15 @@
           icon: '📌',
           label: 'Pin Banner',
           action: () => {
-            this.reactivateBannerForCurrentUrl();
+            this.switchToStickyMode();
           }
         },
         {
           icon: '🗑️',
           label: 'Clear Page Highlights',
           action: () => {
-            if (typeof Highlighter !== 'undefined' && Highlighter.clearCurrentPageHighlights) {
-              if (confirm('Clear all highlights on this page?')) {
-                Highlighter.clearCurrentPageHighlights();
-              }
+            if (confirm('Clear all highlights on this page?')) {
+              Highlighter.clearCurrentPageHighlights && Highlighter.clearCurrentPageHighlights();
             }
           }
         },
@@ -1768,41 +1748,209 @@
           icon: '☁️',
           label: 'Cloud Sync Settings',
           action: () => {
-            if (typeof HybridStorageManager !== 'undefined' && HybridStorageManager.getSyncStatus) {
-              this.showCloudSyncDialog();
-            } else {
-              this.showCloudSyncDialog();
-            }
+            this.showCloudSyncDialog();
           }
         }
       ];
     },
 
+    /**
+     * Show cloud sync settings dialog
+     */
+    showCloudSyncDialog() {
+      const existingDialog = document.querySelector('.exl-hl-cloud-dialog');
+      if (existingDialog) existingDialog.remove();
+
+      const isAuthenticated = typeof OneDriveAuth !== 'undefined' && OneDriveAuth.isAuthenticated();
+      const userInfo = isAuthenticated ? OneDriveAuth.getUserInfo() : null;
+      const syncStatus = typeof HybridStorageManager !== 'undefined' 
+        ? HybridStorageManager.getSyncStatus() 
+        : { mode: 'local' };
+
+      const dialog = document.createElement('div');
+      dialog.className = 'exl-hl-cloud-dialog exl-hl-dialog';
+      
+      dialog.innerHTML = `
+        <div class="exl-hl-dialog-content">
+          <h3 class="exl-hl-dialog-title">☁️ Cloud Sync Settings</h3>
+          
+          <div class="exl-hl-dialog-section">
+            <div class="exl-hl-cloud-status">
+              <span class="exl-hl-status-indicator ${isAuthenticated ? 'connected' : 'disconnected'}"></span>
+              <span>${isAuthenticated ? 'Connected to OneDrive' : 'Not connected'}</span>
+            </div>
+            ${userInfo ? `<p class="exl-hl-user-email">${userInfo.mail || userInfo.userPrincipalName || ''}</p>` : ''}
+          </div>
+
+          ${isAuthenticated ? `
+            <div class="exl-hl-dialog-section">
+              <label class="exl-hl-dialog-label">Storage Mode:</label>
+              <div class="exl-hl-radio-group">
+                <label class="exl-hl-radio">
+                  <input type="radio" name="storage-mode" value="local" ${syncStatus.mode === 'local' ? 'checked' : ''} />
+                  <span>Local Only (no sync)</span>
+                </label>
+                <label class="exl-hl-radio">
+                  <input type="radio" name="storage-mode" value="hybrid" ${syncStatus.mode === 'hybrid' ? 'checked' : ''} />
+                  <span>Hybrid (local + cloud backup)</span>
+                </label>
+                <label class="exl-hl-radio">
+                  <input type="radio" name="storage-mode" value="cloud" ${syncStatus.mode === 'cloud' ? 'checked' : ''} />
+                  <span>Cloud Primary</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="exl-hl-dialog-section exl-hl-sync-info">
+              <p>Last sync: ${syncStatus.lastSync ? new Date(syncStatus.lastSync).toLocaleString() : 'Never'}</p>
+              <p>Pending: ${syncStatus.queueLength} items</p>
+            </div>
+
+            <div class="exl-hl-dialog-actions">
+              <button class="exl-hl-btn exl-hl-btn-secondary" data-action="sync">Sync Now</button>
+              <button class="exl-hl-btn exl-hl-btn-secondary" data-action="migrate">Migrate to Cloud</button>
+              <button class="exl-hl-btn exl-hl-btn-secondary" data-action="logout">Disconnect</button>
+            </div>
+          ` : `
+            <div class="exl-hl-dialog-section">
+              <p>Connect to OneDrive to sync your highlights, notes, and bookmarks across devices.</p>
+              <button class="exl-hl-btn exl-hl-btn-primary" data-action="login" style="width: 100%;">
+                Connect to OneDrive
+              </button>
+            </div>
+          `}
+          
+          <div class="exl-hl-dialog-footer">
+            <button class="exl-hl-btn exl-hl-btn-secondary" data-action="close">Close</button>
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(dialog);
+      
+      // Handle actions
+      dialog.addEventListener('click', async (e) => {
+        const action = e.target.dataset.action;
+        
+        switch (action) {
+          case 'close':
+            dialog.remove();
+            break;
+            
+          case 'login':
+            try {
+              e.target.textContent = 'Connecting...';
+              e.target.disabled = true;
+              await OneDriveAuth.login();
+              dialog.remove();
+              this.showCloudSyncDialog(); // Refresh dialog
+            } catch (error) {
+              alert('Login failed: ' + error.message);
+              e.target.textContent = 'Connect to OneDrive';
+              e.target.disabled = false;
+            }
+            break;
+            
+          case 'logout':
+            if (confirm('Disconnect from OneDrive? Your local data will be preserved.')) {
+              await OneDriveAuth.logout();
+              dialog.remove();
+              this.showCloudSyncDialog(); // Refresh dialog
+            }
+            break;
+            
+          case 'sync':
+            try {
+              e.target.textContent = 'Syncing...';
+              e.target.disabled = true;
+              await HybridStorageManager.sync();
+              dialog.remove();
+              this.showCloudSyncDialog(); // Refresh dialog
+            } catch (error) {
+              alert('Sync failed: ' + error.message);
+              e.target.textContent = 'Sync Now';
+              e.target.disabled = false;
+            }
+            break;
+            
+          case 'migrate':
+            if (confirm('Upload all local data to OneDrive? This may take a moment.')) {
+              try {
+                e.target.textContent = 'Migrating...';
+                e.target.disabled = true;
+                const result = await HybridStorageManager.migrateToCloud((progress) => {
+                  e.target.textContent = `Migrating... ${progress}%`;
+                });
+                alert(`Migration complete! Uploaded ${result.migrated} items.`);
+                dialog.remove();
+                this.showCloudSyncDialog();
+              } catch (error) {
+                alert('Migration failed: ' + error.message);
+                e.target.textContent = 'Migrate to Cloud';
+                e.target.disabled = false;
+              }
+            }
+            break;
+        }
+      });
+      
+      // Handle storage mode changes
+      const modeRadios = dialog.querySelectorAll('input[name="storage-mode"]');
+      modeRadios.forEach(radio => {
+        radio.addEventListener('change', async (e) => {
+          await HybridStorageManager.setStorageMode(e.target.value);
+        });
+      });
+      
+      // Close on click outside
+      dialog.addEventListener('click', (e) => {
+        if (e.target === dialog) {
+          dialog.remove();
+        }
+      });
+    },
+
+    /**
+     * Select color from radial menu
+     */
     selectRadialColor(colorId, element) {
-      if (typeof Highlighter !== 'undefined' && Highlighter.setColor) {
+      // Update highlighter color
+      if (Highlighter.setColor) {
         Highlighter.setColor(colorId);
       }
+
+      // Update sticky notes default color
       if (typeof StickyNotes !== 'undefined' && StickyNotes.setDefaultColor) {
         StickyNotes.setDefaultColor(colorId);
       }
-      this.safeLocalSet({ exl_hl_current_banner_color: colorId });
 
+      // Save to storage
+      chrome.storage.local.set({ exl_hl_current_banner_color: colorId });
+
+      // Update UI - remove selected class from all, add to clicked
       const allColorChips = document.querySelectorAll('.exl-hl-radial-color-chip');
       allColorChips.forEach(chip => chip.classList.remove('selected'));
       if (element) {
         element.classList.add('selected');
       }
+
+      console.log('[HighlighterController] Color selected:', colorId);
     },
 
+    /**
+     * Setup keyboard navigation for radial menu
+     */
     setupRadialMenuKeyboard(menu) {
       const handleKeydown = (e) => {
         if (e.key === 'Escape') {
           e.preventDefault();
           this.hideRadialMenu();
         } else if (e.key === 'Tab') {
+          // Keep focus within menu
           const focusable = menu.querySelectorAll('button');
           const first = focusable[0];
           const last = focusable[focusable.length - 1];
+
           if (e.shiftKey && document.activeElement === first) {
             e.preventDefault();
             last.focus();
@@ -1816,38 +1964,306 @@
       document.addEventListener('keydown', handleKeydown);
       this.radialMenuState.keyboardHandler = handleKeydown;
 
+      // Focus first item
       const firstItem = menu.querySelector('button');
       if (firstItem) {
         setTimeout(() => firstItem.focus(), 100);
       }
     },
 
+    /**
+     * Hide radial menu with collapse animation
+     */
     hideRadialMenu() {
       if (!this.radialMenuState.isExpanded) return;
 
       const menu = this.radialMenuState.menuElement;
       const overlay = document.querySelector('.exl-hl-radial-overlay');
 
+      // Add collapse animation class
       if (menu) {
         menu.classList.add('collapsing');
-        setTimeout(() => menu.remove(), 200);
+        
+        // Remove after animation
+        setTimeout(() => {
+          menu.remove();
+        }, 200);
       }
-      if (overlay) overlay.remove();
 
+      if (overlay) {
+        overlay.remove();
+      }
+
+      // Remove keyboard handler
       if (this.radialMenuState.keyboardHandler) {
         document.removeEventListener('keydown', this.radialMenuState.keyboardHandler);
         this.radialMenuState.keyboardHandler = null;
       }
 
+      // Update button state
       if (this.floatingButtonElement) {
         this.floatingButtonElement.classList.remove('expanded');
         this.floatingButtonElement.setAttribute('aria-expanded', 'false');
         this.floatingButtonElement.focus();
       }
 
+      // Reset state
       this.radialMenuState.menuElement = null;
       this.radialMenuState.items = [];
       this.radialMenuState.isExpanded = false;
+
+      console.log('[HighlighterController] Radial menu hidden');
+    },
+
+    // ========== END RADIAL MENU IMPLEMENTATION ==========
+
+    /**
+     * Create floating sidebar banner that expands from button
+     * @deprecated Use radial menu instead. Kept for sticky mode transition.
+     */
+    showFloatingBanner() {
+      // Don't create if already exists
+      if (this.floatingBannerElement) {
+        this.floatingBannerElement.style.display = 'flex';
+        return;
+      }
+
+      if (!this.floatingButtonElement) {
+        console.warn('[HighlighterController] Cannot show floating banner: button not found');
+        return;
+      }
+
+      // Get button position
+      const buttonRect = this.floatingButtonElement.getBoundingClientRect();
+      const buttonY = buttonRect.top;
+
+      // Create floating banner container
+      const floatingBanner = document.createElement('div');
+      floatingBanner.className = 'exl-hl-floating-banner';
+      floatingBanner.id = 'exl-hl-floating-banner';
+
+      // Create container with all banner sections
+      const container = document.createElement('div');
+      container.className = 'exl-banner-container';
+
+      // Section 1: Title
+      const titleSection = document.createElement('div');
+      titleSection.className = 'exl-banner-section';
+      
+      const titleLabel = document.createElement('div');
+      titleLabel.className = 'exl-banner-label';
+      titleLabel.textContent = 'Tool';
+      
+      const title = document.createElement('div');
+      title.className = 'exl-hl-banner-title';
+      title.textContent = '✨ Highlighter';
+      
+      titleSection.appendChild(titleLabel);
+      titleSection.appendChild(title);
+      container.appendChild(titleSection);
+
+      // Section 2: Highlight Action
+      const highlightSection = document.createElement('div');
+      highlightSection.className = 'exl-banner-section';
+      
+      const highlightBtn = document.createElement('button');
+      highlightBtn.className = 'exl-hl-btn';
+      highlightBtn.innerHTML = '🖍️ Highlight';
+      highlightBtn.title = 'Highlight selected text';
+      highlightBtn.addEventListener('click', () => {
+        Highlighter.createHighlight();
+      });
+      
+      highlightSection.appendChild(highlightBtn);
+      container.appendChild(highlightSection);
+
+      // Section 3: Color Palette
+      const paletteSection = document.createElement('div');
+      paletteSection.className = 'exl-banner-section';
+      
+      const paletteLabel = document.createElement('div');
+      paletteLabel.className = 'exl-banner-label';
+      paletteLabel.textContent = 'Colors';
+      
+      const palette = this.createColorPalette();
+      paletteSection.appendChild(paletteLabel);
+      paletteSection.appendChild(palette);
+      container.appendChild(paletteSection);
+
+      // Section 4: Layers
+      const layerSection = document.createElement('div');
+      layerSection.className = 'exl-banner-section';
+      
+      const layerBtn = this.createLayerDropdown();
+      layerSection.appendChild(layerBtn);
+      container.appendChild(layerSection);
+
+      // Section 5: Actions (Notes, Collections, Bookmark)
+      const actionsSection = document.createElement('div');
+      actionsSection.className = 'exl-banner-section exl-banner-actions';
+      
+      const noteBtn = document.createElement('button');
+      noteBtn.className = 'exl-hl-btn';
+      noteBtn.innerHTML = '📝 Add Note';
+      noteBtn.title = 'Create sticky note';
+      noteBtn.addEventListener('click', () => {
+        StickyNotes.createNote();
+      });
+
+      const collectionsBtn = document.createElement('button');
+      collectionsBtn.className = 'exl-hl-btn';
+      collectionsBtn.innerHTML = '📚 Collections';
+      collectionsBtn.title = 'Open collections';
+      collectionsBtn.addEventListener('click', () => {
+        BookmarkManager.openPanel();
+      });
+
+      const bookmarkBtn = document.createElement('button');
+      bookmarkBtn.className = 'exl-hl-btn';
+      bookmarkBtn.innerHTML = '🔖 Bookmark';
+      bookmarkBtn.title = 'Bookmark this page';
+      bookmarkBtn.addEventListener('click', () => {
+        this.showBookmarkDialog();
+      });
+      
+      actionsSection.appendChild(noteBtn);
+      actionsSection.appendChild(collectionsBtn);
+      actionsSection.appendChild(bookmarkBtn);
+      container.appendChild(actionsSection);
+
+      floatingBanner.appendChild(container);
+
+      // Add collapse button (chevron pointing toward button)
+      const collapseBtn = document.createElement('button');
+      collapseBtn.className = 'exl-hl-floating-collapse-btn';
+      collapseBtn.innerHTML = '◀';
+      collapseBtn.title = 'Collapse to button';
+      collapseBtn.setAttribute('aria-label', 'Collapse banner');
+      collapseBtn.setAttribute('tabindex', '0');
+      collapseBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.hideFloatingBanner();
+      });
+      floatingBanner.appendChild(collapseBtn);
+
+      // Add pin button (pin inside window)
+      const pinBtn = document.createElement('button');
+      pinBtn.className = 'exl-hl-floating-pin-btn';
+      pinBtn.innerHTML = '📌';
+      pinBtn.title = 'Pin to top';
+      pinBtn.setAttribute('aria-label', 'Pin banner to top');
+      pinBtn.setAttribute('tabindex', '0');
+      pinBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.switchToStickyMode();
+      });
+      floatingBanner.appendChild(pinBtn);
+
+      // Position floating banner on left side, anchored to button Y position
+      floatingBanner.style.top = `${buttonY}px`;
+      floatingBanner.style.left = '0px';
+      floatingBanner.style.height = '48px';
+
+      document.body.appendChild(floatingBanner);
+      this.floatingBannerElement = floatingBanner;
+
+      // Hide floating button when banner is shown
+      if (this.floatingButtonElement) {
+        this.floatingButtonElement.style.display = 'none';
+      }
+
+      console.log('[HighlighterController] Floating banner shown');
+    },
+
+    /**
+     * Hide floating banner and show button
+     */
+    hideFloatingBanner() {
+      if (this.floatingBannerElement) {
+        this.floatingBannerElement.style.display = 'none';
+      }
+      
+      // Show floating button
+      if (this.floatingButtonElement) {
+        this.floatingButtonElement.style.display = 'block';
+      }
+      
+      console.log('[HighlighterController] Floating banner hidden');
+    },
+
+    /**
+     * Toggle between floating button and floating banner
+     */
+    toggleFloatingBanner() {
+      if (this.floatingBannerElement && this.floatingBannerElement.style.display !== 'none') {
+        this.hideFloatingBanner();
+      } else {
+        this.showFloatingBanner();
+      }
+    },
+
+    /**
+     * Switch from floating to sticky mode
+     */
+    async switchToStickyMode() {
+      // Hide floating banner and button
+      this.hideFloatingBanner();
+      if (this.floatingButtonElement) {
+        this.floatingButtonElement.style.display = 'none';
+      }
+
+      // Show sticky banner
+      if (!this.bannerElement) {
+        this.createBanner();
+        this.setupListeners();
+      }
+      
+      if (this.bannerElement) {
+        this.bannerElement.style.display = 'block';
+        this.bannerElement.classList.add('sticky-mode');
+        
+        // Mark body
+        if (document.body) {
+          document.body.removeAttribute('data-exl-hl-banner-hidden');
+        }
+
+        // Ensure no layout adjustments are applied (sticky mode overlays content)
+        this.adjustPageLayout(false);
+        this.removeFixedElementAdjustments();
+      }
+
+      // Save mode
+      await this.saveBannerMode('sticky');
+      
+      console.log('[HighlighterController] Switched to sticky mode');
+    },
+
+    /**
+     * Switch from sticky to floating mode
+     */
+    async switchToFloatingMode() {
+      // Hide sticky banner
+      if (this.bannerElement) {
+        this.bannerElement.style.display = 'none';
+        this.bannerElement.classList.remove('sticky-mode');
+        
+        // Mark body
+        if (document.body) {
+          document.body.setAttribute('data-exl-hl-banner-hidden', 'true');
+        }
+        
+        // Remove all layout adjustments
+        this.adjustPageLayout(false);
+        this.removeFixedElementAdjustments();
+      }
+
+      // Show floating button
+      await this.showFloatingButton();
+
+      // Save mode
+      await this.saveBannerMode('floating');
+      
+      console.log('[HighlighterController] Switched to floating mode');
     },
 
     /**
@@ -1862,7 +2278,7 @@
       
       // Clear permanent URL dismissal
       return new Promise((resolve) => {
-        this.safeLocalGet(['exl_hl_banner_page_dismissals', 'exl_hl_banner_dismissals'], (result) => {
+        chrome.storage.local.get(['exl_hl_banner_page_dismissals', 'exl_hl_banner_dismissals'], (result) => {
           const pageDismissals = result.exl_hl_banner_page_dismissals || {};
           const dismissals = result.exl_hl_banner_dismissals || {};
           
@@ -1876,7 +2292,7 @@
             dismissals[currentDomain].modalShown = false;
           }
           
-          this.safeLocalSet({
+          chrome.storage.local.set({
             exl_hl_banner_page_dismissals: pageDismissals,
             exl_hl_banner_dismissals: dismissals
           }, () => {
@@ -1974,6 +2390,19 @@
           
           // Set color in highlighter
           Highlighter.setColor(color.id);
+          
+          // Store current banner color for sticky notes sync
+          this.currentBannerColor = color.id;
+          
+          // Sync to sticky notes default color
+          if (typeof StickyNotes !== 'undefined' && StickyNotes.setDefaultColor) {
+            StickyNotes.setDefaultColor(color.id);
+          }
+          
+          // Save current banner color to storage
+          chrome.storage.local.set({ exl_hl_current_banner_color: color.id }, () => {
+            console.log('[HighlighterController] Saved current banner color:', color.id);
+          });
           
           // If there's a text selection, highlight it with this color
           let selectionNow = window.getSelection();
@@ -2409,27 +2838,47 @@
       document.body.appendChild(overlay);
     },
 
-    showCloudSyncDialog() {
-      console.log('[HighlighterController] Cloud sync dialog not available in this build');
-      alert('Cloud sync settings are not available in this build.');
-    },
-
     /**
      * Find and adjust fixed-positioned elements that might overlap banner
      * This handles elements with position: fixed and top: 0 (or close to 0)
      */
+    /**
+     * Check if banner is actually visible (not just exists in DOM)
+     * Returns false if banner is hidden, doesn't exist, or only floating button is shown
+     */
+    isBannerVisible() {
+      if (!this.bannerElement) {
+        return false;
+      }
+      
+      const display = window.getComputedStyle(this.bannerElement).display;
+      const visibility = window.getComputedStyle(this.bannerElement).visibility;
+      const opacity = window.getComputedStyle(this.bannerElement).opacity;
+      
+      // Banner is visible only if display is not 'none', visibility is not 'hidden', and opacity is > 0
+      return display !== 'none' && visibility !== 'hidden' && parseFloat(opacity) > 0;
+    },
+
     adjustFixedElements() {
+      // CRITICAL: Only adjust elements if banner is actually visible
+      // When banner is hidden (mini button shown), ALL styling should be inactive
+      if (!this.isBannerVisible()) {
+        console.log('[HighlighterController] Banner not visible, skipping fixed element adjustments');
+        // Clean up any existing adjustments when banner is not visible
+        this.removeFixedElementAdjustments();
+        return;
+      }
+
+      // Don't adjust fixed elements if banner mode is sticky (sticky overlays content, no adjustments needed)
+      if (this.bannerMode === 'sticky') {
+        console.log('[HighlighterController] Skipping fixed element adjustments (sticky mode - banner overlays)');
+        return;
+      }
+      
       const BANNER_HEIGHT_PX = 48;
       const ADJUSTMENT_ATTR = 'data-exl-hl-adjusted';
       
       try {
-        // Only adjust when banner (or early padding) is actually in play
-        const bannerActive = !!(this.bannerElement && this.bannerElement.isConnected && this.bannerElement.offsetParent !== null);
-        const earlyApplied = !!window.__exlHlEarlyLayoutApplied;
-        if (!bannerActive && !earlyApplied) {
-          return;
-        }
-
         // Find all elements that might be fixed headers
         const allElements = document.querySelectorAll('*');
         const fixedElements = [];
@@ -2438,8 +2887,7 @@
           // Skip if already adjusted or if it's our banner
           if (el.hasAttribute(ADJUSTMENT_ATTR) || 
               el.id === 'exl-hl-banner' || 
-              el.classList.contains('exl-hl-banner') ||
-              el.closest(`[${ADJUSTMENT_ATTR}]`)) {
+              el.classList.contains('exl-hl-banner')) {
             return;
           }
           
@@ -2449,7 +2897,7 @@
           
           // Check if element is fixed/sticky and at top of page
           if ((position === 'fixed' || position === 'sticky') && 
-              (isNaN(top) || top <= 2)) {
+              (isNaN(top) || top <= 10)) {
             fixedElements.push(el);
           }
         });
@@ -2457,7 +2905,7 @@
         // Adjust fixed elements
         fixedElements.forEach(el => {
           const currentTop = parseInt(window.getComputedStyle(el).top, 10);
-          const newTop = isNaN(currentTop) || currentTop >= BANNER_HEIGHT_PX 
+          const newTop = isNaN(currentTop) || currentTop < BANNER_HEIGHT_PX 
             ? BANNER_HEIGHT_PX 
             : currentTop + BANNER_HEIGHT_PX;
           
@@ -2475,19 +2923,39 @@
 
     /**
      * Remove adjustments from fixed elements
+     * Cleans up all styling applied by adjustFixedElements()
      */
     removeFixedElementAdjustments() {
       const ADJUSTMENT_ATTR = 'data-exl-hl-adjusted';
+      const SKIP_LINK_ADJUSTED_ATTR = 'data-exl-hl-skip-link-adjusted';
+      const SKIP_LINK_HIDDEN_ATTR = 'data-exl-hl-skip-link-hidden';
       
       try {
+        // Remove adjustments from fixed elements
         const adjustedElements = document.querySelectorAll(`[${ADJUSTMENT_ATTR}]`);
         adjustedElements.forEach(el => {
+          // Remove the inline style property (including !important)
           el.style.removeProperty('top');
           el.removeAttribute(ADJUSTMENT_ATTR);
         });
         
-        if (adjustedElements.length > 0) {
-          console.log(`[HighlighterController] Removed adjustments from ${adjustedElements.length} elements`);
+        // Clean up skip link adjustments
+        const skipLinkAdjusted = document.querySelectorAll(`[${SKIP_LINK_ADJUSTED_ATTR}]`);
+        skipLinkAdjusted.forEach(el => {
+          el.style.removeProperty('top');
+          el.removeAttribute(SKIP_LINK_ADJUSTED_ATTR);
+        });
+        
+        // Clean up skip link hidden markers
+        const skipLinkHidden = document.querySelectorAll(`[${SKIP_LINK_HIDDEN_ATTR}]`);
+        skipLinkHidden.forEach(el => {
+          el.style.removeProperty('display');
+          el.removeAttribute(SKIP_LINK_HIDDEN_ATTR);
+        });
+        
+        const totalCleaned = adjustedElements.length + skipLinkAdjusted.length + skipLinkHidden.length;
+        if (totalCleaned > 0) {
+          console.log(`[HighlighterController] Removed adjustments from ${totalCleaned} elements (${adjustedElements.length} fixed, ${skipLinkAdjusted.length} skip links)`);
         }
       } catch (error) {
         console.error('[HighlighterController] Error removing fixed element adjustments:', error);
@@ -2500,8 +2968,15 @@
      * Uses padding only (not margin) to avoid double spacing
      * Note: Early layout adjustment may already be applied
      * Follows best practices: constants, element checks, error handling
+     * IMPORTANT: Does NOT apply adjustments when banner mode is 'sticky' (sticky overlays content)
      */
     adjustPageLayout(apply) {
+      // Don't apply adjustments if banner mode is sticky (sticky overlays content, no layout shifts)
+      if (apply && this.bannerMode === 'sticky') {
+        console.log('[HighlighterController] Skipping layout adjustments (sticky mode - banner overlays)');
+        return;
+      }
+
       const BANNER_HEIGHT_PX = 48; // 3rem = 48px (constant, not magic number)
       const EARLY_STYLE_ID = 'exl-hl-early-layout';
       const STATE_FLAG = '__exlHlEarlyLayoutApplied';
@@ -2525,14 +3000,13 @@
               }
             `;
             document.head.appendChild(earlyStyle);
-            return;
           }
           
           // Strategy 2: Apply inline styles as backup (padding only, no margin)
           if (document.body) {
             // Check element existence (best practice)
             const currentPadding = parseInt(window.getComputedStyle(document.body).paddingTop, 10);
-            if (isNaN(currentPadding) || currentPadding < 2 || currentPadding < BANNER_HEIGHT_PX) {
+            if (isNaN(currentPadding) || currentPadding < BANNER_HEIGHT_PX) {
               document.body.style.paddingTop = `${BANNER_HEIGHT_PX}px`;
             }
             // Remove margin to prevent double spacing
@@ -2714,12 +3188,20 @@
           });
           
           if (shouldAdjust) {
+            // Only adjust if banner is actually visible
+            if (!this.isBannerVisible()) {
+              return;
+            }
+            
             // Debounce adjustments to avoid excessive calls
             clearTimeout(this._fixedElementAdjustTimeout);
             this._fixedElementAdjustTimeout = setTimeout(() => {
-              this.adjustFixedElements();
-              // Also check for new skip links
-              this.handleSkipToContentLinks();
+              // Double-check visibility before adjusting
+              if (this.isBannerVisible()) {
+                this.adjustFixedElements();
+                // Also check for new skip links
+                this.handleSkipToContentLinks();
+              }
             }, 200);
           }
         });
@@ -2875,11 +3357,13 @@
             this.adjustPageLayout(true);
             // Hide floating button when banner is shown
             this.hideFloatingButton();
-            // Re-adjust fixed elements after a delay for new page content
+            // Re-adjust fixed elements after a delay for new page content (only if banner is visible)
             setTimeout(() => {
-              this.adjustFixedElements();
-              // Re-check skip links for new page
-              this.handleSkipToContentLinks();
+              if (this.isBannerVisible()) {
+                this.adjustFixedElements();
+                // Re-check skip links for new page
+                this.handleSkipToContentLinks();
+              }
             }, 300);
           } else {
             // Create banner if it doesn't exist
@@ -2896,6 +3380,8 @@
             }
             this.adjustPageLayout(false);
             this.removeEarlyLayoutAdjustment();
+            // CRITICAL: Clean up ALL fixed element adjustments when banner is hidden
+            this.removeFixedElementAdjustments();
           }
           
           // Force cleanup of gaps after a delay to ensure styles are applied
@@ -2910,6 +3396,8 @@
                 document.body.style.setProperty('margin-top', '0', 'important');
               }
             }
+            // Clean up fixed element adjustments again to ensure nothing is missed
+            this.removeFixedElementAdjustments();
             // Check html element too
             if (document.documentElement) {
               const htmlPadding = parseInt(window.getComputedStyle(document.documentElement).paddingTop, 10);
