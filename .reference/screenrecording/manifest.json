@@ -1,0 +1,134 @@
+{
+   "action": {
+      "default_icon": {
+         "128": "assets/images/default-icon128.png",
+         "16": "assets/images/default-icon16.png",
+         "19": "assets/images/default-icon19.png",
+         "38": "assets/images/default-icon38.png",
+         "48": "assets/images/default-icon48.png"
+      },
+      "default_popup": "initializer.html",
+      "default_title": "Screencastify"
+   },
+   "background": {
+      "service_worker": "background.js",
+      "type": "module"
+   },
+   "commands": {
+      "_execute_action": {
+         "suggested_key": {
+            "chromeos": "Alt+Shift+S",
+            "linux": "Alt+Shift+S",
+            "mac": "Alt+Shift+S",
+            "windows": "Alt+Shift+S"
+         }
+      },
+      "toggle-resume-pause": {
+         "description": "Pause/Resume Recording",
+         "suggested_key": {
+            "default": "Alt+Shift+P"
+         }
+      },
+      "toggle-start-stop": {
+         "description": "Start/Stop Recording",
+         "suggested_key": {
+            "default": "Alt+Shift+R"
+         }
+      }
+   },
+   "content_scripts": [ {
+      "all_frames": true,
+      "js": [ "extension-installed-post-message.js" ],
+      "matches": [ "https://app.cfy-local.com/*", "https://app.cfy-stage.com/*", "https://app.castify.com/*" ],
+      "run_at": "document_idle"
+   }, {
+      "exclude_matches": [ "https://developer.chrome.com/*" ],
+      "js": [ "quick-record-script.js" ],
+      "matches": [ "http://*/*", "https://*/*" ],
+      "run_at": "document_idle"
+   }, {
+      "js": [ "gmail-script.js" ],
+      "matches": [ "https://mail.google.com/*" ],
+      "run_at": "document_idle"
+   }, {
+      "js": [ "outlook-script.js" ],
+      "match_about_blank": true,
+      "matches": [ "https://outlook.live.com/*" ],
+      "run_at": "document_idle"
+   }, {
+      "js": [ "youtube-script.js" ],
+      "matches": [ "https://www.youtube.com/*" ],
+      "run_at": "document_idle"
+   }, {
+      "js": [ "google-drive-script.js" ],
+      "matches": [ "https://drive.google.com/*" ],
+      "run_at": "document_idle"
+   }, {
+      "js": [ "google-slides-script.js" ],
+      "matches": [ "https://docs.google.com/presentation/*" ],
+      "run_at": "document_idle"
+   } ],
+   "content_security_policy": {
+      "extension_pages": "script-src 'self' 'wasm-unsafe-eval';"
+   },
+   "default_locale": "en",
+   "description": "An easy-to-use screen recorder for your browser. Capture, edit and share videos in seconds.",
+   "externally_connectable": {
+      "matches": [ "https://app.castify.com/*", "https://app.cfy-local.com/*", "https://app.cfy-stage.com/*", "https://app.dev1.screencastify.com/*", "https://app.staging.screencastify.com/*", "https://app.screencastify.com/*", "http://localhost:4205/*", "http://localhost:8080/*" ]
+   },
+   "host_permissions": [ "\u003Call_urls>", "*://*/*" ],
+   "icons": {
+      "128": "assets/images/default-icon128.png",
+      "16": "assets/images/default-icon16.png",
+      "19": "assets/images/default-icon19.png",
+      "38": "assets/images/default-icon38.png",
+      "48": "assets/images/default-icon48.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAy6Nhr6FKbqgayQ3nFFiJ758dD1vOsZAfoZFm2A1LetDkf3rEGxTdNmrBaSH9ghfnvwWvIJhwxllg56gsVUbx3umdEpu/iUimezaBHQX1yoAIXFBL3+ojLVTrZJo8U0u/qS2+V9FSYadqDEaBE2fCszAaX9IA0oWmh6w2Q7otIfC37DYfeTpuykG5cJh56Sc10L9PapgOIEg5q908BsQ/SXcXHBbKl0rpUfYyYFzs1zqd6y6ta3dNE4YMwpMK/pGQ9R7lQmuNfGH+uFOIbgbEO8s4HdoVPF0at1H0V8hOxIevnRgbDfo+ekDdwrgRItkXCtKQz+XWYmC6eJEbB7PAywIDAQAB",
+   "manifest_version": 3,
+   "name": "Screencastify - Screen Video Recorder",
+   "permissions": [ "alarms", "storage", "tabs", "activeTab", "offscreen", "scripting", "unlimitedStorage", "tabCapture", "desktopCapture", "webNavigation", "notifications", "system.display" ],
+   "storage": {
+      "managed_schema": "assets/other/managed_schema.json"
+   },
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "4.21.3.5514",
+   "version_name": "4.21.3 (88f4c964-1))",
+   "web_accessible_resources": [ {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "webcam.html" ]
+   }, {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "controller.html" ]
+   }, {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "getting-started.html" ]
+   }, {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "options.html" ]
+   }, {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "offscreen.html" ]
+   }, {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "assets/audio/*.mp3" ]
+   }, {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "assets/pendo/*" ]
+   }, {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "assets/ffmpeg/*" ]
+   }, {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "assets/images/default-icon32.png" ]
+   }, {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "assets/images/default-icon48.png" ]
+   }, {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "assets/images/screencastify-white.svg" ]
+   }, {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "assets/images/castify-watermark.png" ]
+   } ]
+}

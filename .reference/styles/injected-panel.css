@@ -1,0 +1,254 @@
+/**
+ * External CSS for Flexipage Panel Injection
+ * MV3 and Salesforce CSP compliant (no inline styles)
+ */
+
+/* Slot wrapper for Lightning compatibility */
+slot[name="exl-flexipage-slot"] {
+    display: block;
+    margin: 0 12px;
+}
+
+/* Flexipage panel container */
+#exl-flexipage-panel {
+    margin: 8px -12px;
+    width: calc(100% + 24px);
+    position: relative;
+    z-index: 1000;
+}
+
+/* Panel container */
+.exl-panel {
+    background-color: #f3f3f3;
+    border: 1px solid #d8d8d8;
+    border-radius: 4px;
+    padding: 12px;
+    margin: 12px 0;
+    font-family: 'Salesforce Sans', Arial, sans-serif;
+    height: fit-content;
+    position: relative;
+    z-index: 1000;
+}
+
+/* Slot 1: Button group and data display */
+.exl-panel-slot1 {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Button group */
+.exl-button-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.exl-panel-header {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.exl-panel-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+}
+
+.exl-panel-status {
+    font-size: 13px;
+    padding: 8px;
+    border-radius: 4px;
+    background-color: #f3f2f2;
+    color: #3e3e3c;
+    border: 1px solid #d8d8d8;
+}
+
+.exl-panel-status[data-status-type="success"] {
+    background-color: #e3fcef;
+    border-color: #8ad78a;
+    color: #0c643f;
+}
+
+.exl-panel-status[data-status-type="warning"] {
+    background-color: #fff7d6;
+    border-color: #f4d250;
+    color: #8a6116;
+}
+
+.exl-panel-status[data-status-type="error"] {
+    background-color: #fde7ec;
+    border-color: #f49ca8;
+    color: #ba0c2f;
+}
+
+/* Button styles */
+.exl-btn {
+    background-color: #0070d2;
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 0 1rem !important;
+    margin: 0 -5px 0 !important;
+    min-height: 32px;
+    font-size: 14px;
+    font-weight: 400;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.exl-btn--loading {
+    position: relative;
+    opacity: 0.85;
+    cursor: progress;
+}
+
+.exl-btn:hover {
+    background-color: #005fb2;
+}
+
+.exl-btn:active {
+    background-color: #00396b;
+}
+
+.exl-btn:disabled,
+.exl-btn.exl-btn--disabled {
+    background-color: #c9c9c9;
+    color: #333333;
+    cursor: not-allowed;
+}
+
+.exl-btn.exl-btn--secondary {
+    background-color: #ffffff;
+    color: #0070d2;
+    border: 1px solid #0070d2;
+}
+
+.exl-btn.exl-btn--secondary:hover:not(:disabled) {
+    background-color: #e6f1fb;
+}
+
+/* Data display */
+.exl-data-display {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 8px;
+    background-color: #ffffff;
+    border: 1px solid #d8d8d8;
+    border-radius: 4px;
+}
+
+.exl-data-item {
+    font-size: 13px;
+    font-weight: 600;
+    color: #3e3e3c;
+    display: flex;
+    gap: 4px;
+}
+
+.exl-metadata-tertiary .exl-data-item {
+    flex: 1 1 100%;
+}
+
+.exl-data-item span {
+    font-weight: 400;
+}
+
+.exl-data-value {
+    font-weight: 400;
+    color: #706e6b;
+    margin-left: 4px;
+}
+
+/* Slot 2: Expandable content */
+.exl-panel-slot2 {
+    margin-top: 12px;
+    padding: 12px;
+    background-color: #ffffff;
+    border: 1px solid #d8d8d8;
+    border-radius: 4px;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.exl-panel-slot2[aria-expanded="false"] {
+    max-height: 0;
+    padding: 0;
+    margin-top: 0;
+    border: none;
+}
+
+.exl-panel-slot2[aria-expanded="true"] {
+    max-height: 500px;
+}
+
+.exl-slot2-content h3 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #3e3e3c;
+}
+
+.exl-slot2-content p {
+    margin: 0;
+    font-size: 14px;
+    color: #706e6b;
+}
+
+.exl-slot2-message {
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: #3e3e3c;
+}
+
+.exl-slot2-section {
+    flex: 1 1 280px;
+    min-width: 240px;
+    background-color: #f9f9f9;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    padding: 12px;
+}
+
+.exl-slot2-section + .exl-slot2-section {
+    margin-top: 12px;
+}
+
+.exl-case-dl {
+    margin: 0;
+}
+
+.exl-case-dl dt {
+    font-weight: 600;
+    font-size: 12px;
+    color: #3e3e3c;
+    margin-top: 8px;
+}
+
+.exl-case-dl dt:first-child {
+    margin-top: 0;
+}
+
+.exl-case-dl dd {
+    margin: 0;
+    font-size: 13px;
+    color: #595959;
+    white-space: pre-wrap;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .exl-button-group {
+        flex-direction: column;
+    }
+    
+    .exl-data-display {
+        flex-direction: column;
+        gap: 8px;
+    }
+}

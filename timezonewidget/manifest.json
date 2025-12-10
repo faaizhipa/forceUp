@@ -28,7 +28,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "modules/*.js"
+        "modules/*.js",
+        "modules/*.css"
       ],
       "matches": ["<all_urls>"]
     }
@@ -38,11 +39,15 @@
     {
       "matches": ["<all_urls>"],
       "js": [
+        "modules/themeController.js",
+        "modules/globalSyncStateStore.js",
+        "modules/globalSyncApp.js",
+        "modules/datePicker.js",
         "modules/timezoneUtils.js",
         "modules/globalSyncWidget.js",
         "content_script.js"
       ],
-      "css": [],
+      "css": ["modules/globalSyncTheme.css"],
       "run_at": "document_idle"
     }
   ]

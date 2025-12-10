@@ -21,17 +21,56 @@ const GlobalSyncWidget = (() => {
   const WIDGET_ID = 'global-sync-widget';
   const UPDATE_INTERVAL_MS = 1000;
   const DRAG_STEP_MINUTES = 10;
+  const MIN_DURATION_MINUTES = 30;
 
   const STYLES = `
+    :root {
+      color-scheme: light dark;
+      --gsw-font-sans: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --gsw-font-mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+      --gsw-radius-sm: 6px;
+      --gsw-radius-md: 10px;
+      --gsw-radius-lg: 14px;
+      --gsw-shadow: 0 15px 40px rgba(15, 23, 42, 0.35);
+      --gsw-ring: 0 0 0 2px rgba(99, 102, 241, 0.45);
+
+      --gsw-bg: #0f172a;
+      --gsw-bg-muted: #18223b;
+      --gsw-bg-elevated: #1c2540;
+      --gsw-card: #1f2a44;
+      --gsw-border: rgba(255, 255, 255, 0.08);
+      --gsw-foreground: #f8fafc;
+      --gsw-foreground-muted: #cbd5f5;
+      --gsw-accent: #6366f1;
+      --gsw-accent-strong: #8b5cf6;
+      --gsw-success: #22c55e;
+      --gsw-warning: #facc15;
+      --gsw-neutral: #94a3b8;
+    }
+
+    :root[data-theme='light'] {
+      --gsw-bg: #f8fafc;
+      --gsw-bg-muted: #eef2ff;
+      --gsw-bg-elevated: #ffffff;
+      --gsw-card: #ffffff;
+      --gsw-border: rgba(15, 23, 42, 0.08);
+      --gsw-foreground: #0f172a;
+      --gsw-foreground-muted: #475569;
+      --gsw-accent: #4f46e5;
+      --gsw-accent-strong: #7c3aed;
+      --gsw-shadow: 0 20px 45px rgba(15, 23, 42, 0.15);
+    }
+
     .gsw-container {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #1a1a2e;
-      color: #e0e0e0;
-      border-radius: 12px;
+      font-family: var(--gsw-font-sans);
+      background: var(--gsw-card);
+      color: var(--gsw-foreground);
+      border-radius: var(--gsw-radius-lg);
       padding: 16px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      box-shadow: var(--gsw-shadow);
       min-width: 320px;
-      max-width: 600px;
+      max-width: 640px;
+      border: 1px solid var(--gsw-border);
     }
 
     .gsw-header {
@@ -40,48 +79,53 @@ const GlobalSyncWidget = (() => {
       align-items: center;
       margin-bottom: 12px;
       padding-bottom: 12px;
-      border-bottom: 1px solid #2d2d44;
+      border-bottom: 1px solid var(--gsw-border);
     }
 
     .gsw-title {
       font-size: 14px;
-      font-weight: 600;
-      color: #fff;
+      font-weight: 700;
+      color: var(--gsw-foreground);
+      letter-spacing: 0.02em;
     }
 
     .gsw-tabs {
-      display: flex;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 4px;
-      background: #2d2d44;
+      background: var(--gsw-bg-muted);
       padding: 4px;
-      border-radius: 8px;
+      border-radius: var(--gsw-radius-md);
     }
 
     .gsw-tab {
-      padding: 6px 12px;
+      padding: 8px 12px;
       font-size: 12px;
       border: none;
       background: transparent;
-      color: #a0a0a0;
+      color: var(--gsw-foreground-muted);
       cursor: pointer;
-      border-radius: 6px;
-      transition: all 0.2s;
+      border-radius: var(--gsw-radius-sm);
+      transition: all 0.2s ease;
+      font-weight: 600;
     }
 
     .gsw-tab:hover {
-      color: #fff;
+      color: var(--gsw-foreground);
     }
 
     .gsw-tab.active {
-      background: #4a4a6a;
-      color: #fff;
+      background: var(--gsw-card);
+      color: var(--gsw-foreground);
+      box-shadow: inset 0 0 0 1px var(--gsw-border);
     }
 
     .gsw-timezone-row {
       display: flex;
       align-items: center;
-      padding: 10px 0;
-      border-bottom: 1px solid #2d2d44;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--gsw-border);
+      gap: 12px;
     }
 
     .gsw-timezone-row:last-child {
@@ -91,14 +135,13 @@ const GlobalSyncWidget = (() => {
     .gsw-status-dot {
       width: 10px;
       height: 10px;
-      border-radius: 50%;
-      margin-right: 10px;
+      border-radius: 999px;
       flex-shrink: 0;
     }
 
-    .gsw-status-business { background: #22c55e; }
-    .gsw-status-awake { background: #eab308; }
-    .gsw-status-sleep { background: #6b7280; }
+    .gsw-status-business { background: var(--gsw-success); }
+    .gsw-status-awake { background: var(--gsw-warning); }
+    .gsw-status-sleep { background: var(--gsw-neutral); }
 
     .gsw-timezone-info {
       flex: 1;
@@ -107,8 +150,8 @@ const GlobalSyncWidget = (() => {
 
     .gsw-timezone-name {
       font-size: 13px;
-      font-weight: 500;
-      color: #fff;
+      font-weight: 600;
+      color: var(--gsw-foreground);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -116,25 +159,25 @@ const GlobalSyncWidget = (() => {
 
     .gsw-timezone-label {
       font-size: 11px;
-      color: #888;
+      color: var(--gsw-foreground-muted);
       margin-top: 2px;
     }
 
     .gsw-time-display {
       text-align: right;
-      min-width: 100px;
+      min-width: 110px;
     }
 
     .gsw-time {
       font-size: 18px;
-      font-weight: 600;
-      font-family: 'SF Mono', Monaco, monospace;
-      color: #fff;
+      font-weight: 700;
+      font-family: var(--gsw-font-mono);
+      color: var(--gsw-foreground);
     }
 
     .gsw-date {
       font-size: 11px;
-      color: #888;
+      color: var(--gsw-foreground-muted);
       margin-top: 2px;
     }
 
@@ -143,37 +186,43 @@ const GlobalSyncWidget = (() => {
       grid-template-columns: repeat(24, 1fr);
       gap: 1px;
       margin-top: 8px;
-      border-radius: 4px;
+      border-radius: 6px;
       overflow: hidden;
+      background: var(--gsw-bg-muted);
+      border: 1px solid var(--gsw-border);
     }
 
     .gsw-hour-block {
-      height: 20px;
+      height: 22px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 9px;
+      font-size: 10px;
       cursor: pointer;
-      transition: opacity 0.2s;
+      transition: opacity 0.2s ease, transform 0.1s ease;
+      color: var(--gsw-foreground);
     }
 
     .gsw-hour-block:hover {
-      opacity: 0.8;
+      opacity: 0.85;
+      transform: translateY(-1px);
     }
 
-    .gsw-hour-block.gsw-status-business { background: rgba(34, 197, 94, 0.4); }
-    .gsw-hour-block.gsw-status-awake { background: rgba(234, 179, 8, 0.3); }
-    .gsw-hour-block.gsw-status-sleep { background: rgba(107, 114, 128, 0.3); }
+    .gsw-hour-block.gsw-status-business { background: rgba(34, 197, 94, 0.25); }
+    .gsw-hour-block.gsw-status-awake { background: rgba(250, 204, 21, 0.22); }
+    .gsw-hour-block.gsw-status-sleep { background: rgba(148, 163, 184, 0.2); }
 
     .gsw-hour-block.current {
-      border: 2px solid #fff;
+      box-shadow: inset 0 0 0 2px var(--gsw-accent);
+      color: var(--gsw-accent-strong);
+      font-weight: 700;
     }
 
     .gsw-meeting-block {
       position: absolute;
       height: 100%;
-      background: rgba(99, 102, 241, 0.6);
-      border: 2px solid #818cf8;
+      background: rgba(99, 102, 241, 0.55);
+      border: 2px solid var(--gsw-accent);
       border-radius: 4px;
       cursor: move;
     }
@@ -183,7 +232,7 @@ const GlobalSyncWidget = (() => {
       width: 8px;
       height: 100%;
       cursor: ew-resize;
-      background: rgba(255, 255, 255, 0.3);
+      background: rgba(255, 255, 255, 0.35);
     }
 
     .gsw-meeting-handle.left { left: 0; border-radius: 4px 0 0 4px; }
@@ -198,25 +247,26 @@ const GlobalSyncWidget = (() => {
 
     .gsw-duration {
       font-size: 12px;
-      color: #888;
+      color: var(--gsw-foreground-muted);
     }
 
     .gsw-copy-btn {
       padding: 6px 12px;
       font-size: 11px;
-      border: 1px solid #4a4a6a;
+      border: 1px solid var(--gsw-border);
       background: transparent;
-      color: #fff;
+      color: var(--gsw-foreground);
       cursor: pointer;
-      border-radius: 6px;
+      border-radius: var(--gsw-radius-sm);
       display: flex;
       align-items: center;
       gap: 6px;
-      transition: all 0.2s;
+      transition: all 0.2s ease;
     }
 
     .gsw-copy-btn:hover {
-      background: #4a4a6a;
+      background: var(--gsw-bg-muted);
+      color: var(--gsw-foreground);
     }
 
     .gsw-copy-btn svg {

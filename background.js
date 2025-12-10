@@ -1,5 +1,5 @@
 // Service worker entry
-importScripts('modules/dataMigration.js', 'utils/storage.js', 'utils/google-drive.js');
+importScripts('modules/dataMigration.js', 'utils/storage.js', 'modules/localDb.js', 'utils/google-drive.js');
 
 // ========== CONTEXT MENU MANAGEMENT ==========
 
@@ -203,6 +203,15 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         }
       })();
       return true;
+    } else if (request.type === 'CAPTURE_VISIBLE_TAB') {
+      chrome.tabs.captureVisibleTab(sender.tab?.windowId || undefined, { format: 'png' }, (dataUrl) => {
+        if (chrome.runtime.lastError || !dataUrl) {
+          sendResponse({ success: false, error: chrome.runtime.lastError?.message || 'captureVisibleTab failed' });
+          return;
+        }
+        sendResponse({ success: true, dataUrl });
+      });
+      return true;
     }
   });
 
@@ -219,9 +228,26 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       return;
     }
 
-    const data = await Storage.getAllNotes?.();
-    await GoogleDrive.performBackup?.(data);
-    console.log('[Background] Scheduled backup complete.');
+    const [notesData, localDbPayload] = await Promise.all([
+      Storage.getAllNotes?.(),
+      typeof LocalDb !== 'undefined' ? LocalDb.exportEntities() : null
+    ]);
+
+    const tasks = [];
+    if (notesData) {
+      tasks.push(GoogleDrive.performBackup?.(notesData));
+    }
+    if (localDbPayload) {
+      tasks.push(GoogleDrive.performLocalDbBackup?.(localDbPayload));
+    }
+
+    if (tasks.length === 0) {
+      console.log('[Background] Nothing to back up.');
+      return;
+    }
+
+    await Promise.all(tasks);
+    console.log('[Background] Scheduled backup complete (notes + LocalDb).');
   } catch (e) {
     console.error('[Background] Scheduled backup failed:', e);
   }

@@ -10,8 +10,8 @@ const NavigationObserver = (function(){
     let observer = {
     callbacks: [],
     priorityCallbacks: [], // Callbacks that should run first (e.g., PageIdentifier)
-    currentUrl: null,
-    currentTitle: null,
+    currentUrl: window.location.href,
+    currentTitle: document.title,
     currentCaseId: null,
     currentCaseNumber: null,
     debounceTimer: null,
@@ -35,6 +35,14 @@ const NavigationObserver = (function(){
         this.currentTitle = document.title;
         this.updateCaseContext();
         this.isRunning = true;
+
+          if (!window.ExLibrisExtension.refreshed) {
+            window.ExLibrisExtension.refreshedInitialUrl = this.currentUrl;
+            window.ExLibrisExtension.refreshed = true;
+
+          } else if (window.ExLibrisExtension.refreshedInitialUrl !== this.currentUrl) {
+            window.ExLibrisExtension.refreshed = false;
+          }
 
         // Signal 1: Watch title changes (Lightning updates title on navigation)
         const titleElement = document.querySelector('title');
@@ -215,9 +223,9 @@ const NavigationObserver = (function(){
                     // Create a copy of context for each callback to prevent mutation
                     if (cb.length === 2) {
                         const contextCopy = { ...baseContext };
-                        cb(this.currentUrl, contextCopy);
+                        cb(this.currentUrl = window.location.href, contextCopy);
                     } else {
-                        cb(this.currentUrl);
+                        cb(this.currentUrl = window.location.href);
                     }
                 } catch (err) {
                     console.error(`[EXL] NavigationObserver: Callback ${index} error:`, err);

@@ -358,8 +358,10 @@
       this.isInitializing = true;
       
       try {
-        if (pageInfo.url === this.lastUrl) {
-          console.log('[ExLibris Extension] Page same as last URL, skipping initialization');
+        const sameUrl = pageInfo.url === this.lastUrl;
+        const samePageIdentity = sameUrl && this.currentPage && pageInfo.type === this.currentPage.type && pageInfo.caseId === this.currentCaseId;
+        if (samePageIdentity) {
+          console.log('[ExLibris Extension] Page same as last URL and page identity, skipping initialization');
           return;
         }
         console.log('[ExLibris Extension] Page changed:', pageInfo);

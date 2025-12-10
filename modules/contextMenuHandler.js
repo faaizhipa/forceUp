@@ -221,17 +221,17 @@ const ContextMenuHandler = (function() {
 
     // Handle style conversions
     if (info.menuItemId === MENU_IDS.STYLE_BOLD) {
-      formattedText = TextFormatter.convertToStyle(selectedText, 'bold');
+      formattedText = TextFormatter.convertStyle(selectedText, 'bold');
     } else if (info.menuItemId === MENU_IDS.STYLE_ITALIC) {
-      formattedText = TextFormatter.convertToStyle(selectedText, 'italic');
+      formattedText = TextFormatter.convertStyle(selectedText, 'italic');
     } else if (info.menuItemId === MENU_IDS.STYLE_BOLD_ITALIC) {
-      formattedText = TextFormatter.convertToStyle(selectedText, 'boldItalic');
+      formattedText = TextFormatter.convertStyle(selectedText, 'boldItalic');
     } else if (info.menuItemId === MENU_IDS.STYLE_BOLD_SERIF) {
-      formattedText = TextFormatter.convertToStyle(selectedText, 'boldSerif');
+      formattedText = TextFormatter.convertStyle(selectedText, 'boldSerif');
     } else if (info.menuItemId === MENU_IDS.STYLE_CODE) {
-      formattedText = TextFormatter.convertToStyle(selectedText, 'code');
+      formattedText = TextFormatter.convertStyle(selectedText, 'code');
     } else if (info.menuItemId === MENU_IDS.STYLE_NORMAL) {
-      formattedText = TextFormatter.convertToNormal(selectedText);
+      formattedText = TextFormatter.convertStyle(selectedText, 'normal');
     }
     // Handle case conversions
     else if (info.menuItemId === MENU_IDS.CASE_TOGGLE) {
@@ -343,11 +343,7 @@ const ContextMenuHandler = (function() {
       if (!context) return;
 
       let formattedText;
-      if (formatType === 'normal') {
-        formattedText = TextFormatter.convertToNormal(context.text);
-      } else {
-        formattedText = TextFormatter.convertToStyle(context.text, formatType);
-      }
+      formattedText = TextFormatter.convertStyle(context.text, formatType);
 
       replaceSelection(formattedText);
     },

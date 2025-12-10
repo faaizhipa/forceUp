@@ -596,8 +596,16 @@ const CasePageDataExtractor = {
       analysisNote: this.getRecordLayoutField('Analysis Note'),
 
       // Flexipage fields (anchored data)
-      asset: this.getFlexipageField('RecordAsset_Line_Item_cField', true),
-      affectedEnvironment: this.getFlexipageField('Recordbl_Affected_Environment_cField', true),
+      asset: this.getFlexipageFieldWithFallback(
+        'RecordAsset_Line_Item_cField',
+        true,
+        ['Asset / Line Item', 'Asset (Line Item)', 'Asset Line Item', 'Asset']
+      ),
+      affectedEnvironment: this.getFlexipageFieldWithFallback(
+        'Recordbl_Affected_Environment_cField',
+        true,
+        ['Affected Environment', 'Environment']
+      ),
       caseOwner: this.getFlexipageField('RecordOwnerIdField', true),
       parentCase: this.getFlexipageField('RecordParentIdField', true),
       parentCaseOwner: this.getFlexipageField('RecordParentCaseOwner_cField', true),
@@ -679,16 +687,11 @@ const CasePageDataExtractor = {
    */
   getPlatformService() {
     // Try primary method: records-record-layout-item
-    let value = this.getFlexipageField('RecordPQ_Product_Group_cField', false);
-    // Fallback to flexipage field if primary fails
-    if (!value) {
-      value = this.getRecordLayoutField('Product/Service Name');
-      if (value) {
-        console.log('[CasePageDataExtractor] Using case details mini panel for Product/Service Name:', value);
-      }
-    }
-    
-    return value;
+    return this.getFlexipageFieldWithFallback(
+      'RecordPQ_Product_Group_cField',
+      false,
+      ['Product/Service Name', 'Product Group', 'Product/Service']
+    );
   },
 
   /**
@@ -1177,6 +1180,28 @@ const CasePageDataExtractor = {
       }
       
       console.warn(`[CasePageDataExtractor] Could not extract value from non-anchored field "${fieldId}"`);
+    }
+
+    return null;
+  },
+
+  /**
+   * Flexipage field with fallback to record layout labels when not found/visible
+   * @param {string} fieldId
+   * @param {boolean} isAnchored
+   * @param {Array<string>} fallbackLabels
+   * @returns {string|null}
+   */
+  getFlexipageFieldWithFallback(fieldId, isAnchored = false, fallbackLabels = []) {
+    const flexValue = this.getFlexipageField(fieldId, isAnchored);
+    if (flexValue) return flexValue;
+
+    for (const label of fallbackLabels) {
+      const value = this.getRecordLayoutField(label);
+      if (value) {
+        console.log(`[CasePageDataExtractor] Using fallback layout field "${label}" for ${fieldId}:`, value);
+        return value;
+      }
     }
 
     return null;

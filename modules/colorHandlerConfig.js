@@ -16,37 +16,46 @@ const ColorHandlerConfig = {
             handleStatus: {
                 // Status-to-group mapping
                 statusGroups: {
-                    'URGENT': ['New Email Received', 'New', 'Open', 'Re-opened', 'Reopened', 'Update Received', 'Completed by Resolver Group'],
-                    'IMMEDIATE': ['Pending Action', 'Initial Response Sent', 'In Progress'],
+                    'URGENT': ['New Email Received', 'New', 'Open', 'Under Review', 'Re-opened', 'Reopened', 'Update Received', 'Completed by Resolver Group'],
+                    'IMMEDIATE': ['Pending Action', 'Internal Input', 'In Progress'],
                     'ONGOING': ['Assigned to Resolver Group', 'Pending Internal Response', 'Pending AM Response', 'Pending QA Review'],
-                    'IDLE': ['Pending Customer Response'],
-                    'MONITOR': ['Pending System Update - Defect', 'Pending System Update - Enhancement', 'Pending System Update - Other', 'Awaiting Customer Confirmation', 'Pending'],
+                    'IDLE': ['Pending Customer Response', 'Initial Response Sent'],
+                    'MONITOR': ['Pending', 'Pending System Update - Defect', 'Pending System Update - Enhancement', 'Pending System Update - Other', 'Awaiting Customer Confirmation', 'Development'],
                     'COMPLETED': ['Solution Delivered to Customer', 'Closed']
                 },
                 // Group colors (background and text)
                 groupColors: {
-                    'URGENT': { bg: 'rgb(191, 39, 75)', text: 'rgb(255, 255, 255)' },
-                    'IMMEDIATE': { bg: 'rgb(210, 72, 3)', text: 'rgb(255, 255, 255)' },
-                    'ONGOING': { bg: 'rgb(140, 77, 253)', text: 'rgb(255, 255, 255)' },
-                    'IDLE': { bg: 'rgb(103, 103, 103)', text: 'rgb(255, 255, 255)' },
-                    'MONITOR': { bg: 'rgb(251, 178, 22)', text: 'rgb(255, 255, 255)' },
-                    'COMPLETED': { bg: 'rgb(45, 200, 64)', text: 'rgb(255, 255, 255)' }
+                    'URGENT':    { bg: 'hsla(344, 89%, 40%, 1.00)', text: 'rgb(255, 255, 255)' },
+                    'IMMEDIATE': { bg: 'rgb(249, 100, 49)', text: 'rgb(255, 255, 255)' },
+                    'ONGOING':   { bg: 'rgb(13, 83, 173)', text: 'rgb(255, 255, 255)' },
+                    'IDLE':      { bg: 'rgb(15, 104, 162)', text: 'rgb(255, 255, 255)' },
+                    'MONITOR':   { bg: 'rgb(171, 10, 131)', text: 'rgb(255, 255, 255)' },
+                    'COMPLETED': { bg: 'rgb(0, 100, 0)', text: 'rgb(255, 255, 255)' }
+                },
+                groupColorsLight: {
+                    // Lighter companions for buttons/borders so the banner stays dark while controls stay legible
+                    'URGENT':    { bg: 'rgb(221, 5, 60)', text: 'rgb(255, 255, 255)' },
+                    'IMMEDIATE': { bg: 'rgb(255, 187, 6)', text: 'rgb(64, 34, 0)' },
+                    'ONGOING':   { bg: 'rgb(22, 110, 226)', text: 'rgb(255, 255, 255)' },
+                    'IDLE':      { bg: 'rgb(60, 203, 255)', text: 'rgba(31, 1, 39, 1)' },
+                    'MONITOR':   { bg: 'rgb(212, 37, 171)', text: 'rgb(255, 255, 255)' },
+                    'COMPLETED': { bg: 'rgb(5, 139, 14)', text: 'rgb(255, 255, 255)' }
                 },
                 // Individual status overrides (if status differs from group)
                 statusOverrides: {}
             },
             handleAnchor: {
                 // Email match types
-                clarivateEmail: { bg: '#ffe8b5', text: 'rgb(0, 0, 0)' },
-                nonClarivateEmail: { bg: '#ffdac8', text: 'rgb(0, 0, 0)' },
+                clarivateEmail: { bg: '#ffd66b', text: 'rgb(0, 0, 0)' },
+                nonClarivateEmail: { bg: '#ffa7c3', text: 'rgb(0, 0, 0)' },
                 endNoteSupport: { bg: null, text: null } // No highlight
             },
             handleCase: {
                 // Time-based ratio thresholds
                 thresholds: [
-                    { ratio: 1.5, color: 'rgb(255, 220, 230)', label: 'Very Overdue (>150%)' },
-                    { ratio: 1.0, color: 'rgb(255, 232, 184)', label: 'Overdue (100-150%)' },
-                    { ratio: 0.75, color: 'rgb(255, 255, 153)', label: 'Approaching (75-100%)' },
+                    { ratio: 1.5, color: 'rgb(255, 167, 184)', label: 'Very Overdue (>150%)' },
+                    { ratio: 1.0, color: 'rgb(255, 182, 143)', label: 'Overdue (100-150%)' },
+                    { ratio: 0.75, color: 'rgb(255, 214, 107)', label: 'Approaching (75-100%)' },
                     { ratio: 0.5, color: 'rgb(209, 247, 196)', label: 'Good (50-75%)' },
                     { ratio: 0, color: 'rgb(194, 244, 233)', label: 'Plenty of Time (<50%)' }
                 ]
@@ -107,6 +116,12 @@ const ColorHandlerConfig = {
             }
             if (savedConfig.handleStatus.groupColors) {
                 Object.assign(merged.handleStatus.groupColors, savedConfig.handleStatus.groupColors);
+            }
+            if (savedConfig.handleStatus.groupColorsLight) {
+                if (!merged.handleStatus.groupColorsLight) {
+                    merged.handleStatus.groupColorsLight = {};
+                }
+                Object.assign(merged.handleStatus.groupColorsLight, savedConfig.handleStatus.groupColorsLight);
             }
             if (savedConfig.handleStatus.statusOverrides) {
                 merged.handleStatus.statusOverrides = savedConfig.handleStatus.statusOverrides;

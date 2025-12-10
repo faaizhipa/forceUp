@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "disableQuickstartGuide": {
+      "title": "Disable Quickstart Guide",
+      "description": "Prevents quickstart guide from appearing after installation.",
+      "type": "boolean"
+    }
+  }
+}

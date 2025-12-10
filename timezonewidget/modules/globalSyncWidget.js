@@ -25,36 +25,41 @@ const GlobalSyncWidget = (() => {
   const STYLES = `
     .gsw-container {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #1a1a2e;
-      color: #e0e0e0;
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      background: linear-gradient(135deg, #111827 0%, #0b1021 45%, #111827 100%);
+      color: #e5e7eb;
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 16px 50px rgba(0, 0, 0, 0.45);
       min-width: 320px;
-      max-width: 600px;
+      max-width: 640px;
+      border: 1px solid rgba(129, 140, 248, 0.25);
+      backdrop-filter: blur(6px);
     }
 
     .gsw-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 12px;
+      margin-bottom: 14px;
       padding-bottom: 12px;
-      border-bottom: 1px solid #2d2d44;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     .gsw-title {
       font-size: 14px;
-      font-weight: 600;
-      color: #fff;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: #f8fafc;
+      text-transform: uppercase;
     }
 
     .gsw-tabs {
       display: flex;
       gap: 4px;
-      background: #2d2d44;
+      background: rgba(255, 255, 255, 0.04);
       padding: 4px;
-      border-radius: 8px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
     }
 
     .gsw-tab {
@@ -62,26 +67,28 @@ const GlobalSyncWidget = (() => {
       font-size: 12px;
       border: none;
       background: transparent;
-      color: #a0a0a0;
+      color: #cbd5e1;
       cursor: pointer;
-      border-radius: 6px;
+      border-radius: 8px;
       transition: all 0.2s;
     }
 
     .gsw-tab:hover {
       color: #fff;
+      background: rgba(255, 255, 255, 0.06);
     }
 
     .gsw-tab.active {
-      background: #4a4a6a;
+      background: linear-gradient(135deg, #312e81, #4338ca);
       color: #fff;
+      box-shadow: 0 6px 20px rgba(67, 56, 202, 0.35);
     }
 
     .gsw-timezone-row {
       display: flex;
       align-items: center;
-      padding: 10px 0;
-      border-bottom: 1px solid #2d2d44;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     }
 
     .gsw-timezone-row:last-child {
@@ -107,8 +114,8 @@ const GlobalSyncWidget = (() => {
 
     .gsw-timezone-name {
       font-size: 13px;
-      font-weight: 500;
-      color: #fff;
+      font-weight: 600;
+      color: #f8fafc;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -116,8 +123,29 @@ const GlobalSyncWidget = (() => {
 
     .gsw-timezone-label {
       font-size: 11px;
-      color: #888;
+      color: #94a3b8;
       margin-top: 2px;
+    }
+
+    .gsw-close-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1px solid #4a4a6a;
+      background: transparent;
+      color: #fff;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .gsw-close-btn:hover {
+      background: #4a4a6a;
+      border-color: #818cf8;
     }
 
     .gsw-time-display {
@@ -127,14 +155,15 @@ const GlobalSyncWidget = (() => {
 
     .gsw-time {
       font-size: 18px;
-      font-weight: 600;
+      font-weight: 700;
       font-family: 'SF Mono', Monaco, monospace;
-      color: #fff;
+      color: #e0f2fe;
+      letter-spacing: 0.01em;
     }
 
     .gsw-date {
       font-size: 11px;
-      color: #888;
+      color: #94a3b8;
       margin-top: 2px;
     }
 
@@ -142,9 +171,11 @@ const GlobalSyncWidget = (() => {
       display: grid;
       grid-template-columns: repeat(24, 1fr);
       gap: 1px;
-      margin-top: 8px;
-      border-radius: 4px;
+      margin-top: 10px;
+      border-radius: 6px;
       overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      background: rgba(255, 255, 255, 0.02);
     }
 
     .gsw-hour-block {
@@ -154,11 +185,12 @@ const GlobalSyncWidget = (() => {
       justify-content: center;
       font-size: 9px;
       cursor: pointer;
-      transition: opacity 0.2s;
+      transition: opacity 0.2s, transform 0.15s;
     }
 
     .gsw-hour-block:hover {
-      opacity: 0.8;
+      opacity: 0.85;
+      transform: translateY(-1px);
     }
 
     .gsw-hour-block.gsw-status-business { background: rgba(34, 197, 94, 0.4); }
@@ -556,6 +588,14 @@ const GlobalSyncWidget = (() => {
     title.className = 'gsw-title';
     title.textContent = 'Time Zones';
     header.appendChild(title);
+    
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'gsw-close-btn';
+      closeBtn.setAttribute('aria-label', 'Close Global Sync');
+      closeBtn.textContent = '×';
+      closeBtn.addEventListener('click', () => hide());
+      header.appendChild(closeBtn);
 
     // Tabs
     const tabs = document.createElement('div');
@@ -599,6 +639,68 @@ const GlobalSyncWidget = (() => {
   // ============================================================================
   // Public API
   // ============================================================================
+
+  /**
+   * Renders the widget into a fixed host element on the page (compat with TimezoneSyncWidget.show)
+   * @param {Object} config - Widget configuration
+   * @returns {boolean} Success status
+   */
+  function show(config) {
+    let host = document.getElementById('gsw-inline-host');
+
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'gsw-inline-host';
+      host.style.cssText = [
+        'position: fixed',
+        'top: 88px',
+        'right: 20px',
+        'z-index: 2147483646',
+        'max-width: 640px',
+        'width: 420px',
+        'box-sizing: border-box',
+        'pointer-events: auto'
+      ].join(';');
+      document.body.appendChild(host);
+    }
+
+    // Re-init if already mounted
+    destroy();
+    window.addEventListener('keydown', _handleKeydown, true);
+    return init(host, config);
+  }
+
+  /**
+   * Toggle the widget: show when hidden, hide when visible
+   * @param {Object} config - Widget configuration used when showing
+   * @returns {boolean} Current visibility after toggle
+   */
+  function toggle(config) {
+    const host = document.getElementById('gsw-inline-host');
+    if (host && host.isConnected) {
+      hide();
+      return false;
+    }
+    return !!show(config);
+  }
+
+  /**
+   * Hides the inline widget and removes the host
+   */
+  function hide() {
+    destroy();
+    window.removeEventListener('keydown', _handleKeydown, true);
+    const host = document.getElementById('gsw-inline-host');
+    if (host && host.parentElement) {
+      host.parentElement.removeChild(host);
+    }
+  }
+
+  function _handleKeydown(event) {
+    if (event.key === 'Escape' || event.key === 'Esc') {
+      hide();
+    }
+  }
 
   /**
    * Initializes the widget
@@ -754,7 +856,10 @@ const GlobalSyncWidget = (() => {
   // ============================================================================
 
   return {
+    show,
+    toggle,
     init,
+    hide,
     updateConfig,
     setSimulationTime,
     getMeetingTimes,

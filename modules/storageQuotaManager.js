@@ -22,6 +22,8 @@ const StorageQuotaManager = (function() {
   const NOTES_LIMIT_BYTES = NOTES_LIMIT_MB * 1024 * 1024;
   const BANNER_MESSAGES_LIMIT_MB = 3;
   const BANNER_MESSAGES_LIMIT_BYTES = BANNER_MESSAGES_LIMIT_MB * 1024 * 1024;
+  const RECORDINGS_LIMIT_MB = 150;
+  const RECORDINGS_LIMIT_BYTES = RECORDINGS_LIMIT_MB * 1024 * 1024;
   const WARNING_THRESHOLD = 0.8; // 80%
   const CLEANUP_THRESHOLD = 0.9; // 90%
   const DEFAULT_RETENTION_DAYS = 30;
@@ -30,6 +32,7 @@ const StorageQuotaManager = (function() {
   let lastBreakdown = null;
   let lastCheckTime = 0;
   const CACHE_DURATION = 5000; // 5 seconds
+  let enforcementEnabled = true;
 
   /**
    * Get storage breakdown by category
@@ -51,6 +54,7 @@ const StorageQuotaManager = (function() {
         cache: 0,
         settings: 0,
         bannerMessages: 0,
+        recordings: 0,
         other: 0,
         total: 0,
         itemCount: {
@@ -59,6 +63,7 @@ const StorageQuotaManager = (function() {
           highlights: 0,
           cache: 0,
           bannerMessages: 0,
+          recordings: 0,
           other: 0
         }
       };
@@ -84,6 +89,9 @@ const StorageQuotaManager = (function() {
         } else if (key === 'exl_bannerMessages') {
           breakdown.bannerMessages += sizeBytes;
           breakdown.itemCount.bannerMessages++;
+        } else if (key.startsWith('exl_recordings_v1_')) {
+          breakdown.recordings += sizeBytes;
+          breakdown.itemCount.recordings++;
         } else {
           breakdown.other += sizeBytes;
           breakdown.itemCount.other++;
@@ -100,8 +108,14 @@ const StorageQuotaManager = (function() {
       breakdown.settingsMB = (breakdown.settings / (1024 * 1024)).toFixed(2);
       breakdown.bannerMessagesMB = (breakdown.bannerMessages / (1024 * 1024)).toFixed(2);
       breakdown.otherMB = (breakdown.other / (1024 * 1024)).toFixed(2);
+      breakdown.recordingsMB = (breakdown.recordings / (1024 * 1024)).toFixed(2);
       breakdown.totalMB = (breakdown.total / (1024 * 1024)).toFixed(2);
-      breakdown.percentUsed = ((breakdown.total / TOTAL_QUOTA_BYTES) * 100).toFixed(1);
+
+      const totalNonRecording = breakdown.total - breakdown.recordings;
+      breakdown.totalNonRecording = Math.max(0, totalNonRecording);
+      breakdown.totalNonRecordingMB = (breakdown.totalNonRecording / (1024 * 1024)).toFixed(2);
+      breakdown.percentUsed = ((breakdown.totalNonRecording / TOTAL_QUOTA_BYTES) * 100).toFixed(1);
+      breakdown.recordingsPercent = ((breakdown.recordings / RECORDINGS_LIMIT_BYTES) * 100).toFixed(1);
 
       // Cache result
       lastBreakdown = breakdown;
@@ -132,6 +146,30 @@ const StorageQuotaManager = (function() {
     return str.length * 2;
   }
 
+  function isQuotaEnforced() {
+    return enforcementEnabled !== false;
+  }
+
+  async function refreshEnforcementFlag() {
+    try {
+      if (typeof SettingsManager !== 'undefined' && typeof SettingsManager.get === 'function') {
+        const settings = SettingsManager.get();
+        enforcementEnabled = settings?.exlibris?.features?.storageQuotaEnforced !== false;
+        return enforcementEnabled;
+      }
+
+      const result = await chrome.storage.sync.get(['exlibris']);
+      enforcementEnabled = result?.exlibris?.features?.storageQuotaEnforced !== false;
+      return enforcementEnabled;
+    } catch (error) {
+      enforcementEnabled = true; // Fail safe to enforcing
+      if (typeof Logger !== 'undefined') {
+        Logger.warn('[StorageQuotaManager] Failed to refresh enforcement flag, defaulting to enforce', error);
+      }
+      return enforcementEnabled;
+    }
+  }
+
   /**
    * Check if screenshot can be stored within quota
    * @param {number} sizeBytes - Screenshot size in bytes
@@ -139,6 +177,10 @@ const StorageQuotaManager = (function() {
    */
   async function canStoreScreenshot(sizeBytes) {
     try {
+      if (!isQuotaEnforced()) {
+        return true;
+      }
+
       const breakdown = await getStorageBreakdown(true);
 
       // Check screenshot category limit
@@ -151,7 +193,7 @@ const StorageQuotaManager = (function() {
       }
 
       // Check total quota
-      if (breakdown.total + sizeBytes > TOTAL_QUOTA_BYTES) {
+      if (breakdown.totalNonRecording + sizeBytes > TOTAL_QUOTA_BYTES) {
         if (typeof Logger !== 'undefined') {
           Logger.warn('[StorageQuotaManager] Total quota exceeded');
         }
@@ -160,7 +202,7 @@ const StorageQuotaManager = (function() {
       }
 
       // Check if approaching limit and trigger cleanup
-      const newTotal = breakdown.total + sizeBytes;
+      const newTotal = breakdown.totalNonRecording + sizeBytes;
       const newPercent = newTotal / TOTAL_QUOTA_BYTES;
 
       if (newPercent >= CLEANUP_THRESHOLD) {
@@ -188,6 +230,10 @@ const StorageQuotaManager = (function() {
    */
   async function canStoreBannerMessage(messageObject) {
     try {
+      if (!isQuotaEnforced()) {
+        return true;
+      }
+
       const sizeBytes = estimateSize(messageObject);
       const breakdown = await getStorageBreakdown(true);
 
@@ -201,7 +247,7 @@ const StorageQuotaManager = (function() {
       }
 
       // Check total quota
-      if (breakdown.total + sizeBytes > TOTAL_QUOTA_BYTES) {
+      if (breakdown.totalNonRecording + sizeBytes > TOTAL_QUOTA_BYTES) {
         if (typeof Logger !== 'undefined') {
           Logger.warn('[StorageQuotaManager] Total quota exceeded');
         }
@@ -250,6 +296,10 @@ const StorageQuotaManager = (function() {
    */
   async function canStoreNote(sizeBytes) {
     try {
+      if (!isQuotaEnforced()) {
+        return true;
+      }
+
       const breakdown = await getStorageBreakdown(true);
 
       // Check notes category limit
@@ -262,7 +312,7 @@ const StorageQuotaManager = (function() {
       }
 
       // Check total quota
-      if (breakdown.total + sizeBytes > TOTAL_QUOTA_BYTES) {
+      if (breakdown.totalNonRecording + sizeBytes > TOTAL_QUOTA_BYTES) {
         if (typeof Logger !== 'undefined') {
           Logger.warn('[StorageQuotaManager] Total quota exceeded');
         }
@@ -520,13 +570,22 @@ const StorageQuotaManager = (function() {
    */
   async function checkQuota() {
     try {
+      if (!isQuotaEnforced()) {
+        return;
+      }
+
       const breakdown = await getStorageBreakdown(true);
       const percent = parseFloat(breakdown.percentUsed) / 100;
+      const recordingPercent = parseFloat(breakdown.recordingsPercent) / 100;
 
       if (percent >= CLEANUP_THRESHOLD) {
         await performAutoCleanup();
       } else if (percent >= WARNING_THRESHOLD) {
-        showQuotaWarning(`Storage ${breakdown.percentUsed}% full (${breakdown.totalMB}MB / ${TOTAL_QUOTA_MB}MB)`);
+        showQuotaWarning(`Storage ${breakdown.percentUsed}% full (${breakdown.totalNonRecordingMB}MB / ${TOTAL_QUOTA_MB}MB)`);
+      }
+
+      if (recordingPercent >= WARNING_THRESHOLD) {
+        showQuotaWarning(`Recordings ${breakdown.recordingsPercent}% of ${RECORDINGS_LIMIT_MB}MB cap. Delete old recordings if you need space.`);
       }
 
     } catch (error) {
@@ -537,11 +596,53 @@ const StorageQuotaManager = (function() {
   }
 
   /**
+   * Check if a recording can be stored within recording cap
+   * @param {number} sizeBytes - Approximate size in bytes
+   * @returns {Promise<boolean>} True if can store
+   */
+  async function canStoreRecording(sizeBytes) {
+    try {
+      if (!isQuotaEnforced()) {
+        return true;
+      }
+
+      const breakdown = await getStorageBreakdown(true);
+      const projected = breakdown.recordings + sizeBytes;
+
+      if (projected > RECORDINGS_LIMIT_BYTES) {
+        if (typeof Logger !== 'undefined') {
+          Logger.warn('[StorageQuotaManager] Recording cap exceeded');
+        }
+        showQuotaWarning(`Recording limit reached (${RECORDINGS_LIMIT_MB}MB). Delete older recordings to continue.`);
+        return false;
+      }
+
+      const recordingPercent = projected / RECORDINGS_LIMIT_BYTES;
+      if (recordingPercent >= WARNING_THRESHOLD) {
+        showQuotaWarning(`Recording storage ${(recordingPercent * 100).toFixed(0)}% of ${RECORDINGS_LIMIT_MB}MB cap.`);
+      }
+
+      return true;
+
+    } catch (error) {
+      if (typeof Logger !== 'undefined') {
+        Logger.error('[StorageQuotaManager] canStoreRecording check failed:', error);
+      }
+      return false;
+    }
+  }
+
+  /**
    * Initialize module
    */
   function init() {
     if (typeof Logger !== 'undefined') {
       Logger.info('[StorageQuotaManager] Initializing');
+    }
+
+    refreshEnforcementFlag();
+    if (typeof SettingsManager !== 'undefined' && typeof SettingsManager.addChangeListener === 'function') {
+      SettingsManager.addChangeListener(refreshEnforcementFlag);
     }
 
     // Check quota on init
@@ -564,7 +665,10 @@ const StorageQuotaManager = (function() {
     deleteScreenshot,
     deleteScreenshots,
     checkQuota,
-    estimateSize
+    estimateSize,
+    canStoreRecording,
+    refreshEnforcementFlag,
+    isQuotaEnforced
   };
 })();
 

@@ -6,6 +6,7 @@ let allNotesData = {}; // Cache for 'All Notes' view
 let aiAvailable = false;
 let suggestionDebounceTimer = null;
 let googleAuthToken = null;
+let quotaEnforced = true;
 
 // DOM Elements
 const notesListEl = document.getElementById('notes-list');
@@ -16,6 +17,7 @@ const noteContentInput = document.getElementById('note-content');
 const searchInput = document.getElementById('search-notes');
 const aiSuggestionBox = document.getElementById('ai-suggestion');
 const suggestionTextEl = document.getElementById('suggestion-text');
+const storageQuotaToggle = document.getElementById('toggle-storage-quota');
 
 // Initialization
 document.addEventListener('DOMContentLoaded', async () => {
@@ -30,6 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   setupTabs();
   setupEventListeners();
+  await initStorageQuotaToggle();
   await updateCurrentTab();
   
   // Listen for tab updates to refresh the view
@@ -48,14 +51,64 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 });
 
+async function initStorageQuotaToggle() {
+  if (!storageQuotaToggle) return;
+
+  const settings = await safeSyncGet(['exlibris']);
+  quotaEnforced = settings?.exlibris?.features?.storageQuotaEnforced !== false;
+  storageQuotaToggle.checked = quotaEnforced;
+
+  storageQuotaToggle.addEventListener('change', async (e) => {
+    quotaEnforced = e.target.checked;
+    const next = settings?.exlibris ? { ...settings.exlibris } : { features: {} };
+    next.features = { ...(next.features || {}), storageQuotaEnforced: quotaEnforced };
+    await safeSyncSet({ exlibris: next });
+  });
+}
+
+function safeSyncGet(keys) {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.sync.get(keys, (result) => {
+        if (chrome.runtime?.lastError) {
+          console.warn('[Sidepanel] sync.get failed:', chrome.runtime.lastError);
+          resolve({});
+          return;
+        }
+        resolve(result || {});
+      });
+    } catch (error) {
+      console.warn('[Sidepanel] sync.get threw:', error);
+      resolve({});
+    }
+  });
+}
+
+function safeSyncSet(items) {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.sync.set(items, () => {
+        if (chrome.runtime?.lastError) {
+          console.warn('[Sidepanel] sync.set failed:', chrome.runtime.lastError);
+          resolve(false);
+          return;
+        }
+        resolve(true);
+      });
+    } catch (error) {
+      console.warn('[Sidepanel] sync.set threw:', error);
+      resolve(false);
+    }
+  });
+}
+
 function setupTabs() {
   const tabs = {
     'tab-current': 'content-current',
     'tab-all': 'content-all',
-    'tab-settings': 'content-settings',
     'tab-captured': 'content-captured',
     'tab-recorded': 'content-recorded',
-    'tab-saved': 'content-saved'
+    'tab-settings': 'content-settings'
   };
 
   Object.keys(tabs).forEach(tabId => {
@@ -74,10 +127,13 @@ function setupTabs() {
       contentEl.classList.remove('hidden');
       contentEl.classList.add('active');
 
-      if (tabId === 'tab-all') renderAllNotes();
-      if (tabId === 'tab-captured') renderCaptured();
-      if (tabId === 'tab-recorded') renderRecorded();
-      if (tabId === 'tab-saved') renderSaved();
+      if (tabId === 'tab-all') {
+        renderAllNotes();
+      } else if (tabId === 'tab-captured') {
+        renderCaptured();
+      } else if (tabId === 'tab-recorded') {
+        renderRecorded();
+      }
     });
   });
 }
@@ -182,7 +238,17 @@ function setupEventListeners() {
 
   // Backup & Restore
   document.getElementById('btn-auth').addEventListener('click', async () => {
-    await GoogleDrive.getAuthToken(true);
+    const statusEl = document.getElementById('auth-status');
+    statusEl.innerText = 'Connecting to Google...';
+    const token = await GoogleDrive.getAuthToken(true);
+    if (token) {
+      statusEl.innerText = 'Connected to Google Drive';
+      statusEl.className = 'status-online';
+    } else {
+      const errMsg = GoogleDrive.lastAuthError?.message || 'Unable to sign in. Please try again.';
+      statusEl.innerText = `Sign-in failed: ${errMsg}`;
+      statusEl.className = 'status-offline';
+    }
     checkAuthStatus();
   });
 
@@ -190,8 +256,24 @@ function setupEventListeners() {
     const statusEl = document.getElementById('auth-status');
     statusEl.innerText = 'Backing up...';
     try {
-      const data = await Storage.getAllNotes();
-      await GoogleDrive.performBackup(data);
+      const [notesData, localDbPayload] = await Promise.all([
+        Storage.getAllNotes?.(),
+        typeof LocalDb !== 'undefined' ? LocalDb.exportEntities() : null
+      ]);
+
+      const tasks = [];
+      if (notesData) {
+        tasks.push(GoogleDrive.performBackup(notesData));
+      }
+      if (localDbPayload) {
+        tasks.push(GoogleDrive.performLocalDbBackup(localDbPayload));
+      }
+
+      if (tasks.length === 0) {
+        throw new Error('Nothing to back up');
+      }
+
+      await Promise.all(tasks);
       statusEl.innerText = 'Backup complete!';
       setTimeout(checkAuthStatus, 3000);
     } catch (e) {
@@ -205,8 +287,18 @@ function setupEventListeners() {
     const statusEl = document.getElementById('auth-status');
     statusEl.innerText = 'Restoring...';
     try {
-      const data = await GoogleDrive.restoreBackup();
-      await ExportImport.mergeData(data); // Reuse merge logic
+      const tasks = [];
+
+      tasks.push((async () => {
+        const data = await GoogleDrive.restoreBackup();
+        await ExportImport.mergeData(data);
+      })());
+
+      if (typeof LocalDb !== 'undefined') {
+        tasks.push(GoogleDrive.restoreLocalDbBackup({ merge: true }));
+      }
+
+      await Promise.all(tasks);
       statusEl.innerText = 'Restore complete!';
       setTimeout(checkAuthStatus, 3000);
       
@@ -505,11 +597,9 @@ function focusTab(name, payload) {
   const contentId = `content-${name}`;
   activateTab(tabId, contentId);
   if (name === 'captured') {
-    renderCaptured(payload);
+    renderCaptured(payload || {});
   } else if (name === 'recorded') {
-    renderRecorded(payload);
-  } else if (name === 'saved') {
-    renderSaved(payload);
+    renderRecorded(payload || {});
   }
 }
 

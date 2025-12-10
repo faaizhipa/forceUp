@@ -276,6 +276,19 @@ const UserPreferences = (function() {
   }
 
   /**
+   * Marks the warning banner as seen without requiring dismiss
+   * Useful when the banner is auto-shown once per user
+   * @returns {Promise<void>}
+   */
+  async function markWarningSeen() {
+    const current = cachedPreferences || await load();
+    current.meta.setupCompleted = true;
+    current.meta.isFirstRun = false;
+    current.meta.warningDismissed = true;
+    await save(current);
+  }
+
+  /**
    * Checks if this is the first run or if setup is incomplete
    * @returns {Promise<boolean>} True if showing warning is needed
    */
@@ -385,7 +398,7 @@ const UserPreferences = (function() {
     importPreferences,
     getEffectiveShiftTimezone,
     getEffectiveUserTimezone,
-    getEffectiveSalesforceTimezone,
+    markWarningSeen,
     getShiftBoundaries,
     isWithinShift,
     DEFAULTS,

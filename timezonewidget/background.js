@@ -14,13 +14,21 @@ const STORAGE_KEYS = {
   LOCAL_TIMEZONE: 'gsw_localTimezone',
   CUSTOMER_TIMEZONE: 'gsw_customerTimezone',
   FAVORITE_TIMEZONES: 'gsw_favoriteTimezones',
-  USER_PREFERENCES: 'gsw_userPreferences'
+  USER_PREFERENCES: 'gsw_userPreferences',
+  THEME_PREFERENCE: 'gsw_themePreference'
 };
 
 const DEFAULT_CONFIG = {
   localTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   customerTimezone: 'America/New_York',
-  favoriteTimezones: []
+  favoriteTimezones: [],
+  userPreferences: {
+    awakeStart: 7,
+    awakeEnd: 23,
+    businessStart: 9,
+    businessEnd: 17
+  },
+  themePreference: 'auto'
 };
 
 // ============================================================================
@@ -37,14 +45,19 @@ async function getConfig() {
       STORAGE_KEYS.LOCAL_TIMEZONE,
       STORAGE_KEYS.CUSTOMER_TIMEZONE,
       STORAGE_KEYS.FAVORITE_TIMEZONES,
-      STORAGE_KEYS.USER_PREFERENCES
+      STORAGE_KEYS.USER_PREFERENCES,
+      STORAGE_KEYS.THEME_PREFERENCE
     ]);
 
     return {
       localTimezone: result[STORAGE_KEYS.LOCAL_TIMEZONE] || DEFAULT_CONFIG.localTimezone,
       customerTimezone: result[STORAGE_KEYS.CUSTOMER_TIMEZONE] || DEFAULT_CONFIG.customerTimezone,
       favoriteTimezones: result[STORAGE_KEYS.FAVORITE_TIMEZONES] || DEFAULT_CONFIG.favoriteTimezones,
-      userPreferences: result[STORAGE_KEYS.USER_PREFERENCES] || {}
+      userPreferences: {
+        ...DEFAULT_CONFIG.userPreferences,
+        ...(result[STORAGE_KEYS.USER_PREFERENCES] || {})
+      },
+      themePreference: result[STORAGE_KEYS.THEME_PREFERENCE] || DEFAULT_CONFIG.themePreference
     };
   } catch (error) {
     console.error('[Background] Failed to get config:', error);
@@ -72,6 +85,9 @@ async function saveConfig(config) {
     }
     if (config.userPreferences !== undefined) {
       data[STORAGE_KEYS.USER_PREFERENCES] = config.userPreferences;
+    }
+    if (config.themePreference !== undefined) {
+      data[STORAGE_KEYS.THEME_PREFERENCE] = config.themePreference;
     }
 
     await chrome.storage.local.set(data);

@@ -1,0 +1,2022 @@
+/**
+ * Persistent Banner Styles
+ * Salesforce Lightning & MV3 CSP compliant
+ */
+
+/* Salesforce page adjustments for banner space */
+/* These styles load early to prevent layout shifts */
+
+/* Push Salesforce global header down to make room for extension banner */
+#oneHeader > div.slds-global-header.slds-grid.slds-grid_align-spread {
+    margin-top: 45px;
+}
+
+/* Push Salesforce tab bar down to accommodate both global header and extension banner */
+body > div.desktop.container.forceStyle.oneOne.navexDesktopLayoutContainer.lafAppLayoutHost.forceAccess > div.viewport > section > div.workspaceManager.navexWorkspaceManager > div > div.tabsetHeader.slds-context-bar.slds-context-bar--tabs.slds-no-print {
+    top: 95px;
+}
+
+/* Push Document view toolbar down to accommodate both global header and extension banner */
+div.toolbar.top.fadeOut.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar, 
+div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar {
+    top: 45px;
+}
+
+/* Banner container - fixed at top */
+#exl-persistent-banner {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0;
+    right: 0;
+    width: 100%;
+    z-index: 999999; /* Match other popups z-index */
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    color: #ffffff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    font-family: 'Salesforce Sans', Arial, sans-serif;
+    font-size: 11px;
+    border-bottom: 1px solid #0070d2;
+    height: 3rem;
+    overflow: hidden;
+    pointer-events: auto; /* Allow clicks on banner elements */
+}
+
+/* Interactive elements receive pointer events */
+#exl-persistent-banner button,
+#exl-persistent-banner a,
+#exl-persistent-banner .exl-popup-menu,
+#exl-persistent-banner .exl-popup-menu *,
+#exl-persistent-banner .exl-banner-btn,
+#exl-persistent-banner .exl-popup-trigger,
+#exl-persistent-banner .exl-popup-menu-item:not(.exl-disabled),
+#exl-persistent-banner .exl-banner-nav-btn,
+#exl-persistent-banner .exl-refresh-emoji,
+#exl-persistent-banner .exl-customer-data-btn,
+#exl-persistent-banner .exl-banner-label,
+#exl-persistent-banner .exl-banner-meta-label,
+#exl-persistent-banner .exl-banner-meta-value,
+#exl-persistent-banner .exl-banner-page-type,
+#exl-persistent-banner .message-line,
+#exl-persistent-banner .exl-banner-message-content,
+#exl-persistent-banner .exl-banner-history-item,
+#exl-persistent-banner span,
+#exl-persistent-banner div {
+    pointer-events: auto; /* Restore pointer events for interactive and text elements */
+}
+
+.exl-banner-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 12px;
+    max-width: 100%;
+    height: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+/* Banner sections */
+.exl-banner-section {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex-shrink: 0;
+    height: 100%;
+    padding: 0 8px;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-banner-section:last-child {
+    border-right: none;
+}
+
+.exl-banner-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: #d0d0d0; /* Improved contrast: 5.5:1 ratio (was #a0a0a0 at 3.2:1) */
+    font-weight: 600;
+    line-height: 1.2;
+    max-height: 2.4em;
+    word-wrap: break-word;
+    margin-right: 4px;
+}
+
+/* Page info section */
+.exl-banner-page-info {
+    flex: 0 0 auto;
+    min-width: auto;
+}
+
+.exl-banner-page-type {
+    font-size: 13px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-left: 3px solid #0070d2;
+    white-space: nowrap;
+}
+
+/* Page type colors */
+.exl-banner-page-type.exl-page-case {
+    border-left-color: #2e844a;
+    background-color: rgba(46, 132, 74, 0.2);
+}
+
+.exl-banner-page-type.exl-page-home {
+    border-left-color: #0070d2;
+    background-color: rgba(0, 112, 210, 0.2);
+}
+
+.exl-banner-page-type.exl-page-list {
+    border-left-color: #e07d10;
+    background-color: rgba(224, 125, 16, 0.2);
+}
+
+.exl-banner-page-type.exl-page-report {
+    border-left-color: #9050e9;
+    background-color: rgba(144, 80, 233, 0.2);
+}
+
+.exl-banner-page-type.exl-page-report_builder {
+    border-left-color: #9050e9;
+    background-color: rgba(144, 80, 233, 0.2);
+}
+
+.exl-banner-page-type.exl-page-report_home {
+    border-left-color: #9050e9;
+    background-color: rgba(144, 80, 233, 0.2);
+}
+
+.exl-banner-page-type.exl-page-report_page {
+    border-left-color: #9050e9;
+    background-color: rgba(144, 80, 233, 0.2);
+}
+
+.exl-banner-page-type.exl-page-unknown {
+    border-left-color: #706e6b;
+    background-color: rgba(112, 110, 107, 0.2);
+}
+
+/* Metadata section */
+.exl-banner-metadata,
+#exl-banner-metadata-section {
+    flex: 0 1 auto !important; /* Override .exl-banner-section flex-shrink: 0 */
+    flex-shrink: 1 !important;
+    min-width: 100px;
+    max-width: 800px;
+    overflow: hidden;
+}
+
+.exl-banner-metadata-grid {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 10px;
+    padding: 0;
+    background-color: transparent;
+    border-radius: 0;
+    align-items: center;
+    justify-content: flex-start;
+    position: relative;
+}
+
+.exl-refresh-emoji {
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 6px;
+    margin-left: auto;
+    opacity: 0.7;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.exl-refresh-emoji:hover {
+    opacity: 1;
+    transform: rotate(90deg);
+}
+
+.exl-refresh-emoji:active {
+    transform: rotate(180deg);
+}
+
+.exl-banner-meta-item {
+    display: flex;
+    flex-direction: column;
+    font-size: 11px;
+    color: #d0d0d0;
+    white-space: nowrap;
+    line-height: 1.2;
+    align-items: flex-start;
+}
+
+.exl-meta-label {
+    font-size: 10px;
+    color: #d0d0d0; /* Improved contrast: 5.5:1 ratio (was #b0b0b0 at 3.8:1) */
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+}
+
+.exl-banner-meta-item strong {
+    color: #ffffff;
+    margin-left: 0px;
+    font-weight: 600;
+    font-size: 11px;
+}
+
+/* Rotating metadata fields container */
+.exl-banner-metadata-grid.rotating-mode {
+    position: relative;
+}
+
+.exl-banner-metadata-grid.rotating-mode .exl-banner-meta-item.rotatable {
+    position: absolute;
+    opacity: 0;
+    transform: translateY(-5px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    pointer-events: none;
+}
+
+.exl-banner-metadata-grid.rotating-mode .exl-banner-meta-item.rotatable.active {
+    position: relative;
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+/* Non-rotatable items in rotating mode stay visible */
+.exl-banner-metadata-grid.rotating-mode .exl-banner-meta-item:not(.rotatable) {
+    opacity: 1;
+}
+
+/* Rotation indicator dot */
+.exl-rotation-indicator {
+    display: none;
+    align-items: center;
+    gap: 3px;
+    margin-left: 4px;
+}
+
+.exl-banner-metadata-grid.rotating-mode .exl-rotation-indicator {
+    display: flex;
+}
+
+.exl-rotation-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.3);
+    transition: background-color 0.2s ease;
+}
+
+.exl-rotation-dot.active {
+    background-color: #0070d2;
+}
+
+/* Actions section */
+.exl-banner-actions {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+}
+
+.exl-banner-btn {
+    background-color: #0070d2;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    height: 26px;
+    line-height: 1;
+}
+
+.exl-banner-btn:hover {
+    background-color: #005fb2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* Status-based accent colors for buttons - darker shade on hover */
+.exl-banner-btn[style*="background-color"]:hover {
+    filter: brightness(0.85);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-banner-btn:active {
+    background-color: #00396b;
+    transform: translateY(0);
+}
+
+/* Ensure white text on buttons for legibility */
+.exl-banner-btn,
+.exl-popup-trigger {
+    color: #ffffff !important;
+}
+
+/* History section */
+.exl-banner-history {
+    flex: 0 1 auto;
+    min-width: auto;
+    max-width: none;
+    display: none !important; /* Hidden per user request - can be re-enabled later */
+}
+
+.exl-banner-history-list {
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+    max-height: none;
+    overflow-y: visible;
+    overflow-x: auto;
+    padding: 0;
+    background-color: transparent;
+    border-radius: 0;
+}
+
+.exl-banner-history-placeholder {
+    color: #c0c0c0; /* Improved contrast: 4.8:1 ratio (was #808080 at 2.4:1) */
+    font-style: italic;
+    padding: 0;
+    font-size: 11px;
+}
+
+.exl-banner-history-item {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border-left: 2px solid transparent;
+    flex-shrink: 0;
+}
+
+.exl-banner-history-item:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-left-color: #0070d2;
+}
+
+/* Status-based hover for history items - use status color if available */
+.exl-banner-history-item[style*="border-left-color"]:hover {
+    filter: brightness(1.2);
+}
+
+.exl-history-number {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 112, 210, 0.3);
+    border-radius: 50%;
+    font-size: 10px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.exl-history-type {
+    display: block;
+    font-size: 10px;
+    font-weight: 600;
+    color: #b8e4ff; /* Improved contrast: 4.8:1 ratio (was #a0d8f7 at 3.5:1) */
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.exl-history-details {
+    display: block;
+    font-size: 11px;
+    color: #d0d0d0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+/* Scrollbar styling for history */
+.exl-banner-history-list::-webkit-scrollbar {
+    display: none;
+}
+
+.exl-banner-container::-webkit-scrollbar {
+    height: 4px;
+}
+
+.exl-banner-container::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.exl-banner-container::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+}
+
+.exl-banner-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+/* Responsive adjustments */
+@media (max-width: 1400px) {
+    .exl-banner-container {
+        gap: 10px;
+        padding: 0 10px;
+    }
+    
+    .exl-history-details {
+        max-width: 150px;
+    }
+}
+
+@media (max-width: 1024px) {
+    .exl-banner-section {
+        padding: 0 6px;
+    }
+    
+    .exl-history-details {
+        max-width: 120px;
+    }
+    
+    .exl-banner-metadata-grid {
+        gap: 8px;
+    }
+}
+
+/* Notification animations */
+@keyframes slideIn {
+    from {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+}
+
+/* Environment toggle button styles */
+.exl-banner-env-toggle {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-width: auto;
+}
+
+.exl-banner-env-toggle-btn {
+    background-color: #0070d2;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    height: 26px;
+    line-height: 1;
+}
+
+.exl-banner-env-toggle-btn:hover {
+    background-color: #005fb2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-banner-env-toggle-btn:active {
+    background-color: #00396b;
+}
+
+/* Environment buttons styles */
+.exl-banner-environment {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-width: auto;
+}
+
+.exl-env-buttons-container {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.exl-env-btn {
+    background-color: #0070d2;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    height: 26px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.exl-env-btn:hover {
+    background-color: #005fb2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    transform: translateY(-1px);
+}
+
+.exl-env-btn:active {
+    background-color: #00396b;
+    transform: translateY(0);
+}
+
+.exl-env-label {
+    font-weight: 700;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    background-color: rgba(255, 255, 255, 0.2);
+    padding: 2px 6px;
+    border-radius: 2px;
+}
+
+/* Message display section - fills available banner space */
+/* Higher specificity to override .exl-banner-section */
+.exl-banner-section.exl-banner-messages,
+.exl-banner-messages {
+    flex: 1 1 auto !important; /* Grow to fill remaining space */
+    flex-shrink: 1 !important; /* Allow shrinking if needed */
+    min-width: 150px; /* Reduced minimum to allow better compression */
+    max-width: none; /* Fill available space */
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    overflow: hidden;
+    container-type: inline-size; /* Enable container queries */
+}
+
+/* Hover expansion only when narrow (controlled via JS class) */
+.exl-banner-messages.narrow-mode {
+    max-width: 350px;
+    transition: max-width 0.3s ease;
+}
+
+.exl-banner-messages.narrow-mode:hover {
+    max-width: 500px;
+}
+
+/* Collapsed state for message section when width < 175px */
+/* In collapsed mode: message section uses column layout with message on top, nav below */
+.exl-banner-messages.collapsed {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+    padding: 4px 8px !important;
+    gap: 2px !important;
+}
+
+.exl-banner-messages.collapsed .exl-banner-message-content {
+    flex: none !important;
+    width: 100% !important;
+    max-width: none !important; /* Remove max-width restriction in collapsed mode */
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.exl-banner-messages.collapsed .exl-banner-message-nav {
+    flex: none !important;
+    position: static !important;
+    width: 100% !important;
+    justify-content: flex-start !important;
+    padding: 0 !important;
+    gap: 4px !important;
+}
+
+/* Normal (non-collapsed) state: row layout with message and nav side by side */
+.exl-banner-message-content {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+    padding: 0 8px;
+    max-width: calc(100% - 120px); /* Reserve space for navigation */
+    transition: max-width 0.2s ease;
+}
+
+.message-line {
+    font-size: 12px;
+    color: #ffffff;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.message-line-single {
+    line-height: 1.4;
+}
+
+.message-line-double {
+    line-height: 1.3;
+    margin-bottom: 2px;
+}
+
+.message-line-triple {
+    line-height: 1.2;
+    margin-bottom: 1px;
+}
+
+.message-line:last-child {
+    margin-bottom: 0;
+}
+
+/* Message description (shown when not in narrow mode) */
+.message-description {
+    font-size: 11px;
+    color: #d0d0d0; /* Improved contrast: 5.5:1 ratio (was #a0a0a0 at 3.2:1) */
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-style: italic;
+    max-width: 100%;
+}
+
+/* Hide description in narrow mode */
+.exl-banner-messages.narrow-mode .message-description {
+    display: none;
+}
+
+/* Message navigation controls */
+.exl-banner-message-nav {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: clamp(4px, 1vw, 8px); /* Reduced gap to prevent overspill */
+    padding: 0 4px;
+    position: relative;
+    z-index: 1000001; /* Ensure above Salesforce navigation */
+    max-width: 100px;
+    min-width: 0; /* Allow shrinking */
+    flex-shrink: 0; /* Don't shrink navigation controls */
+    overflow: hidden; /* Prevent overflow */
+}
+
+/* Message nav compact mode for very narrow spaces */
+.exl-banner-messages.narrow-mode .exl-banner-message-nav {
+    gap: 2px;
+    padding: 0 2px;
+}
+
+/* Hide message index in very narrow spaces */
+@container (max-width: 200px) {
+    .exl-banner-message-index {
+        display: none;
+    }
+}
+
+/* Responsive gap adjustment for message navigation */
+@media (max-width: 1400px) {
+    .exl-banner-message-nav {
+        gap: 4px;
+    }
+}
+
+.exl-banner-nav-btn {
+    background-color: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    min-width: 28px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    position: relative;
+    z-index: 1000001; /* Ensure above Salesforce navigation */
+}
+
+.exl-banner-nav-btn:hover:not(:disabled) {
+    background-color: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+.exl-banner-nav-btn:active:not(:disabled) {
+    background-color: rgba(255, 255, 255, 0.35);
+    transform: scale(0.95);
+}
+
+.exl-banner-nav-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.exl-banner-message-index {
+    font-size: 11px;
+    font-weight: 600;
+    color: #d0d0d0;
+    text-align: center;
+    padding: 0 4px;
+}
+
+/* Popup menu */
+.exl-popup-menu {
+    position: fixed;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 10000;
+    min-width: 200px;
+    max-width: 300px;
+    overflow: hidden;
+}
+
+.exl-popup-menu-content {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 0;
+}
+
+.exl-popup-menu-item {
+    background-color: transparent;
+    color: #ffffff;
+    border: none;
+    border-radius: 0;
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    text-align: left;
+    width: 100%;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.exl-popup-menu-item:last-child {
+    border-bottom: none;
+}
+
+.exl-popup-menu-item:hover {
+    background-color: rgba(0, 112, 210, 0.3);
+    color: #ffffff;
+}
+
+.exl-popup-menu-item:active {
+    background-color: rgba(0, 112, 210, 0.5);
+}
+
+.exl-popup-menu-item.exl-disabled,
+.exl-popup-menu-item:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.exl-popup-menu-item.exl-disabled:hover,
+.exl-popup-menu-item:disabled:hover {
+    background-color: transparent;
+    color: #ffffff;
+}
+
+/* ================================================
+   MESSAGE HOVER POPUP
+   Shows full message preview on hover
+   ================================================ */
+.exl-message-hover-popup {
+    position: fixed;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    z-index: 999999;
+    min-width: 250px;
+    max-width: 400px;
+    padding: 12px 16px;
+    color: #ffffff;
+    font-size: 12px;
+    line-height: 1.5;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-5px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.exl-message-hover-popup.visible {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.exl-message-hover-popup .message-preview-title {
+    font-weight: 700;
+    font-size: 13px;
+    color: #ffffff;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-message-hover-popup .message-preview-content {
+    color: #d0d0d0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Structured description for feature messages */
+.exl-message-hover-popup .message-preview-details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.exl-message-hover-popup .message-detail-item {
+    color: #d0d0d0;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.exl-message-hover-popup .message-detail-label {
+    color: #b8e4ff; /* Improved contrast: 4.8:1 ratio (was #a0d8f7 at 3.5:1) */
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 10px;
+    margin-right: 6px;
+}
+
+.exl-message-hover-popup .message-preview-image {
+    max-width: 100%;
+    max-height: 150px;
+    margin-top: 8px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Actions area (Noted button) */
+.exl-message-hover-popup .message-preview-actions {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    justify-content: flex-end;
+}
+
+.exl-message-hover-popup .message-noted-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #ffffff;
+    background: linear-gradient(135deg, #0070d2 0%, #0055a4 100%);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.exl-message-hover-popup .message-noted-btn:hover {
+    background: linear-gradient(135deg, #0084ff 0%, #0070d2 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 112, 210, 0.4);
+}
+
+.exl-message-hover-popup .message-noted-btn:active {
+    transform: translateY(0);
+}
+
+.exl-message-hover-popup .message-noted-btn .noted-icon {
+    font-size: 12px;
+}
+
+/* ================================================
+   MESSAGE EDIT POPUP
+   3-column layout, 282px tall, 100vw wide
+   ================================================ */
+.exl-message-edit-popup {
+    position: fixed;
+    top: 48px; /* Below banner */
+    left: 0;
+    width: 100vw;
+    height: 282px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-bottom: 2px solid #0070d2;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 999998;
+    display: none;
+    pointer-events: auto;
+}
+
+.exl-message-edit-popup.visible {
+    display: flex;
+}
+
+.exl-message-edit-container {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    gap: 0;
+}
+
+/* Left column - Message list (30%) */
+.exl-message-edit-list {
+    flex: 0 0 30%;
+    height: 100%;
+    overflow-y: auto;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 8px;
+}
+
+.exl-message-edit-list-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    margin-bottom: 4px;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.exl-message-edit-list-item:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.exl-message-edit-list-item.selected {
+    background-color: rgba(0, 112, 210, 0.3);
+    border: 1px solid rgba(0, 112, 210, 0.5);
+}
+
+.exl-message-edit-list-item .message-icon {
+    margin-right: 8px;
+    font-size: 16px;
+}
+
+.exl-message-edit-list-item .message-title {
+    flex: 1;
+    font-size: 12px;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.exl-message-edit-list-item .message-pin {
+    font-size: 12px;
+    color: #ffc107;
+    margin-left: 8px;
+}
+
+/* Middle column - Editor (45%) */
+.exl-message-edit-editor {
+    flex: 0 0 45%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-message-edit-editor .editor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.exl-message-edit-editor .editor-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.exl-message-edit-editor .editor-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.exl-message-edit-editor textarea {
+    flex: 1;
+    width: 100%;
+    background-color: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    color: #ffffff;
+    font-size: 12px;
+    padding: 10px;
+    resize: none;
+    font-family: inherit;
+}
+
+.exl-message-edit-editor textarea:focus {
+    outline: none;
+    border-color: #0070d2;
+}
+
+/* Right column - Settings (25%) */
+.exl-message-edit-settings {
+    flex: 0 0 25%;
+    height: 100%;
+    overflow-y: auto;
+    padding: 12px;
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.exl-message-edit-settings .settings-header {
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-message-edit-settings .settings-group {
+    margin-bottom: 12px;
+}
+
+.exl-message-edit-settings .settings-label {
+    font-size: 11px;
+    color: #d0d0d0; /* Improved contrast: 5.5:1 ratio (was #a0a0a0 at 3.2:1) */
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 4px;
+}
+
+.exl-message-edit-settings .settings-value {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.exl-message-edit-settings .setting-btn {
+    padding: 4px 10px;
+    font-size: 11px;
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.exl-message-edit-settings .setting-btn:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.exl-message-edit-settings .setting-btn.active {
+    background-color: rgba(0, 112, 210, 0.3);
+    border-color: #0070d2;
+}
+
+/* ================================================
+   ROTATING STICKY BAR
+   17px height, 15px text, appears below banner
+   ================================================ */
+.exl-rotating-sticky-bar {
+    position: fixed;
+    top: 48px; /* Below the main banner */
+    left: 0;
+    right: 0;
+    height: 17px;
+    background: linear-gradient(90deg, #0070d2 0%, #00a1e0 100%);
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 999997;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.exl-rotating-sticky-bar .sticky-message {
+    white-space: nowrap;
+    animation: scroll-left 20s linear infinite;
+    padding: 0 20px;
+}
+
+.exl-rotating-sticky-bar.paused .sticky-message {
+    animation-play-state: paused;
+}
+
+@keyframes scroll-left {
+    0% {
+        transform: translateX(100%);
+    }
+    100% {
+        transform: translateX(-100%);
+    }
+}
+
+/* Adjust Salesforce layout when sticky bar is visible */
+body.exl-sticky-bar-visible #oneHeader > div.slds-global-header.slds-grid.slds-grid_align-spread {
+    margin-top: 65px; /* 48px banner + 17px sticky bar */
+}
+
+body.exl-sticky-bar-visible > div.desktop.container.forceStyle.oneOne.navexDesktopLayoutContainer.lafAppLayoutHost.forceAccess > div.viewport > section > div.workspaceManager.navexWorkspaceManager > div > div.tabsetHeader.slds-context-bar.slds-context-bar--tabs.slds-no-print {
+    top: 115px; /* 95px + 20px extra for sticky bar */
+}
+
+/* ================================================
+   BANNER STATE MANAGEMENT
+   'collapsed' | 'expanded' states
+   ================================================ */
+#exl-persistent-banner.banner-collapsed {
+    height: 24px;
+    transition: height 0.2s ease;
+}
+
+#exl-persistent-banner.banner-collapsed .exl-banner-container {
+    height: 24px;
+}
+
+#exl-persistent-banner.banner-collapsed .exl-banner-section:not(.exl-banner-page-info) {
+    display: none;
+}
+
+#exl-persistent-banner.banner-expanded {
+    height: 3rem;
+    transition: height 0.2s ease;
+}
+
+/* Adjust Salesforce layout for collapsed banner */
+body.exl-banner-collapsed #oneHeader > div.slds-global-header.slds-grid.slds-grid_align-spread {
+    margin-top: 24px;
+}
+
+body.exl-banner-collapsed > div.desktop.container.forceStyle.oneOne.navexDesktopLayoutContainer.lafAppLayoutHost.forceAccess > div.viewport > section > div.workspaceManager.navexWorkspaceManager > div > div.tabsetHeader.slds-context-bar.slds-context-bar--tabs.slds-no-print {
+    top: 74px;
+}
+
+/* Action-focused mode - Banner stays at 48px, tool views shown as overlays */
+#exl-persistent-banner.action-focused {
+    height: 3rem;
+    overflow: visible;
+}
+
+#exl-persistent-banner.action-focused .exl-banner-container {
+    height: 3rem;
+}
+
+/* Stale data warning */
+#exl-persistent-banner.exl-banner-stale-warning {
+    background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
+    border-bottom: 3px solid #f44336;
+}
+
+.exl-stale-warning-message {
+    background-color: #f44336;
+    color: #ffffff;
+    padding: 12px 16px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Tool view - shown as overlay modal */
+.exl-tool-view {
+    display: none !important;
+    position: fixed;
+    top: 48px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(4px);
+    z-index: 10000;
+    overflow-y: auto;
+    padding: 20px;
+    pointer-events: auto;
+}
+
+.exl-tool-view[style*="block"] {
+    display: block !important;
+}
+
+.exl-tool-view-content-wrapper {
+    max-width: 900px;
+    margin: 0 auto;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    pointer-events: auto;
+}
+
+.exl-tool-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.exl-tool-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.exl-back-btn {
+    background-color: #0070d2;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.exl-back-btn:hover {
+    background-color: #005fb2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-back-btn:active {
+    background-color: #00396b;
+}
+
+.exl-tool-content {
+    color: #d0d0d0;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+/* Customer Data Notification */
+.exl-customer-data-notification {
+    display: none; /* Hidden by default, shown via JS when needed */
+    flex-direction: row;
+    align-items: center;
+    gap: 0;
+    padding: 0;
+    height: 40px;
+    background-color: rgba(255, 255, 255, 0);
+    border: none;
+    margin: 0;
+    grid-column: 1 / -1;
+    box-sizing: border-box;
+}
+
+.exl-customer-data-notification.visible {
+    display: flex;
+}
+
+.exl-notification-text {
+    color: #e0e0e0;
+    font-size: 10px;
+    text-align: left;
+    line-height: 1.3;
+    text-wrap: wrap;
+    padding: 5px 8px;
+    box-shadow: rgba(127, 80, 246, 0.15) 0px 2px 8px, rgba(255, 255, 255, 0.1) 0px 1px 0px inset;
+    background-color: rgba(255, 255, 255, 0.20);
+    border-radius: 4px 0 0 4px;
+    margin: 0;
+    width: 146px;
+    height: 35px;
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+}
+
+.exl-customer-data-btn {
+    background-color: rgb(234, 118, 62);
+    color: #ffffff;
+    border: none;
+    border-radius: 0 3px 3px 0;
+    padding: 3px 6px;
+    height: 35px;
+    width: 75px;
+    font-size: 10px;
+    font-weight: 400;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-wrap: wrap;
+    text-wrap-style: pretty;
+    box-sizing: border-box;
+}
+
+.exl-customer-data-btn:hover {
+    background-color: rgb(255, 138, 82);
+    box-shadow: 0 3px 8px rgba(234, 118, 62, 0.4);
+}
+
+.exl-customer-data-btn:active {
+    background-color: rgb(214, 98, 42);
+}
+
+/* Customer Data Editor */
+.exl-customer-data-editor {
+    max-width: 100%;
+}
+
+.exl-tool-header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.exl-export-btn,
+.exl-import-btn {
+    background-color: #1589ee;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.exl-export-btn:hover,
+.exl-import-btn:hover {
+    background-color: #0070d2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-export-btn:active,
+.exl-import-btn:active {
+    background-color: #005fb2;
+}
+
+.exl-customer-data-section {
+    margin-bottom: 24px;
+}
+
+.exl-customer-data-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 8px;
+}
+
+.exl-customer-data-readonly {
+    background-color: rgba(0, 0, 0, 0.2);
+    padding: 12px;
+    border-radius: 4px;
+    margin-bottom: 16px;
+}
+
+.exl-field-row {
+    display: flex;
+    margin-bottom: 8px;
+    font-size: 12px;
+}
+
+.exl-field-row:last-child {
+    margin-bottom: 0;
+}
+
+.exl-field-label {
+    font-weight: 600;
+    color: #d0d0d0; /* Improved contrast: 5.5:1 ratio (was #b0b0b0 at 3.8:1) */
+    min-width: 180px;
+    margin-right: 12px;
+}
+
+.exl-field-value {
+    color: #ffffff;
+    flex: 1;
+}
+
+.exl-customer-data-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.exl-editable-field {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.15s ease;
+}
+
+.exl-editable-field:hover {
+    background-color: rgba(0, 0, 0, 0.3);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.exl-editable-field.exl-field-required {
+    border-left: 3px solid #ffc107;
+}
+
+.exl-editable-field .exl-field-label {
+    min-width: 180px;
+    margin-right: 12px;
+    font-weight: 500;
+    color: #d0d0d0;
+}
+
+.exl-required-indicator {
+    color: #ffc107;
+    margin-left: 2px;
+}
+
+.exl-field-display {
+    flex: 1;
+    color: #ffffff;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 3px;
+    transition: background-color 0.15s ease;
+}
+
+.exl-field-display:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.exl-field-edit {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.exl-field-edit[style*="flex"] {
+    display: flex !important;
+}
+
+.exl-field-input {
+    flex: 1;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    padding: 6px 10px;
+    color: #ffffff;
+    font-size: 12px;
+    font-family: inherit;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.exl-field-input:focus {
+    outline: none;
+    border-color: #0070d2;
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+.exl-field-input::placeholder {
+    color: rgba(255, 255, 255, 0.65); /* Improved contrast: 4.5:1 ratio (was 0.4 opacity at 2.2:1) */
+}
+
+.exl-field-save-btn {
+    background-color: #0070d2;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.exl-field-save-btn:hover {
+    background-color: #005fb2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-field-save-btn:active {
+    background-color: #00396b;
+}
+
+.exl-customer-data-actions {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-save-btn {
+    background-color: #28a745;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 8px 20px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.exl-save-btn:hover {
+    background-color: #218838;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-save-btn:active {
+    background-color: #1e7e34;
+}
+
+/* =================================================================
+   COLOR HANDLER SETTINGS
+   ================================================================= */
+
+/* Color Handler Settings View */
+.exl-color-handler-settings {
+    max-width: 100%;
+    overflow-y: auto;
+    max-height: calc(100vh - 100px);
+}
+
+.exl-color-handler-section {
+    margin-bottom: 24px;
+    padding: 16px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.exl-color-handler-section h4 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 8px;
+}
+
+/* Status Groups */
+.exl-status-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.exl-status-group {
+    padding: 12px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-group-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-group-name {
+    font-weight: 600;
+    color: #ffffff;
+    font-size: 13px;
+    min-width: 120px;
+}
+
+.exl-color-preview-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.exl-color-preview {
+    padding: 6px 12px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 500;
+    min-width: 80px;
+    text-align: center;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.exl-edit-color-btn {
+    background-color: #0070d2;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 4px 8px;
+    font-size: 10px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.exl-edit-color-btn:hover {
+    background-color: #005fb2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-edit-color-btn:active {
+    background-color: #00396b;
+}
+
+.exl-status-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.exl-status-item {
+    padding: 4px 8px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    font-size: 11px;
+    color: #d0d0d0;
+}
+
+/* Anchor Colors */
+.exl-anchor-colors {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.exl-anchor-color-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.exl-anchor-label {
+    font-weight: 500;
+    color: #ffffff;
+    min-width: 150px;
+    font-size: 12px;
+}
+
+/* Case Thresholds */
+.exl-case-thresholds {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.exl-case-threshold-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.exl-threshold-label {
+    font-weight: 500;
+    color: #ffffff;
+    min-width: 180px;
+    font-size: 12px;
+}
+
+.exl-reset-btn {
+    background-color: #dc3545;
+    color: #ffffff;
+    border: none;
+    border-radius: 3px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.exl-reset-btn:hover {
+    background-color: #c82333;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.exl-reset-btn:active {
+    background-color: #bd2130;
+}
+
+/* =================================================================
+   COLOR PICKER MODAL
+   ================================================================= */
+
+.exl-color-picker-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100000;
+}
+
+.exl-color-picker-modal {
+    background-color: #1e1e1e;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 900px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    color: #e0e0e0;
+}
+
+.exl-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.exl-modal-header h3 {
+    margin: 0;
+    color: #ffffff;
+    font-size: 18px;
+}
+
+.exl-modal-close {
+    background: none;
+    border: none;
+    color: #ffffff;
+    font-size: 28px;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 0.15s ease;
+}
+
+.exl-modal-close:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.exl-modal-content {
+    margin-bottom: 20px;
+}
+
+.exl-color-picker-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.exl-color-picker-main {
+    display: flex;
+    gap: 40px;
+    align-items: flex-start;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+#exl-color-sphere-container {
+    position: relative;
+    width: 300px;
+    height: 300px;
+    user-select: none;
+}
+
+#exl-colorSphere {
+    cursor: pointer;
+    border-radius: 50%;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+    width: 100%;
+    height: 100%;
+}
+
+.exl-color-info-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 200px;
+}
+
+.exl-color-display {
+    width: 150px;
+    height: 150px;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.exl-color-values {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background-color: #2d2d2d;
+    padding: 16px;
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.exl-color-value {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.exl-color-value label {
+    font-size: 12px;
+    color: #d0d0d0; /* Improved contrast: 5.5:1 ratio (was #b0b0b0 at 3.8:1) */
+    font-weight: 500;
+    min-width: 40px;
+}
+
+.exl-color-value span {
+    font-family: monospace;
+    font-size: 14px;
+    background-color: #3a3a3a;
+    padding: 6px 10px;
+    border-radius: 4px;
+    min-width: 120px;
+    text-align: center;
+    color: #ffffff;
+}
+
+.exl-preset-colors-container {
+    background-color: rgba(0, 0, 0, 0.2);
+    padding: 16px;
+    border-radius: 8px;
+}
+
+.exl-preset-colors-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #ffffff;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.exl-preset-colors {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.exl-preset-color-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.exl-preset-color-swatch {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.15s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.exl-preset-color-swatch:hover {
+    transform: scale(1.1);
+    border-color: rgba(255, 255, 255, 0.5);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.exl-preset-color-swatch.exl-preset-selected {
+    border-color: #0070d2;
+    border-width: 3px;
+    box-shadow: 0 0 0 2px rgba(0, 112, 210, 0.3);
+}
+
+.exl-color-picker-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.exl-btn-cancel,
+.exl-btn-apply {
+    padding: 8px 20px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: none;
+}
+
+.exl-btn-cancel {
+    background-color: #6c757d;
+    color: #ffffff;
+}
+
+.exl-btn-cancel:hover {
+    background-color: #5a6268;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.exl-btn-apply {
+    background-color: #28a745;
+    color: #ffffff;
+}
+
+.exl-btn-apply:hover {
+    background-color: #218838;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* =================================================================
+   STATUS CONTEXT MENU
+   ================================================================= */
+
+.exl-status-context-menu {
+    position: fixed;
+    background-color: #2d2d2d;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    padding: 4px 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    z-index: 100001;
+    min-width: 180px;
+}
+
+.exl-context-menu-item {
+    padding: 8px 16px;
+    color: #e0e0e0;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.exl-context-menu-item:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.exl-context-menu-divider {
+    height: 1px;
+    background-color: rgba(255, 255, 255, 0.1);
+    margin: 4px 0;
+}
+
+/* Status cell highlight */
+.exl-status-cell {
+    cursor: context-menu;
+}

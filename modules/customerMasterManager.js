@@ -146,8 +146,23 @@ const CustomerMasterManager = (function() {
       return true;
 
     } catch (error) {
-      console.error('[CustomerMasterManager] Failed to load dataset:', error);
-      return false;
+      console.error('[CustomerMasterManager] Failed to load dataset, using empty dataset:', error);
+
+      // Fallback to empty dataset so downstream lookups still work without crashing
+      records = [];
+      indexes = {
+        byAccountName: new Map(),
+        byInstitutionCode: new Map(),
+        byAccountCode: new Map(),
+        byServerIds: new Map()
+      };
+      meta = {
+        version: 'fallback-empty',
+        recordCount: 0,
+        buildDate: new Date().toISOString()
+      };
+
+      return true; // Treat as handled to avoid repeated init failures
     }
   }
 

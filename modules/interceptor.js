@@ -16,6 +16,14 @@
     );
   }
 
+if (!window.ExLibrisExtension) {
+    window.ExLibrisExtension = {};
+    window.ExLibrisExtension.refreshed = true;
+    window.ExLibrisExtension.refreshedInitialUrl = window.location.href;
+  }
+
+
+
   // 2. Monkey Patch the XHR
   const originalOpen = XMLHttpRequest.prototype.open;
   const originalSend = XMLHttpRequest.prototype.send;
@@ -95,7 +103,9 @@
   }
 
   // 5. Logic: Handle Current, Previous, and Cache
-
+  if (window.ExLibrisExtension.refreshedInitialUrl === window.location.href) {
+    window.ExLibrisExtension.refreshed = false;
+  }
   const store = window.exLibrisFetchedCaseData;
 
   function updateGlobalState(newCaseData) {

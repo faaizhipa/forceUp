@@ -11,7 +11,7 @@ const StickyNotes = (function() {
   const STORAGE_PREFIX = 'exl_notes_';
   const STORAGE_VERSION = 2; // Incremented for rich text support
   const VERSION_KEY = 'exl_notes_storage_version';
-  const NOTE_COLORS = [
+  const NOTE_COLORS_DEFAULT = [
     { id: 'yellow', name: 'Light Yellow', rgb: 'rgb(254, 252, 232)' },
     { id: 'blue', name: 'Light Blue', rgb: 'rgb(239, 246, 255)' },
     { id: 'pink', name: 'Soft Pink', rgb: 'rgb(253, 242, 248)' },
@@ -19,6 +19,17 @@ const StickyNotes = (function() {
     { id: 'purple', name: 'Lavender', rgb: 'rgb(245, 243, 255)' },
     { id: 'peach', name: 'Soft Peach', rgb: 'rgb(254, 240, 236)' }
   ];
+
+  const LEGACY_COLOR_MAP = {
+    yellow: 'hl-4', // Light Yellow
+    blue: 'hl-2',   // Light Blue
+    pink: 'hl-8',   // Pink
+    green: 'hl-3',  // Mint Green
+    purple: 'hl-9', // Lavender
+    peach: 'hl-6'   // Peach
+  };
+
+  let noteColors = [...NOTE_COLORS_DEFAULT];
 
   // Virtual scrolling constants
   const VIRTUAL_SCROLL_THRESHOLD = 50;
@@ -37,6 +48,51 @@ const StickyNotes = (function() {
   let virtualScrollEnabled = false;
   let visibleNoteIds = new Set();
 
+  function refreshNoteColorsFromHighlighter() {
+    if (typeof Highlighter !== 'undefined' && typeof Highlighter.getColors === 'function') {
+      const hlColors = Highlighter.getColors();
+      if (Array.isArray(hlColors) && hlColors.length) {
+        noteColors = hlColors
+          .map((c) => {
+            const rgb = c.rgb || c.hex || c.color || c.value;
+            return rgb
+              ? { id: `hl-${c.id}`, name: c.name || `Colour ${c.id}`, rgb }
+              : null;
+          })
+          .filter(Boolean);
+        return;
+      }
+    }
+
+    noteColors = [...NOTE_COLORS_DEFAULT];
+  }
+
+  function getNoteColors() {
+    return noteColors;
+  }
+
+  function resolveNoteColorId(colorId) {
+    const palette = getNoteColors();
+    if (palette.some((c) => c.id === colorId)) {
+      return colorId;
+    }
+
+    const mapped = LEGACY_COLOR_MAP[colorId];
+    if (mapped && palette.some((c) => c.id === mapped)) {
+      return mapped;
+    }
+
+    return palette[0]?.id || NOTE_COLORS_DEFAULT[0].id;
+  }
+
+  function applyNoteColor(noteEl, colorId) {
+    const palette = getNoteColors();
+    const chosen = palette.find((c) => c.id === colorId) || palette[0] || NOTE_COLORS_DEFAULT[0];
+
+    noteEl.dataset.noteColor = colorId;
+    noteEl.style.background = chosen.rgb;
+  }
+
   /**
    * Initialize sticky notes
    */
@@ -45,6 +101,8 @@ const StickyNotes = (function() {
     
     console.log('[StickyNotes] Initializing enhanced version...');
     
+    refreshNoteColorsFromHighlighter();
+
     // Wait for DOM to be ready before loading and rendering
     const domReady = await waitForDOMReady();
     if (!domReady) {
@@ -512,6 +570,20 @@ const StickyNotes = (function() {
     }, 3000);
   }
 
+  function isLocalDbAvailable() {
+    return typeof LocalDb !== 'undefined' && typeof LocalDb.getAllNotes === 'function';
+  }
+
+  function getPersistenceContext() {
+    const layerId = typeof LayerManager !== 'undefined' 
+      ? LayerManager.getActiveLayerId() 
+      : 'default';
+    return {
+      layerId,
+      pageUrl: window.location.href
+    };
+  }
+
   /**
    * Get current storage version from storage
    * @returns {Promise<number>} Current storage version
@@ -561,12 +633,31 @@ const StickyNotes = (function() {
    * Load notes from storage (with backward compatibility for old format)
    */
   async function loadNotes() {
+    const { layerId, pageUrl } = getPersistenceContext();
+
+    if (isLocalDbAvailable()) {
+      try {
+        const all = await LocalDb.getAllNotes();
+        const scoped = all.filter((item) => item.pageUrl === pageUrl && item.layerId === layerId);
+        if (scoped.length > 0) {
+          notes = scoped.reduce((acc, item) => {
+            acc[item.id] = item;
+            return acc;
+          }, {});
+          console.log('[StickyNotes] Loaded', scoped.length, 'notes from LocalDb');
+          return;
+        }
+      } catch (error) {
+        console.warn('[StickyNotes] LocalDb load failed, falling back to chrome.storage:', error);
+      }
+    }
+
     return new Promise((resolve) => {
       const key = getStorageKey();
       const oldKey = getOldStorageKey();
       
       // Try new format first, then fall back to old format
-      chrome.storage.local.get([key, oldKey], (result) => {
+      chrome.storage.local.get([key, oldKey], async (result) => {
         if (chrome.runtime.lastError) {
           console.error('[StickyNotes] Error loading notes:', chrome.runtime.lastError);
           notes = {};
@@ -580,6 +671,15 @@ const StickyNotes = (function() {
         if (result[oldKey] && !result[key]) {
           console.log('[StickyNotes] Loaded notes from old format, migration will handle upgrade');
         }
+
+        if (isLocalDbAvailable() && Object.keys(notes).length > 0) {
+          try {
+            await persistNotesToLocalDb();
+            console.log('[StickyNotes] Migrated notes to LocalDb');
+          } catch (error) {
+            console.warn('[StickyNotes] Failed to migrate notes to LocalDb:', error);
+          }
+        }
         
         console.log('[StickyNotes] Loaded', Object.keys(notes).length, 'notes');
         resolve();
@@ -591,6 +691,16 @@ const StickyNotes = (function() {
    * Save notes to storage
    */
   async function saveNotes() {
+    if (isLocalDbAvailable()) {
+      try {
+        await persistNotesToLocalDb();
+        console.log('[StickyNotes] Saved', Object.keys(notes).length, 'notes to LocalDb');
+        return;
+      } catch (error) {
+        console.warn('[StickyNotes] LocalDb save failed, falling back to chrome.storage:', error);
+      }
+    }
+
     return new Promise((resolve) => {
       const key = getStorageKey();
       chrome.storage.local.set({ [key]: notes }, () => {
@@ -604,11 +714,35 @@ const StickyNotes = (function() {
     });
   }
 
+  async function persistNotesToLocalDb() {
+    const { layerId, pageUrl } = getPersistenceContext();
+    const incomingIds = Object.keys(notes);
+    const existing = await LocalDb.getAllNotes();
+    const scopedExisting = existing.filter((item) => item.pageUrl === pageUrl && item.layerId === layerId);
+    const staleIds = scopedExisting.map((item) => item.id).filter((id) => !incomingIds.includes(id));
+
+    await Promise.all(staleIds.map((id) => LocalDb.deleteNote(id)));
+
+    await Promise.all(incomingIds.map((id) => {
+      const record = notes[id] || {};
+      return LocalDb.putNote({
+        ...record,
+        id,
+        pageUrl,
+        layerId,
+        updatedAt: record.lastModified || record.timestamp || Date.now()
+      });
+    }));
+  }
+
   /**
    * Create a new sticky note (Enhanced with rich text support)
    */
   async function createNote() {
     const noteId = 'note_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+    const palette = getNoteColors();
+    const defaultColorId = resolveNoteColorId(palette[0]?.id || NOTE_COLORS_DEFAULT[0].id);
     
     // Position in center of viewport
     const x = window.innerWidth / 2 - 150; // 150 = half of default note width (300px)
@@ -619,7 +753,7 @@ const StickyNotes = (function() {
       title: '',
       content: '', // Backward compatibility with plain text
       html: '', // New rich text content
-      color: 'yellow',
+      color: defaultColorId,
       position: { x, y },
       size: { width: 300, height: 200 }, // Default size
       isCollapsed: false,
@@ -627,7 +761,9 @@ const StickyNotes = (function() {
       timestamp: Date.now(),
       lastModified: Date.now(),
       lastLocalEdit: Date.now(),
-      zIndex: ++highestZIndex
+      zIndex: ++highestZIndex,
+      layerId: getPersistenceContext().layerId,
+      pageUrl: getPersistenceContext().pageUrl
     };
 
     notes[noteId] = note;
@@ -767,7 +903,8 @@ const StickyNotes = (function() {
    */
   async function updateNoteColor(noteId, colorId) {
     if (notes[noteId]) {
-      notes[noteId].color = colorId;
+      const resolvedColorId = resolveNoteColorId(colorId);
+      notes[noteId].color = resolvedColorId;
       notes[noteId].timestamp = Date.now();
       notes[noteId].lastModified = Date.now();
       await saveNotes();
@@ -775,14 +912,11 @@ const StickyNotes = (function() {
       // Update DOM
       const noteEl = document.querySelector(`[data-note-id="${noteId}"]`);
       if (noteEl) {
-        NOTE_COLORS.forEach(c => {
-          noteEl.classList.remove(`exl-hl-note-${c.id}`);
-        });
-        noteEl.classList.add(`exl-hl-note-${colorId}`);
+        applyNoteColor(noteEl, resolvedColorId);
         
         // Update selected state
         noteEl.querySelectorAll('.exl-hl-note-color-chip').forEach(chip => {
-          if (chip.dataset.colorId === colorId) {
+          if (chip.dataset.colorId === resolvedColorId) {
             chip.classList.add('exl-hl-selected');
           } else {
             chip.classList.remove('exl-hl-selected');
@@ -791,7 +925,7 @@ const StickyNotes = (function() {
       }
       
       // Broadcast update
-      broadcastChange('noteUpdated', noteId, { color: colorId, lastModified: notes[noteId].lastModified });
+      broadcastChange('noteUpdated', noteId, { color: resolvedColorId, lastModified: notes[noteId].lastModified });
     }
   }
 
@@ -868,11 +1002,14 @@ const StickyNotes = (function() {
     }
 
     const noteEl = document.createElement('div');
-    noteEl.className = `exl-hl-note exl-hl-note-${note.color}`;
+    const resolvedColorId = resolveNoteColorId(note.color);
+    note.color = resolvedColorId;
+    noteEl.className = 'exl-hl-note';
     noteEl.dataset.noteId = note.id;
     noteEl.style.left = note.position.x + 'px';
     noteEl.style.top = note.position.y + 'px';
     noteEl.style.zIndex = note.zIndex || highestZIndex;
+    applyNoteColor(noteEl, resolvedColorId);
     
     // Set size if defined
     if (note.size) {
@@ -961,12 +1098,12 @@ const StickyNotes = (function() {
     colorPicker.className = 'exl-hl-note-colors';
     colorPicker.style.display = 'none';
     
-    NOTE_COLORS.forEach(color => {
+    getNoteColors().forEach(color => {
       const chip = document.createElement('div');
       chip.className = 'exl-hl-note-color-chip';
       chip.dataset.colorId = color.id;
       chip.style.background = color.rgb;
-      if (color.id === note.color) {
+      if (color.id === resolvedColorId) {
         chip.classList.add('exl-hl-selected');
       }
       chip.addEventListener('click', () => {

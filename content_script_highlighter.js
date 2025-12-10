@@ -136,9 +136,9 @@
       isExpanded: false,
       menuElement: null,
       items: [],
-      radius: 70,
-      innerRadius: 45,
-      animationDelay: 30,
+      radius:70,
+      innerRadius:30,
+      animationDelay: 20,
       keyboardHandler: null
     },
     floatingButtonPosition: { x: null, y: null },
@@ -202,102 +202,244 @@
       const style = document.createElement('style');
       style.id = STYLE_ID;
       style.textContent = `
+        /* Floating button */
         .exl-hl-floating-btn {
           position: fixed;
-          right: 16px;
-          bottom: 24px;
+          right: 20px;
+          top: 50%;
+          transform: translateY(-50%);
           width: 48px;
           height: 48px;
+          background: linear-gradient(160deg, rgba(70, 52, 150, 0.82) 0%, rgba(48, 122, 255, 0.88) 80%),
+            linear-gradient(var(--exl-glow-angle, 135deg), rgba(152, 121, 255, 0.45), rgba(82, 188, 255, 0.12));
+          color: #ffffff;
+          border: 1px solid rgba(255, 255, 255, 0.45);
           border-radius: 50%;
-          border: none;
-          background: linear-gradient(135deg, #7c3aed, #2563eb);
-          color: #fff;
-          font-size: 20px;
-          box-shadow: 0 8px 20px rgba(0,0,0,0.2);
-          cursor: pointer;
-          z-index: 2147483000;
+          cursor: grab;
+          font-size: 24px;
           display: flex;
           align-items: center;
           justify-content: center;
-          transition: transform 0.2s ease, box-shadow 0.2s ease;
+          z-index: 999997;
+          box-shadow: 0 6px 18px rgba(38, 58, 136, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.12);
+          transition: opacity 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+          opacity: 0.82;
+          padding: 0;
+          line-height: 1;
+          -webkit-user-select: none;
+          user-select: none;
+          touch-action: none;
+          position: relative;
+          overflow: visible;
+          backdrop-filter: blur(12px);
+          --exl-glow-angle: 135deg;
+        }
+
+        .exl-hl-floating-btn::before {
+          content: '';
+          position: absolute;
+          inset: -8px;
+          border-radius: 50%;
+          background: linear-gradient(var(--exl-glow-angle, 135deg), rgba(120, 167, 255, 0.32), rgba(132, 104, 255, 0.12));
+          filter: blur(10px);
+          opacity: 0;
+          transition: opacity 150ms ease, transform 150ms ease;
+          pointer-events: none;
+        }
+
+        .exl-hl-floating-btn::after {
+          content: '';
+          position: absolute;
+          inset: 4px;
+          border-radius: 50%;
+          background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0));
+          opacity: 0.9;
+          pointer-events: none;
+          mix-blend-mode: screen;
         }
 
         .exl-hl-floating-btn:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 12px 26px rgba(0,0,0,0.22);
+          opacity: 1;
+          box-shadow: 0 10px 26px rgba(47, 86, 180, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.22);
+          border-color: rgba(255, 255, 255, 0.6);
+        }
+
+        .exl-hl-floating-btn:active:not(.dragging) {
+          transform: translateY(-50%) scale(0.95);
         }
 
         .exl-hl-floating-btn.dragging {
-          opacity: 0.85;
           cursor: grabbing;
+          opacity: 0.8;
+          transition: none;
         }
 
         .exl-hl-floating-btn.expanded {
-          box-shadow: 0 12px 28px rgba(0,0,0,0.28);
+          opacity: 1;
+          border-color: rgba(255, 255, 255, 0.65);
+          background: linear-gradient(170deg, #0d1026 0%, #111734 65%, #162043 100%);
+          box-shadow: 0 14px 32px rgba(9, 12, 32, 0.65), inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+          animation: exl-hl-button-pulse 1.5s ease-in-out infinite;
         }
 
+        .exl-hl-floating-btn.proximity {
+          box-shadow: 0 12px 30px rgba(76, 119, 255, 0.55), 0 0 0 10px rgba(126, 110, 255, 0.18);
+        }
+
+        .exl-hl-floating-btn.proximity::before {
+          opacity: 1;
+          transform: scale(1.05);
+        }
+
+        @keyframes exl-hl-button-pulse {
+          0%, 100% { box-shadow: 0 0 20px rgba(0,112,210,0.4); }
+          50% { box-shadow: 0 0 28px rgba(0,112,210,0.6); }
+        }
+
+        /* Radial overlay */
         .exl-hl-radial-overlay {
           position: fixed;
-          inset: 0;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 999996;
           background: transparent;
-          z-index: 2147482998;
         }
 
+        /* Radial menu container */
         .exl-hl-radial-menu {
           position: fixed;
-          left: 0;
-          top: 0;
+          z-index: 999998;
+          pointer-events: none;
           transform: translate(-50%, -50%);
           width: 1px;
           height: 1px;
-          z-index: 2147482999;
         }
 
-        .exl-hl-radial-menu button {
+        .exl-hl-radial-menu.collapsing .exl-hl-radial-item,
+        .exl-hl-radial-menu.collapsing .exl-hl-radial-color-chip {
+          animation: exl-hl-radial-collapse 150ms ease-in forwards;
+        }
+
+        /* Radial action items */
+        .exl-hl-radial-item {
           position: absolute;
-          left: 0;
-          top: 0;
           width: 44px;
           height: 44px;
           border-radius: 50%;
-          border: none;
-          background: #111827;
-          color: #fff;
-          font-size: 18px;
-          box-shadow: 0 8px 20px rgba(0,0,0,0.22);
+          background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+          border: 2px solid rgba(255, 255, 255, 0.3);
+          color: #ffffff;
+          font-size: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
           cursor: pointer;
-          opacity: 0;
-          transform: translate(0,0) scale(0.2);
-          animation: exl-hl-radial-in 180ms ease-out forwards;
+          pointer-events: auto;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+          transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+          left: 50%;
+          top: 50%;
+          transform: translate(-50%, -50%) scale(0);
+          animation: exl-hl-radial-expand 200ms ease-out forwards;
+          animation-delay: var(--animation-delay, 0ms);
         }
 
-        .exl-hl-radial-item {
-          background: linear-gradient(135deg, #1f2937, #111827);
+        .exl-hl-radial-item:hover {
+          transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1.15);
+          box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+          border-color: #0070d2;
+          z-index: 10;
         }
 
+        .exl-hl-radial-item:focus {
+          outline: none;
+          border-color: #0070d2;
+          box-shadow: 0 0 0 3px rgba(0, 112, 210, 0.4);
+        }
+
+        .exl-hl-radial-item:active {
+          transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(0.95);
+        }
+
+        /* Radial color chips */
         .exl-hl-radial-color-chip {
-          width: 36px;
-          height: 36px;
-          border: 2px solid #fff;
-          box-shadow: 0 6px 16px rgba(0,0,0,0.18);
+          position: absolute;
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          border: 2px solid rgba(255, 255, 255, 0.5);
+          cursor: pointer;
+          pointer-events: auto;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+          transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+          left: 50%;
+          top: 50%;
+          transform: translate(-50%, -50%) scale(0);
+          animation: exl-hl-radial-expand 200ms ease-out forwards;
+          animation-delay: var(--animation-delay, 0ms);
+        }
+
+        .exl-hl-radial-color-chip:hover {
+          transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1.3);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+          z-index: 10;
+        }
+
+        .exl-hl-radial-color-chip:focus {
+          outline: none;
+          box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.6);
         }
 
         .exl-hl-radial-color-chip.selected {
-          outline: 3px solid #2563eb;
+          border-color: #ffffff;
+          box-shadow: 0 0 0 3px rgba(0, 112, 210, 0.8), 0 4px 12px rgba(0, 0, 0, 0.4);
+          transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1.1);
         }
 
-        .exl-hl-radial-menu.collapsing button {
-          animation: exl-hl-radial-out 140ms ease-in forwards;
+        .exl-hl-radial-color-chip.selected::after {
+          content: '✓';
+          position: absolute;
+          font-size: 14px;
+          color: #1a1a2e;
+          font-weight: bold;
+          text-shadow: 0 0 2px rgba(255, 255, 255, 0.8);
         }
 
-        @keyframes exl-hl-radial-in {
-          from { opacity: 0; transform: translate(0,0) scale(0.2); }
-          to { opacity: 1; transform: translate(var(--final-x, 0), var(--final-y, 0)) scale(1); }
+        /* Tooltip on radial items */
+        .exl-hl-radial-item::before {
+          content: attr(title);
+          position: absolute;
+          bottom: calc(100% + 8px);
+          left: 50%;
+          transform: translateX(-50%);
+          padding: 4px 8px;
+          background: rgba(0, 0, 0, 0.9);
+          color: #ffffff;
+          font-size: 11px;
+          font-family: 'Salesforce Sans', Arial, sans-serif;
+          white-space: nowrap;
+          border-radius: 4px;
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.2s ease;
         }
 
-        @keyframes exl-hl-radial-out {
-          from { opacity: 1; transform: translate(var(--final-x, 0), var(--final-y, 0)) scale(1); }
-          to { opacity: 0; transform: translate(0,0) scale(0.2); }
+        .exl-hl-radial-item:hover::before {
+          opacity: 1;
+        }
+
+        /* Animations */
+        @keyframes exl-hl-radial-expand {
+          0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+          50% { opacity: 1; }
+          100% { transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1); opacity: 1; }
+        }
+
+        @keyframes exl-hl-radial-collapse {
+          0% { transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1); opacity: 1; }
+          100% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
         }
       `;
 
@@ -897,7 +1039,26 @@
       
       const title = document.createElement('div');
       title.className = 'exl-hl-banner-title';
-      title.textContent = '✨ Highlighter';
+      title.textContent = '✨StartNote';
+
+      // Run typewriter animation once per domain per browser session
+      try {
+        const sessionKey = `exl-hl-typewriter-${window.location.hostname}`;
+        const shouldAnimate = sessionStorage.getItem(sessionKey) !== '1';
+        if (shouldAnimate) {
+          title.classList.add('exl-hl-typewriter');
+          sessionStorage.setItem(sessionKey, '1');
+          const handleAnimationEnd = (event) => {
+            if (event?.animationName === 'exl-hl-typing') {
+              title.classList.add('exl-hl-typewriter-done');
+              title.removeEventListener('animationend', handleAnimationEnd);
+            }
+          };
+          title.addEventListener('animationend', handleAnimationEnd);
+        }
+      } catch (error) {
+        console.warn('[HighlighterController] Typewriter animation skipped:', error);
+      }
       
       titleSection.appendChild(titleLabel);
       titleSection.appendChild(title);
@@ -970,19 +1131,97 @@
       const screenshotBtn = document.createElement('button');
       screenshotBtn.className = 'exl-hl-btn';
       screenshotBtn.innerHTML = '📸 Screens';
-      screenshotBtn.title = 'Open screenshots side panel';
+      screenshotBtn.title = 'Open captures panel';
       screenshotBtn.addEventListener('click', () => {
+        if (typeof CapturePanel !== 'undefined' && typeof CapturePanel.open === 'function') {
+          CapturePanel.open({ tab: 'screenshots' });
+          return;
+        }
         try {
           chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL', tab: 'captured' });
         } catch (err) {
           console.warn('[HighlighterController] Failed to open screenshots panel', err);
         }
       });
+
+      const recordBtn = document.createElement('button');
+      recordBtn.className = 'exl-hl-btn';
+      const setRecordLabel = (isRecording) => {
+        recordBtn.innerHTML = isRecording ? '⏹ Stop Rec' : '🎥 Record';
+        recordBtn.title = isRecording ? 'Stop recording and save' : 'Start tab recording (150MB cap)';
+      };
+
+      setRecordLabel(typeof RecordingManager !== 'undefined' && typeof RecordingManager.getStatus === 'function' && RecordingManager.getStatus().isRecording);
+
+      const showRecordToast = (text) => {
+        try {
+          const toast = document.createElement('div');
+          toast.className = 'exl-hl-toast';
+          toast.textContent = text;
+          document.body.appendChild(toast);
+          setTimeout(() => toast.remove(), 3500);
+        } catch (err) {
+          console.warn('[HighlighterController] Toast failed', err);
+        }
+      };
+
+      recordBtn.addEventListener('click', () => {
+        if (typeof RecordingManager === 'undefined' || typeof RecordingManager.toggleRecording !== 'function') {
+          showRecordToast('Recording unavailable on this page.');
+          console.warn('[HighlighterController] RecordingManager not available (recording is disabled on Salesforce pages).');
+          return;
+        }
+
+        const statusCb = (evt) => {
+          if (evt.status === 'recording') {
+            setRecordLabel(true);
+            showRecordToast('Recording... click ⏹ to stop.');
+          } else if (evt.status === 'stopping') {
+            setRecordLabel(true);
+            showRecordToast('Stopping recording...');
+          } else if (evt.status === 'saved') {
+            setRecordLabel(false);
+            showRecordToast('Recording saved. Opening capture panel...');
+          } else if (evt.status === 'discarded') {
+            setRecordLabel(false);
+            showRecordToast('Recording discarded (limit hit).');
+          } else if (evt.status === 'error') {
+            setRecordLabel(false);
+            showRecordToast('Recording failed. See console for details.');
+          }
+        };
+
+        const current = typeof RecordingManager.getStatus === 'function' && RecordingManager.getStatus().isRecording;
+        setRecordLabel(!current);
+        const result = RecordingManager.toggleRecording(statusCb);
+        if (result === 'starting') {
+          showRecordToast('Starting recording...');
+        } else if (result === 'stopping') {
+          showRecordToast('Stopping recording...');
+        }
+      });
       
       actionsSection.appendChild(noteBtn);
       actionsSection.appendChild(collectionsBtn);
       actionsSection.appendChild(bookmarkBtn);
+      actionsSection.appendChild(recordBtn);
       actionsSection.appendChild(screenshotBtn);
+      const recordingsPanelBtn = document.createElement('button');
+      recordingsPanelBtn.className = 'exl-hl-btn';
+      recordingsPanelBtn.innerHTML = '📼 Recorded';
+      recordingsPanelBtn.title = 'Open recordings';
+      recordingsPanelBtn.addEventListener('click', () => {
+        if (typeof CapturePanel !== 'undefined' && typeof CapturePanel.open === 'function') {
+          CapturePanel.open({ tab: 'recordings' });
+          return;
+        }
+        try {
+          chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL', tab: 'recorded' });
+        } catch (err) {
+          console.warn('[HighlighterController] Failed to open recorded panel', err);
+        }
+      });
+      actionsSection.appendChild(recordingsPanelBtn);
       container.appendChild(actionsSection);
 
       // Add close button (top-right corner)
@@ -1460,6 +1699,7 @@
         this.floatingButtonElement.style.display = 'block';
         // Restore saved position if available
         this.applyFloatingButtonPosition();
+        this.setupFloatingButtonProximity();
         return;
       }
       
@@ -1476,6 +1716,8 @@
       
       document.body.appendChild(floatingBtn);
       this.floatingButtonElement = floatingBtn;
+      this.setupResizeHandler();
+      this.setupFloatingButtonProximity();
       console.log('[HighlighterController] Floating button shown');
     },
 
@@ -1516,6 +1758,52 @@
       this.safeLocalSet({ exl_hl_floating_btn_pos: { x, y } });
     },
 
+    clampFloatingButtonToViewport() {
+      if (!this.floatingButtonElement) return;
+      const rect = this.floatingButtonElement.getBoundingClientRect();
+      const padding = 8;
+      const width = rect.width || 48;
+      const height = rect.height || 48;
+      const clampedX = Math.min(Math.max(rect.left, padding), Math.max(padding, window.innerWidth - width - padding));
+      const clampedY = Math.min(Math.max(rect.top, padding), Math.max(padding, window.innerHeight - height - padding));
+      this.floatingButtonElement.style.left = `${clampedX}px`;
+      this.floatingButtonElement.style.top = `${clampedY}px`;
+      this.floatingButtonElement.style.right = 'auto';
+      this.floatingButtonElement.style.bottom = 'auto';
+      this.saveFloatingButtonPosition(clampedX, clampedY);
+
+      // If radial menu is open, reposition it to stay centered on the button
+      if (this.radialMenuState.isExpanded) {
+        const centerX = clampedX + (width / 2);
+        const centerY = clampedY + (height / 2);
+        if (this.radialMenuState.menuElement) {
+          this.radialMenuState.menuElement.style.left = `${centerX}px`;
+          this.radialMenuState.menuElement.style.top = `${centerY}px`;
+        }
+      }
+    },
+
+    setupResizeHandler() {
+      if (this._resizeHandler) return;
+      const debounced = (() => {
+        let timer = null;
+        return () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => {
+            this.clampFloatingButtonToViewport();
+            if (this.radialMenuState.isExpanded) {
+              // Re-render radial menu to recalc positions with current viewport
+              this.hideRadialMenu();
+              this.showRadialMenu();
+            }
+          }, 120);
+        };
+      })();
+
+      this._resizeHandler = debounced;
+      window.addEventListener('resize', this._resizeHandler);
+    },
+
     makeFloatingButtonDraggable(button) {
       if (!button) return;
 
@@ -1541,6 +1829,14 @@
         button.style.top = `${newY}px`;
         button.style.right = 'auto';
         button.style.bottom = 'auto';
+
+        // Keep radial menu centered on the moving button
+        if (this.radialMenuState.isExpanded && this.radialMenuState.menuElement) {
+          const centerX = newX + button.offsetWidth / 2;
+          const centerY = newY + button.offsetHeight / 2;
+          this.radialMenuState.menuElement.style.left = `${centerX}px`;
+          this.radialMenuState.menuElement.style.top = `${centerY}px`;
+        }
       };
 
       const onMouseUp = (e) => {
@@ -1554,7 +1850,7 @@
           isDragging = false;
           if (!moved) {
             // Treat as click
-            this.toggleRadialMenu();
+            this.toggleRadialMenu(e);
           }
         }
       };
@@ -1579,31 +1875,54 @@
       });
     },
 
+    setupFloatingButtonProximity() {
+      if (!this.floatingButtonElement) return;
+      if (this._proximityHandler) return;
+
+      const button = this.floatingButtonElement;
+      const handler = (evt) => {
+        if (!button || button.style.display === 'none') return;
+        const rect = button.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const dx = evt.clientX - centerX;
+        const dy = evt.clientY - centerY;
+        const distance = Math.hypot(dx, dy);
+        const radius = rect.width / 2;
+        const proximityThreshold = radius + 30;
+
+        if (distance <= proximityThreshold) {
+          const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+          button.style.setProperty('--exl-glow-angle', `${angleDeg}deg`);
+          button.classList.add('proximity');
+        } else {
+          button.classList.remove('proximity');
+        }
+      };
+
+      this._proximityHandler = handler;
+      window.addEventListener('mousemove', handler);
+    },
+
     // ========== RADIAL MENU ========== 
 
-    toggleRadialMenu() {
+    toggleRadialMenu(event) {
       if (this.radialMenuState.isExpanded) {
         this.hideRadialMenu();
       } else {
-        this.showRadialMenu();
+        this.showRadialMenu(event);
       }
     },
 
-    showRadialMenu() {
+    showRadialMenu(event) {
       if (this.radialMenuState.isExpanded || !this.floatingButtonElement) return;
 
-      // Ensure styles are present
       this.ensureRadialStyles();
-
-      // Remove any existing menu first
       this.hideRadialMenu();
 
       const buttonRect = this.floatingButtonElement.getBoundingClientRect();
       const centerX = buttonRect.left + buttonRect.width / 2;
       const centerY = buttonRect.top + buttonRect.height / 2;
-
-      const isOnRightSide = centerX > window.innerWidth / 2;
-      const isOnBottomHalf = centerY > window.innerHeight / 2;
 
       const menu = document.createElement('div');
       menu.className = 'exl-hl-radial-menu';
@@ -1616,79 +1935,251 @@
       overlay.addEventListener('click', () => this.hideRadialMenu());
       document.body.appendChild(overlay);
 
-      const menuItems = this.getRadialMenuItems();
+      const items = this.getRadialMenuItems();
+      const colors = (typeof Highlighter !== 'undefined' && Highlighter.getColors) ? Highlighter.getColors() : [];
+      const currentColor = (typeof Highlighter !== 'undefined' && Highlighter.getCurrentColor) ? Highlighter.getCurrentColor() : null;
 
-      let startAngle = isOnRightSide ? 90 : -90;
-      if (isOnBottomHalf) {
-        startAngle = isOnRightSide ? 135 : -135;
+      const mouseX = event ? event.clientX : centerX;
+      const mouseY = event ? event.clientY : centerY;
+      const deltaX = mouseX - centerX;
+      const deltaY = mouseY - centerY;
+      const entryAngle = Math.atan2(deltaY, deltaX);
+
+      const radius = this.radialMenuState.radius;
+      const colorRadius = Math.max(40, Math.min(this.radialMenuState.innerRadius || 55, radius - 20));
+      const angleRangeDeg = 180;
+      const angleRangeRad = angleRangeDeg * Math.PI / 180;
+
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const itemSize = 44;
+      const colorSize = 28;
+      const padding = 20;
+
+      const baseStartAngle = entryAngle - (angleRangeRad / 2);
+      let startAngleRad = baseStartAngle;
+
+      const edgeThreshold = 120;
+      const nearLeft = centerX < edgeThreshold;
+      const nearRight = centerX > viewportWidth - edgeThreshold;
+      const nearTop = centerY < edgeThreshold;
+      const nearBottom = centerY > viewportHeight - edgeThreshold;
+
+      const angleStep = items.length > 1 ? angleRangeRad / (items.length - 1) : 0;
+
+      let bestAngle = startAngleRad;
+      let minOverflow = Infinity;
+      let minItemsOutside = Infinity;
+      const testAngles = [];
+
+      if (nearLeft) {
+        testAngles.push(Math.PI / 2 - (angleRangeRad / 2));
+        testAngles.push(Math.PI / 4 - (angleRangeRad / 2));
+        testAngles.push(0 - (angleRangeRad / 2));
+      }
+      if (nearRight) {
+        testAngles.push(-Math.PI / 2 - (angleRangeRad / 2));
+        testAngles.push(-Math.PI / 4 - (angleRangeRad / 2));
+        testAngles.push(Math.PI - (angleRangeRad / 2));
+      }
+      if (nearTop) {
+        testAngles.push(0 - (angleRangeRad / 2));
+        testAngles.push(Math.PI / 4 - (angleRangeRad / 2));
+        testAngles.push(-Math.PI / 4 - (angleRangeRad / 2));
+      }
+      if (nearBottom) {
+        testAngles.push(Math.PI - (angleRangeRad / 2));
+        testAngles.push(3 * Math.PI / 4 - (angleRangeRad / 2));
+        testAngles.push(-3 * Math.PI / 4 - (angleRangeRad / 2));
       }
 
-      const arcAngle = 180;
-      const angleStep = arcAngle / (menuItems.length - 1 || 1);
-      const radius = this.radialMenuState.radius;
+      if ((nearLeft && nearTop) || (nearRight && nearBottom)) {
+        testAngles.push(Math.PI / 4 - (angleRangeRad / 2));
+        testAngles.push(Math.PI / 2 - (angleRangeRad / 2));
+      }
+      if ((nearLeft && nearBottom) || (nearRight && nearTop)) {
+        testAngles.push(-Math.PI / 4 - (angleRangeRad / 2));
+        testAngles.push(-Math.PI / 2 - (angleRangeRad / 2));
+      }
 
-      menuItems.forEach((item, index) => {
-        const angle = startAngle + (index * angleStep);
-        const radian = (angle * Math.PI) / 180;
-        const x = Math.cos(radian) * radius;
-        const y = Math.sin(radian) * radius;
+      testAngles.push(startAngleRad);
 
-        const menuItem = document.createElement('button');
-        menuItem.className = 'exl-hl-radial-item';
-        menuItem.innerHTML = item.icon;
-        menuItem.title = item.label;
-        menuItem.setAttribute('aria-label', item.label);
-        menuItem.setAttribute('tabindex', '0');
-        menuItem.style.setProperty('--final-x', `${x}px`);
-        menuItem.style.setProperty('--final-y', `${y}px`);
-        menuItem.style.animationDelay = `${index * this.radialMenuState.animationDelay}ms`;
+      const normalizeAngle = (angle) => {
+        const twoPi = Math.PI * 2;
+        let a = angle % twoPi;
+        if (a > Math.PI) a -= twoPi;
+        if (a < -Math.PI) a += twoPi;
+        return a;
+      };
 
-        menuItem.addEventListener('click', (e) => {
+      const uniqueAngles = [...new Set([baseStartAngle, ...testAngles])];
+
+      for (const testAngle of uniqueAngles) {
+        let overflow = 0;
+        let itemsOutside = 0;
+
+        for (let i = 0; i < items.length; i++) {
+          const angle = testAngle + (i * angleStep);
+          const testX = centerX + Math.cos(angle) * radius;
+          const testY = centerY + Math.sin(angle) * radius;
+
+          const leftEdge = testX - itemSize / 2;
+          const rightEdge = testX + itemSize / 2;
+          const topEdge = testY - itemSize / 2;
+          const bottomEdge = testY + itemSize / 2;
+
+          if (leftEdge < padding) {
+            overflow += (padding - leftEdge) * 2;
+            itemsOutside++;
+          }
+          if (rightEdge > viewportWidth - padding) {
+            overflow += (rightEdge - (viewportWidth - padding)) * 2;
+            itemsOutside++;
+          }
+          if (topEdge < padding) {
+            overflow += (padding - topEdge) * 2;
+            itemsOutside++;
+          }
+          if (bottomEdge > viewportHeight - padding) {
+            overflow += (bottomEdge - (viewportHeight - padding)) * 2;
+            itemsOutside++;
+          }
+        }
+
+        const colorAngleStep = colors.length > 1 ? angleRangeRad / (colors.length - 1) : 0;
+        for (let i = 0; i < colors.length; i++) {
+          const angle = testAngle + (i * colorAngleStep);
+          const testX = centerX + Math.cos(angle) * colorRadius;
+          const testY = centerY + Math.sin(angle) * colorRadius;
+
+          const leftEdge = testX - colorSize / 2;
+          const rightEdge = testX + colorSize / 2;
+          const topEdge = testY - colorSize / 2;
+          const bottomEdge = testY + colorSize / 2;
+
+          if (leftEdge < padding) {
+            overflow += (padding - leftEdge);
+            itemsOutside++;
+          }
+          if (rightEdge > viewportWidth - padding) {
+            overflow += (rightEdge - (viewportWidth - padding));
+            itemsOutside++;
+          }
+          if (topEdge < padding) {
+            overflow += (padding - topEdge);
+            itemsOutside++;
+          }
+          if (bottomEdge > viewportHeight - padding) {
+            overflow += (bottomEdge - (viewportHeight - padding));
+            itemsOutside++;
+          }
+        }
+
+        const deviationPenalty = Math.abs(normalizeAngle(testAngle - baseStartAngle)) * 50;
+        const score = (itemsOutside * 200) + overflow + deviationPenalty;
+
+        if (itemsOutside === 0 && overflow === 0 && deviationPenalty === 0) {
+          bestAngle = testAngle;
+          break;
+        }
+
+        if (itemsOutside < minItemsOutside || (itemsOutside === minItemsOutside && score < minOverflow)) {
+          minItemsOutside = itemsOutside;
+          minOverflow = score;
+          bestAngle = testAngle;
+        }
+      }
+
+      startAngleRad = bestAngle;
+      const angleStepDeg = items.length > 1 ? angleRangeRad / (items.length - 1) : 0;
+
+      items.forEach((item, index) => {
+        const angle = startAngleRad + (index * angleStepDeg);
+        let x = Math.cos(angle) * radius;
+        let y = Math.sin(angle) * radius;
+
+        const finalX = centerX + x;
+        const finalY = centerY + y;
+
+        if (finalX - itemSize / 2 < padding) {
+          x = padding + itemSize / 2 - centerX;
+        } else if (finalX + itemSize / 2 > viewportWidth - padding) {
+          x = viewportWidth - padding - itemSize / 2 - centerX;
+        }
+
+        if (finalY - itemSize / 2 < padding) {
+          y = padding + itemSize / 2 - centerY;
+        } else if (finalY + itemSize / 2 > viewportHeight - padding) {
+          y = viewportHeight - padding - itemSize / 2 - centerY;
+        }
+
+        const itemEl = document.createElement('button');
+        itemEl.className = 'exl-hl-radial-item';
+        itemEl.innerHTML = item.icon;
+        itemEl.title = item.label;
+        itemEl.setAttribute('aria-label', item.label);
+        itemEl.setAttribute('tabindex', '0');
+        itemEl.style.setProperty('--final-x', `${x}px`);
+        itemEl.style.setProperty('--final-y', `${y}px`);
+        itemEl.style.setProperty('--animation-delay', `${index * this.radialMenuState.animationDelay}ms`);
+
+        itemEl.addEventListener('click', (e) => {
           e.stopPropagation();
           if (item.action) {
             item.action();
           }
-          this.hideRadialMenu();
+          if (item.closeOnAction !== false) {
+            this.hideRadialMenu();
+          }
         });
 
-        menu.appendChild(menuItem);
-        this.radialMenuState.items.push(menuItem);
+        menu.appendChild(itemEl);
+        this.radialMenuState.items.push(itemEl);
       });
 
-      const colors = (typeof Highlighter !== 'undefined' && Highlighter.getColors) ? Highlighter.getColors() : [];
-      const currentColor = (typeof Highlighter !== 'undefined' && Highlighter.getCurrentColor) ? Highlighter.getCurrentColor() : null;
-      const colorArcAngle = 160;
-      const colorStartAngle = startAngle + 10;
-      const colorAngleStep = colorArcAngle / (colors.length - 1 || 1);
-      const colorRadius = this.radialMenuState.innerRadius;
+      const colorAngleStep = colors.length > 1 ? angleRangeRad / (colors.length - 1) : 0;
 
       colors.forEach((color, index) => {
-        const angle = colorStartAngle + (index * colorAngleStep);
-        const radian = (angle * Math.PI) / 180;
-        const x = Math.cos(radian) * colorRadius;
-        const y = Math.sin(radian) * colorRadius;
+        const angle = startAngleRad + (index * colorAngleStep);
+        let x = Math.cos(angle) * colorRadius;
+        let y = Math.sin(angle) * colorRadius;
 
-        const colorItem = document.createElement('button');
-        colorItem.className = 'exl-hl-radial-color-chip';
-        colorItem.style.backgroundColor = color.rgb;
-        colorItem.title = color.name;
-        colorItem.setAttribute('aria-label', `Color: ${color.name}`);
-        colorItem.dataset.colorId = color.id;
-        colorItem.style.setProperty('--final-x', `${x}px`);
-        colorItem.style.setProperty('--final-y', `${y}px`);
-        colorItem.style.animationDelay = `${(menuItems.length + index) * this.radialMenuState.animationDelay}ms`;
+        const finalX = centerX + x;
+        const finalY = centerY + y;
 
-        if (currentColor && currentColor.id === color.id) {
-          colorItem.classList.add('selected');
+        if (finalX - colorSize / 2 < padding) {
+          x = padding + colorSize / 2 - centerX;
+        } else if (finalX + colorSize / 2 > viewportWidth - padding) {
+          x = viewportWidth - padding - colorSize / 2 - centerX;
         }
 
-        colorItem.addEventListener('click', (e) => {
+        if (finalY - colorSize / 2 < padding) {
+          y = padding + colorSize / 2 - centerY;
+        } else if (finalY + colorSize / 2 > viewportHeight - padding) {
+          y = viewportHeight - padding - colorSize / 2 - centerY;
+        }
+
+        const chip = document.createElement('button');
+        chip.className = 'exl-hl-radial-color-chip';
+        chip.style.backgroundColor = color.rgb;
+        chip.title = color.name;
+        chip.setAttribute('aria-label', `Color: ${color.name}`);
+        chip.dataset.colorId = color.id;
+        chip.style.setProperty('--final-x', `${x}px`);
+        chip.style.setProperty('--final-y', `${y}px`);
+        chip.style.setProperty('--animation-delay', `${(items.length + index) * this.radialMenuState.animationDelay}ms`);
+
+        if (currentColor && currentColor.id === color.id) {
+          chip.classList.add('selected');
+        }
+
+        chip.addEventListener('click', (e) => {
           e.stopPropagation();
-          this.selectRadialColor(color.id, colorItem);
+          this.selectRadialColor(color.id, chip);
         });
 
-        menu.appendChild(colorItem);
-        this.radialMenuState.items.push(colorItem);
+        menu.appendChild(chip);
+        this.radialMenuState.items.push(chip);
       });
 
       document.body.appendChild(menu);
@@ -1702,10 +2193,11 @@
     },
 
     getRadialMenuItems() {
-      return [
+      const items = [
         {
           icon: '🖍️',
           label: 'Highlight Selection',
+          closeOnAction: false,
           action: () => {
             if (typeof Highlighter !== 'undefined' && Highlighter.createHighlight) {
               Highlighter.createHighlight();
@@ -1776,6 +2268,27 @@
           }
         }
       ];
+
+      try {
+        const pref = (typeof Highlighter !== 'undefined' && Highlighter.getSelectionToolbarPreference)
+          ? Highlighter.getSelectionToolbarPreference()
+          : 'palette';
+        if (pref !== 'palette') {
+          items.push({
+            icon: '🚦',
+            label: 'Restore Selection Palette',
+            action: async () => {
+              if (typeof Highlighter !== 'undefined' && Highlighter.setSelectionToolbarPreference) {
+                await Highlighter.setSelectionToolbarPreference('palette');
+              }
+            }
+          });
+        }
+      } catch (error) {
+        console.warn('[HighlighterController] Unable to read selection palette preference:', error);
+      }
+
+      return items;
     },
 
     selectRadialColor(colorId, element) {
@@ -2953,6 +3466,13 @@
       if (!this.isInitialized) return;
 
       try {
+        // Ensure radial UI is fully removed
+        this.hideRadialMenu();
+        const strayRadialOverlay = document.querySelector('.exl-hl-radial-overlay');
+        if (strayRadialOverlay) {
+          strayRadialOverlay.remove();
+        }
+
         // Clear URL check interval if it exists
         if (this.urlCheckInterval) {
           clearInterval(this.urlCheckInterval);
@@ -2989,10 +3509,26 @@
           this.bannerElement = null;
         }
 
+        // Remove radial style tag if injected
+        const radialStyle = document.getElementById('exl-hl-radial-styles');
+        if (radialStyle) {
+          radialStyle.remove();
+        }
+
+        if (this._proximityHandler) {
+          window.removeEventListener('mousemove', this._proximityHandler);
+          this._proximityHandler = null;
+        }
+
         // Remove floating button if present
         if (this.floatingButtonElement) {
           this.floatingButtonElement.remove();
           this.floatingButtonElement = null;
+        }
+
+        if (this._resizeHandler) {
+          window.removeEventListener('resize', this._resizeHandler);
+          this._resizeHandler = null;
         }
 
         // Remove layout adjustment

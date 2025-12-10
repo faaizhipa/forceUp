@@ -55,6 +55,13 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     pointer-events: auto; /* Restore pointer events for interactive elements */
 }
 
+    /* Allow banner container and message track to capture hover/wheel for edge pan */
+    #exl-persistent-banner .exl-banner-container,
+    #exl-persistent-banner .exl-banner-messages,
+    #exl-persistent-banner .exl-banner-message-content {
+        pointer-events: auto;
+    }
+
 .exl-banner-container {
     display: flex;
     align-items: center;
@@ -545,6 +552,8 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     gap: 0;
     padding: 0 8px;
     max-width: calc(100% - 120px); /* Reserve space for navigation */
+    overflow-x: auto;
+    overflow-y: hidden;
 }
 
 .message-line {
@@ -552,8 +561,8 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     color: #ffffff;
     line-height: 1.4;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
+    text-overflow: initial;
 }
 
 .message-line-single {

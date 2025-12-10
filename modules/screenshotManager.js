@@ -226,31 +226,18 @@ const ScreenshotManager = (function() {
       }
 
       // Wait a brief moment for overlay to hide
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 120));
 
-      // Check if html2canvas is available
-      if (typeof html2canvas === 'undefined') {
-        throw new Error('html2canvas library not loaded');
-      }
-
-      // Capture the entire page
-      const canvas = await html2canvas(document.body, {
-        useCORS: true,
-        allowTaint: false,
-        logging: false,
-        x: bounds.left + window.scrollX,
-        y: bounds.top + window.scrollY,
-        width: bounds.width,
-        height: bounds.height,
-        windowWidth: document.documentElement.scrollWidth,
-        windowHeight: document.documentElement.scrollHeight
-      });
+      // Capture via Chrome API with scroll-and-stitch
+      const initialScroll = { x: window.scrollX, y: window.scrollY };
+      const fullCanvas = await captureFullPageWithChromeAPI(initialScroll);
+      const croppedCanvas = cropCanvas(fullCanvas, bounds, initialScroll);
 
       // Cleanup overlay
       cancelCapture();
 
       // Process and compress image
-      const processedCanvas = processImage(canvas);
+      const processedCanvas = processImage(croppedCanvas);
       const dataUrl = processedCanvas.toDataURL('image/jpeg', JPEG_QUALITY);
 
       capturedImage = {
@@ -277,6 +264,96 @@ const ScreenshotManager = (function() {
 
       cancelCapture();
     }
+  }
+
+  /**
+   * Capture full page by scrolling and stitching viewport captures
+   * Uses chrome.tabs.captureVisibleTab via background messaging
+   * @param {Object} initialScroll - {x, y} scroll position before capture
+   * @returns {Promise<HTMLCanvasElement>} Stitched canvas of full page
+   */
+  async function captureFullPageWithChromeAPI(initialScroll) {
+    const totalHeight = document.documentElement.scrollHeight;
+    const totalWidth = document.documentElement.scrollWidth;
+    const viewportHeight = window.innerHeight;
+
+    const stitchedCanvas = document.createElement('canvas');
+    stitchedCanvas.width = totalWidth;
+    stitchedCanvas.height = totalHeight;
+    const ctx = stitchedCanvas.getContext('2d');
+
+    for (let y = 0; y < totalHeight; y += viewportHeight) {
+      window.scrollTo(0, y);
+      await waitForFrame();
+      const capture = await captureVisibleTab();
+      const img = await dataUrlToImage(capture);
+      const drawHeight = Math.min(img.height, totalHeight - y);
+      ctx.drawImage(img, 0, 0, img.width, drawHeight, 0, y, img.width, drawHeight);
+    }
+
+    // Restore original scroll
+    window.scrollTo(initialScroll.x, initialScroll.y);
+    await waitForFrame();
+    return stitchedCanvas;
+  }
+
+  /**
+   * Crop stitched canvas to user selection bounds
+   * @param {HTMLCanvasElement} fullCanvas - Stitched full page canvas
+   * @param {Object} bounds - Selection bounds relative to viewport
+   * @param {Object} initialScroll - Scroll position when selection occurred
+   * @returns {HTMLCanvasElement} Cropped canvas
+   */
+  function cropCanvas(fullCanvas, bounds, initialScroll) {
+    const crop = document.createElement('canvas');
+    crop.width = bounds.width;
+    crop.height = bounds.height;
+    const ctx = crop.getContext('2d');
+    ctx.drawImage(
+      fullCanvas,
+      bounds.left + initialScroll.x,
+      bounds.top + initialScroll.y,
+      bounds.width,
+      bounds.height,
+      0,
+      0,
+      bounds.width,
+      bounds.height
+    );
+    return crop;
+  }
+
+  /**
+   * Request a visible tab capture from background (PNG data URL)
+   * @returns {Promise<string>} data URL
+   */
+  function captureVisibleTab() {
+    return new Promise((resolve, reject) => {
+      try {
+        chrome.runtime.sendMessage({ type: 'CAPTURE_VISIBLE_TAB' }, (response) => {
+          if (!response || !response.success || !response.dataUrl) {
+            reject(response?.error || 'Capture failed');
+            return;
+          }
+          resolve(response.dataUrl);
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  function dataUrlToImage(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = dataUrl;
+    });
+  }
+
+  function waitForFrame() {
+    return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 80)));
   }
 
   /**
@@ -452,6 +529,10 @@ const ScreenshotManager = (function() {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     `;
     panelBtn.addEventListener('click', () => {
+      if (typeof CapturePanel !== 'undefined' && typeof CapturePanel.open === 'function') {
+        CapturePanel.open({ tab: 'screenshots' });
+        return;
+      }
       try {
         chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL', tab: 'captured' });
       } catch (err) {
@@ -650,16 +731,20 @@ const ScreenshotManager = (function() {
         // Copy to clipboard
         await copyToClipboard(finalDataUrl);
 
-        // Open side panel on Captured to show the new item
-        try {
-          chrome.runtime.sendMessage({
-            type: 'OPEN_SIDEPANEL',
-            tab: 'captured',
-            payload: { justSavedId: screenshotData.id, url: screenshotData.url }
-          });
-        } catch (err) {
-          if (typeof Logger !== 'undefined') {
-            Logger.warn('[ScreenshotManager] Failed to open side panel after save', err);
+        // Open capture panel for immediate feedback; fallback to sidepanel message
+        if (typeof CapturePanel !== 'undefined' && typeof CapturePanel.open === 'function') {
+          CapturePanel.open({ tab: 'screenshots', justSavedId: screenshotData.id, url: screenshotData.url });
+        } else {
+          try {
+            chrome.runtime.sendMessage({
+              type: 'OPEN_SIDEPANEL',
+              tab: 'captured',
+              payload: { justSavedId: screenshotData.id, url: screenshotData.url }
+            });
+          } catch (err) {
+            if (typeof Logger !== 'undefined') {
+              Logger.warn('[ScreenshotManager] Failed to open side panel after save', err);
+            }
           }
         }
 

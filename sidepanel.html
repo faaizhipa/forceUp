@@ -11,10 +11,9 @@
     <nav class="tabs">
       <button id="tab-current" class="active">Current Page</button>
       <button id="tab-all">All Notes</button>
+      <button id="tab-captured">Screenshots</button>
+      <button id="tab-recorded">Recordings</button>
       <button id="tab-settings">Settings</button>
-      <button id="tab-captured">Captured</button>
-      <button id="tab-recorded">Recorded</button>
-      <button id="tab-saved">Saved</button>
     </nav>
 
     <main id="content-current" class="tab-content active">
@@ -25,6 +24,16 @@
     <main id="content-all" class="tab-content hidden">
       <input type="text" id="search-notes" placeholder="Search notes...">
       <div id="all-notes-list"></div>
+    </main>
+
+    <main id="content-captured" class="tab-content hidden">
+      <h3>Captured Screens</h3>
+      <div id="captured-list"></div>
+    </main>
+
+    <main id="content-recorded" class="tab-content hidden">
+      <h3>Recordings</h3>
+      <div id="recorded-list"></div>
     </main>
 
     <main id="content-settings" class="tab-content hidden">
@@ -53,18 +62,15 @@
         <input type="file" id="file-import" accept=".json,.md,.txt,.xml">
         <button id="btn-import">Import</button>
       </section>
-    </main>
 
-    <main id="content-captured" class="tab-content hidden">
-      <div id="captured-list" class="screenshot-list"></div>
-    </main>
-
-    <main id="content-recorded" class="tab-content hidden">
-      <div id="recorded-list" class="screenshot-list"></div>
-    </main>
-
-    <main id="content-saved" class="tab-content hidden">
-      <div id="saved-list" class="screenshot-list"></div>
+      <section>
+        <h3>Storage & Quotas</h3>
+        <label class="checkbox-row">
+          <input type="checkbox" id="toggle-storage-quota">
+          <span>Enforce storage quotas for notes, screenshots, banners, and recordings</span>
+        </label>
+        <p class="info-text">Turn this off to allow saving even when quota checks would normally block new items.</p>
+      </section>
     </main>
 
     <!-- Editor Modal / View -->
@@ -100,6 +106,7 @@
   </div>
   <script src="utils/storage.js"></script>
   <script src="utils/ai.js"></script>
+  <script src="modules/localDb.js"></script>
   <script src="utils/google-drive.js"></script>
   <script src="utils/export-import.js"></script>
   <script src="sidepanel.js"></script>

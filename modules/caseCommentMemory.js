@@ -5,6 +5,35 @@
  * URL-driven workflow with proper state management
  */
 
+const COMMENT_STYLE_MAPS = {
+  bold: {
+    a: '𝗮', b: '𝗯', c: '𝗰', d: '𝗱', e: '𝗲', f: '𝗳', g: '𝗴', h: '𝗵', i: '𝗶', j: '𝗷', k: '𝗸', l: '𝗹', m: '𝗺', n: '𝗻', o: '𝗼', p: '𝗽', q: '𝗾', r: '𝗿', s: '𝘀', t: '𝘁', u: '𝘂', v: '𝘃', w: '𝘄', x: '𝘅', y: '𝘆', z: '𝘇',
+    A: '𝗔', B: '𝗕', C: '𝗖', D: '𝗗', E: '𝗘', F: '𝗙', G: '𝗚', H: '𝗛', I: '𝗜', J: '𝗝', K: '𝗞', L: '𝗟', M: '𝗠', N: '𝗡', O: '𝗢', P: '𝗣', Q: '𝗤', R: '𝗥', S: '𝗦', T: '𝗧', U: '𝗨', V: '𝗩', W: '𝗪', X: '𝗫', Y: '𝗬', Z: '𝗭',
+    0: '𝟬', 1: '𝟭', 2: '𝟮', 3: '𝟯', 4: '𝟰', 5: '𝟱', 6: '𝟲', 7: '𝟳', 8: '𝟴', 9: '𝟵'
+  },
+  italic: {
+    a: '𝘢', b: '𝘣', c: '𝘤', d: '𝘥', e: '𝘦', f: '𝘧', g: '𝘨', h: '𝘩', i: '𝘪', j: '𝘫', k: '𝘬', l: '𝘭', m: '𝘮', n: '𝘯', o: '𝘰', p: '𝘱', q: '𝘲', r: '𝘳', s: '𝘴', t: '𝘵', u: '𝘶', v: '𝘷', w: '𝘸', x: '𝘹', y: '𝘺', z: '𝘻',
+    A: '𝘈', B: '𝘉', C: '𝘊', D: '𝘋', E: '𝘌', F: '𝘍', G: '𝘎', H: '𝘏', I: '𝘐', J: '𝘑', K: '𝘒', L: '𝘓', M: '𝘔', N: '𝘕', O: '𝘖', P: '𝘗', Q: '𝘘', R: '𝘙', S: '𝘚', T: '𝘛', U: '𝘜', V: '𝘝', W: '𝘞', X: '𝘟', Y: '𝘠', Z: '𝘡'
+  },
+  mono: {
+    a: '𝚊', b: '𝚋', c: '𝚌', d: '𝚍', e: '𝚎', f: '𝚏', g: '𝚐', h: '𝚑', i: '𝚒', j: '𝚓', k: '𝚔', l: '𝚕', m: '𝚖', n: '𝚗', o: '𝚘', p: '𝚙', q: '𝚚', r: '𝚛', s: '𝚜', t: '𝚝', u: '𝚞', v: '𝚟', w: '𝚠', x: '𝚡', y: '𝚢', z: '𝚣',
+    A: '𝙰', B: '𝙱', C: '𝙲', D: '𝙳', E: '𝙴', F: '𝙵', G: '𝙶', H: '𝙷', I: '𝙸', J: '𝙹', K: '𝙺', L: '𝙻', M: '𝙼', N: '𝙽', O: '𝙾', P: '𝙿', Q: '𝚀', R: '𝚁', S: '𝚂', T: '𝚃', U: '𝚄', V: '𝚅', W: '𝚆', X: '𝚇', Y: '𝚈', Z: '𝚉',
+    0: '𝟶', 1: '𝟷', 2: '𝟸', 3: '𝟹', 4: '𝟺', 5: '𝟻', 6: '𝟼', 7: '𝟽', 8: '𝟾', 9: '𝟿'
+  }
+};
+
+function buildReverseCharMap() {
+  const reverse = {};
+  Object.values(COMMENT_STYLE_MAPS).forEach(map => {
+    Object.entries(map).forEach(([base, styled]) => {
+      reverse[styled] = base;
+    });
+  });
+  return reverse;
+}
+
+const COMMENT_REVERSE_MAP = buildReverseCharMap();
+
 const CaseCommentMemory = {
   storageKey: 'caseCommentMemory',
   maxHistoryPerCase: 10,
@@ -17,6 +46,10 @@ const CaseCommentMemory = {
   isInitialized: false,
   characterCounterObserver: null,
   currentStorageKey: null,
+  floatingToolbar: null,
+  formatterHandlers: [],
+  activeFormatterTarget: null,
+  symbolIndentPrefix: '▸ ',
 
   init() {
     // Prevent duplicate initialization
@@ -543,6 +576,260 @@ const CaseCommentMemory = {
     }
   },
 
+  ensureFloatingFormatter(textarea) {
+    if (!textarea || textarea.dataset.exlFormatterBound) return;
+    this.createFloatingToolbar();
+    const selectionHandler = () => this.handleSelectionChange(textarea);
+    const blurHandler = () => this.hideFloatingToolbar();
+    ['select', 'mouseup', 'keyup'].forEach(evt => textarea.addEventListener(evt, selectionHandler));
+    textarea.addEventListener('blur', blurHandler);
+    textarea.dataset.exlFormatterBound = 'true';
+    this.formatterHandlers.push({ textarea, selectionHandler, blurHandler });
+  },
+
+  createFloatingToolbar() {
+    if (this.floatingToolbar) return;
+    const toolbar = document.createElement('div');
+    toolbar.className = 'exl-comment-floating-toolbar';
+    toolbar.style.position = 'absolute';
+    toolbar.style.display = 'none';
+    toolbar.style.padding = '6px 8px';
+    toolbar.style.borderRadius = '6px';
+    toolbar.style.background = 'rgba(16, 24, 40, 0.95)';
+    toolbar.style.color = '#fff';
+    toolbar.style.boxShadow = '0 4px 10px rgba(0, 0, 0, 0.25)';
+    toolbar.style.gap = '6px';
+    toolbar.style.zIndex = '99999';
+    toolbar.style.alignItems = 'center';
+    toolbar.style.pointerEvents = 'auto';
+    toolbar.style.whiteSpace = 'nowrap';
+    toolbar.style.fontSize = '12px';
+    toolbar.style.fontFamily = 'Salesforce Sans, Arial, sans-serif';
+    toolbar.style.lineHeight = '1.4';
+    toolbar.style.border = '1px solid rgba(255, 255, 255, 0.15)';
+    toolbar.style.display = 'flex';
+
+    const buttons = [
+      { action: 'bold', label: 'Bold' },
+      { action: 'italic', label: 'Italic' },
+      { action: 'mono', label: 'Mono' },
+      { action: 'plain', label: 'Plain' },
+      { action: 'bullet', label: 'Bullet' },
+      { action: 'symbol-indent', label: 'Symbol Indent' },
+      { action: 'indent', label: 'Indent' },
+      { action: 'outdent', label: 'Outdent' }
+    ];
+
+    buttons.forEach(def => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = def.label;
+      btn.dataset.action = def.action;
+      btn.style.background = 'transparent';
+      btn.style.color = '#fff';
+      btn.style.border = '1px solid rgba(255, 255, 255, 0.35)';
+      btn.style.borderRadius = '4px';
+      btn.style.padding = '4px 8px';
+      btn.style.cursor = 'pointer';
+      btn.style.fontSize = '12px';
+      btn.style.lineHeight = '1.2';
+      btn.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.applyFormatterAction(def.action);
+      });
+      toolbar.appendChild(btn);
+    });
+
+    document.body.appendChild(toolbar);
+    this.floatingToolbar = toolbar;
+  },
+
+  handleSelectionChange(textarea) {
+    if (!textarea) return;
+    const hasSelection = textarea.selectionEnd > textarea.selectionStart;
+    if (!hasSelection) {
+      this.hideFloatingToolbar();
+      return;
+    }
+    this.activeFormatterTarget = textarea;
+    this.showFloatingToolbar(textarea);
+  },
+
+  showFloatingToolbar(textarea) {
+    if (!this.floatingToolbar || !textarea) return;
+    const toolbar = this.floatingToolbar;
+    const coords = this.getSelectionCoordinates(textarea);
+    const fallbackRect = textarea.getBoundingClientRect();
+    const baseTop = coords ? coords.top - toolbar.offsetHeight - 8 : fallbackRect.top - toolbar.offsetHeight - 8;
+    const baseLeft = coords ? coords.left : fallbackRect.left + 8;
+    const top = Math.max(8, window.scrollY + baseTop);
+    const clampedLeft = Math.min(window.innerWidth - toolbar.offsetWidth - 8, Math.max(8, baseLeft + window.scrollX));
+    toolbar.style.top = `${top}px`;
+    toolbar.style.left = `${clampedLeft}px`;
+    toolbar.style.display = 'flex';
+  },
+
+  hideFloatingToolbar() {
+    if (this.floatingToolbar) {
+      this.floatingToolbar.style.display = 'none';
+    }
+    this.activeFormatterTarget = null;
+  },
+
+  applyFormatterAction(action) {
+    const textarea = this.activeFormatterTarget;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const hasSelection = end > start;
+    if (!hasSelection && action !== 'indent' && action !== 'outdent' && action !== 'bullet') {
+      return;
+    }
+
+    const selection = hasSelection ? text.slice(start, end) : '';
+    let updated = selection;
+
+    if (action === 'bold' || action === 'italic' || action === 'mono') {
+      updated = this.convertTextStyle(selection, action);
+    } else if (action === 'plain') {
+      updated = this.normalizeStyledText(selection);
+    } else if (action === 'bullet') {
+      const target = selection || this.getCurrentLine(textarea);
+      updated = this.addLinePrefix(target, '• ');
+    } else if (action === 'symbol-indent') {
+      const target = selection || this.getCurrentLine(textarea);
+      const symbol = this.getSymbolIndent();
+      updated = this.addLinePrefix(target, `${symbol} `);
+    } else if (action === 'indent') {
+      const target = selection || this.getCurrentLine(textarea);
+      updated = this.addLinePrefix(target, '  ');
+    } else if (action === 'outdent') {
+      const target = selection || this.getCurrentLine(textarea);
+      updated = this.removeLinePrefix(target, '  ');
+    }
+
+    if (!hasSelection) {
+      const range = this.getCurrentLineRange(textarea);
+      this.replaceRange(textarea, range.start, range.end, updated);
+      return;
+    }
+
+    this.replaceRange(textarea, start, end, updated);
+  },
+
+  replaceRange(textarea, start, end, replacement) {
+    const text = textarea.value;
+    const newValue = `${text.slice(0, start)}${replacement}${text.slice(end)}`;
+    textarea.value = newValue;
+    const newEnd = start + replacement.length;
+    textarea.setSelectionRange(start, newEnd);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  },
+
+  getCurrentLine(textarea) {
+    const text = textarea.value;
+    const { start, end } = this.getCurrentLineRange(textarea);
+    return text.slice(start, end);
+  },
+
+  getCurrentLineRange(textarea) {
+    const text = textarea.value;
+    const cursor = textarea.selectionStart;
+    const start = text.lastIndexOf('\n', cursor - 1) + 1;
+    const endBreak = text.indexOf('\n', cursor);
+    const end = endBreak === -1 ? text.length : endBreak;
+    return { start, end };
+  },
+
+  addLinePrefix(text, prefix) {
+    return text
+      .split('\n')
+      .map(line => (line.startsWith(prefix) ? line : `${prefix}${line}`))
+      .join('\n');
+  },
+
+  getSymbolIndent() {
+    if (typeof TextFormatter !== 'undefined' && Array.isArray(TextFormatter.symbols) && TextFormatter.symbols.length > 0) {
+      return TextFormatter.symbols[0];
+    }
+    return this.symbolIndentPrefix.trim();
+  },
+
+  removeLinePrefix(text, prefix) {
+    const len = prefix.length;
+    return text
+      .split('\n')
+      .map(line => (line.startsWith(prefix) ? line.slice(len) : line.replace(/^\s{1,2}/, '')))
+      .join('\n');
+  },
+
+  getSelectionCoordinates(textarea) {
+    try {
+      const selectionStart = textarea.selectionStart;
+      if (selectionStart === null || selectionStart === undefined) return null;
+
+      const computed = window.getComputedStyle(textarea);
+      const mirror = document.createElement('div');
+      const properties = [
+        'boxSizing', 'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing', 'textTransform',
+        'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderRightWidth',
+        'borderBottomWidth', 'borderLeftWidth', 'lineHeight', 'textAlign', 'width'
+      ];
+
+      properties.forEach(prop => {
+        mirror.style[prop] = computed[prop];
+      });
+
+      mirror.style.position = 'absolute';
+      mirror.style.visibility = 'hidden';
+      mirror.style.whiteSpace = 'pre-wrap';
+      mirror.style.wordWrap = 'break-word';
+      mirror.style.top = '0';
+      mirror.style.left = '-9999px';
+
+      const textBefore = textarea.value.substring(0, selectionStart);
+      const textAfter = textarea.value.substring(selectionStart) || '\u200b';
+      mirror.textContent = textBefore;
+
+      const marker = document.createElement('span');
+      marker.textContent = textAfter;
+      mirror.appendChild(marker);
+
+      document.body.appendChild(mirror);
+
+      const markerRect = marker.getBoundingClientRect();
+      const mirrorRect = mirror.getBoundingClientRect();
+      const textareaRect = textarea.getBoundingClientRect();
+
+      const offsetTop = markerRect.top - mirrorRect.top;
+      const offsetLeft = markerRect.left - mirrorRect.left;
+
+      document.body.removeChild(mirror);
+
+      return {
+        top: textareaRect.top + offsetTop - textarea.scrollTop,
+        left: textareaRect.left + offsetLeft - textarea.scrollLeft
+      };
+    } catch (error) {
+      console.warn('[CaseCommentMemory] Failed to measure selection position:', error);
+      return null;
+    }
+  },
+
+  convertTextStyle(text, style) {
+    const base = this.normalizeStyledText(text);
+    const map = COMMENT_STYLE_MAPS[style];
+    if (!map) return base;
+    return Array.from(base).map(char => map[char] || char).join('');
+  },
+
+  normalizeStyledText(text) {
+    if (!text) return text;
+    return Array.from(text).map(char => COMMENT_REVERSE_MAP[char] || char).join('');
+  },
+
   createRestoreButtonElements(buttonContainer) {
     const isList = buttonContainer && (buttonContainer.tagName === 'UL' || buttonContainer.tagName === 'OL');
     const button = document.createElement('button');
@@ -591,6 +878,7 @@ const CaseCommentMemory = {
     }
     
     textarea.addEventListener('focus', () => this.activateEntry(caseNumber, textarea));
+    this.ensureFloatingFormatter(textarea);
     
     // Debounce text change handler to reduce storage writes
     const debouncedHandleTextChange = DebounceUtils.debounce(() => {
@@ -804,6 +1092,25 @@ const CaseCommentMemory = {
       this.characterCounterObserver = null;
     }
     this.currentStorageKey = null;
+    this.formatterHandlers.forEach(binding => {
+      const { textarea, selectionHandler, blurHandler } = binding;
+      if (textarea && selectionHandler) {
+        ['select', 'mouseup', 'keyup'].forEach(evt => textarea.removeEventListener(evt, selectionHandler));
+      }
+      if (textarea && blurHandler) {
+        textarea.removeEventListener('blur', blurHandler);
+      }
+      if (textarea && textarea.dataset.exlFormatterBound) {
+        delete textarea.dataset.exlFormatterBound;
+      }
+    });
+    this.formatterHandlers = [];
+    this.hideFloatingToolbar();
+    if (this.floatingToolbar && this.floatingToolbar.parentElement) {
+      this.floatingToolbar.parentElement.removeChild(this.floatingToolbar);
+    }
+    this.floatingToolbar = null;
+    this.activeFormatterTarget = null;
   }
 };
 

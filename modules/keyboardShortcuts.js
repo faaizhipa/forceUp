@@ -6,7 +6,7 @@
 const KeyboardShortcuts = (function() {
   'use strict';
 
-  let isEnabled = true;
+  let isEnabled = false;
   let activeTextarea = null;
   let shortcuts = {};
 
@@ -39,7 +39,8 @@ const KeyboardShortcuts = (function() {
      * @param {Object} settings - Settings object
      */
     init(settings = {}) {
-      isEnabled = settings?.exlibris?.shortcuts?.enabled !== false;
+      // Default disabled; must be explicitly enabled via settings
+      isEnabled = settings?.exlibris?.shortcuts?.enabled === true;
       shortcuts = { ...DEFAULT_SHORTCUTS };
 
       if (isEnabled) {
@@ -231,7 +232,7 @@ const KeyboardShortcuts = (function() {
       if (!selectedText) return;
 
       // Convert text using TextFormatter
-      const formatted = TextFormatter.convertToStyle(selectedText, style);
+      const formatted = TextFormatter.convertStyle(selectedText, style);
 
       // Replace selection
       activeTextarea.value = 

@@ -21,7 +21,9 @@ const SettingsManager = (function() {
         dynamicMenu: true,
         persistentBanner: true,
         highlighterEnabled: true,
-        bannerMessages: true
+        bannerMessages: true,
+        recordingQuotaEnforced: true,
+        storageQuotaEnforced: true
       },
 
       // UI preferences
@@ -43,7 +45,7 @@ const SettingsManager = (function() {
 
       // Keyboard shortcuts enabled/disabled
       shortcuts: {
-        enabled: true,
+        enabled: false,
         bold: true,
         italic: true,
         code: true,

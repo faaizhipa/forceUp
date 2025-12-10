@@ -39,7 +39,8 @@ const KeyboardShortcuts = (function() {
      * @param {Object} settings - Settings object
      */
     init(settings = {}) {
-      isEnabled = settings?.exlibris?.shortcuts?.enabled !== false;
+      // Default to disabled; require explicit enable in settings
+      isEnabled = settings?.exlibris?.shortcuts?.enabled === true;
       shortcuts = { ...DEFAULT_SHORTCUTS };
 
       if (isEnabled) {

@@ -5,6 +5,27 @@
 
 let currentSettings = null;
 
+const ROTATION_INTERVAL_SECONDS = {
+  min: 3,
+  max: 60,
+  default: 5
+};
+
+function clampRotationSeconds(value) {
+  if (!Number.isFinite(value)) {
+    return ROTATION_INTERVAL_SECONDS.default;
+  }
+
+  return Math.min(
+    ROTATION_INTERVAL_SECONDS.max,
+    Math.max(ROTATION_INTERVAL_SECONDS.min, value)
+  );
+}
+
+function isLocalDbAvailable() {
+  return typeof LocalDb !== 'undefined' && typeof LocalDb.exportEntities === 'function';
+}
+
 function safeSyncGet(keys) {
   return new Promise((resolve) => {
     try {
@@ -107,10 +128,36 @@ async function getActiveTabURL() {
  * Loads settings from storage
  */
 async function loadSettings() {
-  const items = await safeSyncGet(null);
-  const settings = mergeWithDefaults(items || {});
-  currentSettings = settings;
-  return settings;
+  let settings = null;
+
+  if (isLocalDbAvailable()) {
+    try {
+      const stored = await LocalDb.getSetting('popup_settings');
+      if (stored && stored.value) {
+        settings = stored.value;
+      }
+    } catch (error) {
+      console.warn('[Popup] LocalDb settings load failed, falling back to sync:', error);
+    }
+  }
+
+  if (!settings) {
+    const items = await safeSyncGet(null);
+    settings = items || {};
+  }
+
+  const merged = mergeWithDefaults(settings || {});
+  currentSettings = merged;
+
+  if (isLocalDbAvailable()) {
+    try {
+      await LocalDb.putSetting({ key: 'popup_settings', value: merged, updatedAt: Date.now() });
+    } catch (error) {
+      console.warn('[Popup] LocalDb settings persist failed during load:', error);
+    }
+  }
+
+  return merged;
 }
 
 /**
@@ -133,6 +180,14 @@ async function saveSettings(settings) {
   if (saved) {
     currentSettings = settings;
     console.log('Settings saved:', settings);
+  }
+
+  if (isLocalDbAvailable()) {
+    try {
+      await LocalDb.putSetting({ key: 'popup_settings', value: settings, updatedAt: Date.now() });
+    } catch (error) {
+      console.warn('[Popup] LocalDb settings save failed:', error);
+    }
   }
   return saved;
 }
@@ -184,7 +239,7 @@ function getDefaultSettings() {
             ]
           },
           customMessages: [],
-          rotationInterval: 5000,
+          rotationInterval: ROTATION_INTERVAL_SECONDS.default * 1000,
           autoRotate: true
         }
       }
@@ -332,7 +387,10 @@ function populateUI(settings) {
   if (settings.exlibris?.persistentBanner?.messages) {
     const messages = settings.exlibris.persistentBanner.messages;
     document.getElementById('bannerMessagesEnabled').checked = messages.enabled !== false;
-    document.getElementById('messageRotationInterval').value = messages.rotationInterval || 5000;
+    const rotationSeconds = clampRotationSeconds(
+      Math.round((messages.rotationInterval || ROTATION_INTERVAL_SECONDS.default * 1000) / 1000)
+    );
+    document.getElementById('messageRotationInterval').value = rotationSeconds;
     document.getElementById('messageAutoRotate').checked = messages.autoRotate !== false;
     document.getElementById('defaultMessagesEnabled').checked = messages.defaultMessages?.enabled !== false;
     
@@ -487,7 +545,9 @@ function getMessageSettingsFromUI() {
       items: defaultItems
     },
     customMessages: customMessages,
-    rotationInterval: parseInt(document.getElementById('messageRotationInterval').value, 10) * 1000, // Convert to milliseconds
+    rotationInterval: clampRotationSeconds(
+      parseInt(document.getElementById('messageRotationInterval').value, 10)
+    ) * 1000,
     autoRotate: document.getElementById('messageAutoRotate').checked
   };
 }
@@ -1414,6 +1474,158 @@ async function removeFromBannerWhitelist(type, value) {
  * @param {string} url - Full URL
  */
 async function clearBannerDismissals(domain, url) {
+
+      // LocalDb export
+      const localDbExportButton = document.getElementById('localDbExportButton');
+      if (localDbExportButton) {
+        localDbExportButton.addEventListener('click', async () => {
+          if (!isLocalDbAvailable()) {
+            alert('LocalDb is not available in this context.');
+            return;
+          }
+
+          try {
+            const payload = await LocalDb.exportEntities();
+            const json = JSON.stringify(payload, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'exlibris-localdb-backup.json';
+            a.click();
+            URL.revokeObjectURL(url);
+            showSuccess('LocalDb data exported (highlights, notes, bookmarks, collections, settings).');
+          } catch (error) {
+            console.error('LocalDb export failed:', error);
+            alert('Unable to export LocalDb data. See console for details.');
+          }
+        });
+      }
+
+      // LocalDb import
+      const localDbImportButton = document.getElementById('localDbImportButton');
+      if (localDbImportButton) {
+        localDbImportButton.addEventListener('click', () => {
+          if (!isLocalDbAvailable()) {
+            alert('LocalDb is not available in this context.');
+            return;
+          }
+
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = 'application/json';
+          input.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+              try {
+                const payload = JSON.parse(event.target.result);
+                const merge = true; // Merge to avoid accidental destructive overwrite
+                const imported = await LocalDb.importEntities(payload, { merge });
+                if (imported) {
+                  showSuccess('LocalDb import complete. Refresh Salesforce pages to see updates.');
+                } else {
+                  alert('Import file is not a valid LocalDb export.');
+                }
+              } catch (error) {
+                console.error('LocalDb import failed:', error);
+                alert('Unable to import LocalDb data. Ensure the file is a valid JSON export.');
+              }
+            };
+            reader.readAsText(file);
+          };
+          input.click();
+        });
+      }
+
+      // LocalDb Google Drive backup
+      const localDbDriveStatus = document.getElementById('localDbDriveStatus');
+      const setDriveStatus = (msg, isError = false) => {
+        if (!localDbDriveStatus) return;
+        localDbDriveStatus.textContent = msg || '';
+        localDbDriveStatus.style.color = isError ? '#d93025' : 'inherit';
+      };
+
+      const localDbDriveBackupButton = document.getElementById('localDbDriveBackupButton');
+      if (localDbDriveBackupButton) {
+        localDbDriveBackupButton.addEventListener('click', async () => {
+          if (!isLocalDbAvailable()) {
+            alert('LocalDb is not available in this context.');
+            return;
+          }
+
+          try {
+            setDriveStatus('Backing up LocalDb to Google Drive...');
+            await GoogleDrive.getAuthToken(true);
+            const payload = await LocalDb.exportEntities();
+            await GoogleDrive.performLocalDbBackup(payload);
+            setDriveStatus('LocalDb backup saved to Google Drive.');
+          } catch (error) {
+            console.error('LocalDb Drive backup failed:', error);
+            setDriveStatus(`Backup failed: ${error.message}`, true);
+          }
+        });
+      }
+
+      // LocalDb Google Drive reveal (open backup file in Drive UI if possible)
+      const localDbDriveRevealButton = document.getElementById('localDbDriveRevealButton');
+      if (localDbDriveRevealButton) {
+        localDbDriveRevealButton.addEventListener('click', async () => {
+          if (!isLocalDbAvailable()) {
+            alert('LocalDb is not available in this context.');
+            return;
+          }
+
+          try {
+            setDriveStatus('Locating Google Drive backup...');
+            const token = await GoogleDrive.getAuthToken(true);
+            if (!token) {
+              setDriveStatus('Google Drive authentication failed.', true);
+              return;
+            }
+
+            const fileId = await GoogleDrive.findFileInAppData(token, 'exl_localdb_backup.json');
+            if (!fileId) {
+              setDriveStatus('No Google Drive backup found. Run a backup first.');
+              return;
+            }
+
+            const link = await GoogleDrive.getWebViewLink(fileId);
+            if (link) {
+              setDriveStatus('Opening Google Drive backup...');
+              chrome.tabs.create({ url: link });
+            } else {
+              setDriveStatus('Backup exists in Drive app data; Google Drive does not expose a view link, but the backup is present.');
+            }
+          } catch (error) {
+            console.error('LocalDb Drive reveal failed:', error);
+            setDriveStatus(`Reveal failed: ${error.message}`, true);
+          }
+        });
+      }
+
+      // LocalDb Google Drive restore (merge)
+      const localDbDriveRestoreButton = document.getElementById('localDbDriveRestoreButton');
+      if (localDbDriveRestoreButton) {
+        localDbDriveRestoreButton.addEventListener('click', async () => {
+          if (!isLocalDbAvailable()) {
+            alert('LocalDb is not available in this context.');
+            return;
+          }
+
+          try {
+            setDriveStatus('Restoring LocalDb from Google Drive (merge)...');
+            await GoogleDrive.getAuthToken(true);
+            await GoogleDrive.restoreLocalDbBackup({ merge: true });
+            setDriveStatus('LocalDb restore complete (merged). Refresh Salesforce pages to see updates.');
+          } catch (error) {
+            console.error('LocalDb Drive restore failed:', error);
+            setDriveStatus(`Restore failed: ${error.message}`, true);
+          }
+        });
+      }
   const dismissalResult = await safeLocalGet(['exl_hl_banner_page_dismissals', 'exl_hl_banner_dismissals']);
   const pageDismissals = dismissalResult.exl_hl_banner_page_dismissals || {};
   const dismissals = dismissalResult.exl_hl_banner_dismissals || {};
@@ -1682,4 +1894,119 @@ document.addEventListener("DOMContentLoaded", async () => {
     };
     input.click();
   });
+
+  // LocalDb export
+  const localDbExportButton = document.getElementById('localDbExportButton');
+  if (localDbExportButton) {
+    localDbExportButton.addEventListener('click', async () => {
+      if (!isLocalDbAvailable()) {
+        alert('LocalDb is not available in this context.');
+        return;
+      }
+
+      try {
+        const payload = await LocalDb.exportEntities();
+        const json = JSON.stringify(payload, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'exlibris-localdb-backup.json';
+        a.click();
+        URL.revokeObjectURL(url);
+        showSuccess('LocalDb data exported (highlights, notes, bookmarks, collections, settings).');
+      } catch (error) {
+        console.error('LocalDb export failed:', error);
+        alert('Unable to export LocalDb data. See console for details.');
+      }
+    });
+  }
+
+  // LocalDb import
+  const localDbImportButton = document.getElementById('localDbImportButton');
+  if (localDbImportButton) {
+    localDbImportButton.addEventListener('click', () => {
+      if (!isLocalDbAvailable()) {
+        alert('LocalDb is not available in this context.');
+        return;
+      }
+
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json';
+      input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          try {
+            const payload = JSON.parse(event.target.result);
+            const merge = true; // Merge to avoid accidental destructive overwrite
+            const imported = await LocalDb.importEntities(payload, { merge });
+            if (imported) {
+              showSuccess('LocalDb import complete. Refresh Salesforce pages to see updates.');
+            } else {
+              alert('Import file is not a valid LocalDb export.');
+            }
+          } catch (error) {
+            console.error('LocalDb import failed:', error);
+            alert('Unable to import LocalDb data. Ensure the file is a valid JSON export.');
+          }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
+    });
+  }
+
+  // LocalDb Google Drive backup
+  const localDbDriveStatus = document.getElementById('localDbDriveStatus');
+  const setDriveStatus = (msg, isError = false) => {
+    if (!localDbDriveStatus) return;
+    localDbDriveStatus.textContent = msg || '';
+    localDbDriveStatus.style.color = isError ? '#d93025' : 'inherit';
+  };
+
+  const localDbDriveBackupButton = document.getElementById('localDbDriveBackupButton');
+  if (localDbDriveBackupButton) {
+    localDbDriveBackupButton.addEventListener('click', async () => {
+      if (!isLocalDbAvailable()) {
+        alert('LocalDb is not available in this context.');
+        return;
+      }
+
+      try {
+        setDriveStatus('Backing up LocalDb to Google Drive...');
+        await GoogleDrive.getAuthToken(true);
+        const payload = await LocalDb.exportEntities();
+        await GoogleDrive.performLocalDbBackup(payload);
+        setDriveStatus('LocalDb backup saved to Google Drive.');
+      } catch (error) {
+        console.error('LocalDb Drive backup failed:', error);
+        setDriveStatus(`Backup failed: ${error.message}`, true);
+      }
+    });
+  }
+
+  // LocalDb Google Drive restore (merge)
+  const localDbDriveRestoreButton = document.getElementById('localDbDriveRestoreButton');
+  if (localDbDriveRestoreButton) {
+    localDbDriveRestoreButton.addEventListener('click', async () => {
+      if (!isLocalDbAvailable()) {
+        alert('LocalDb is not available in this context.');
+        return;
+      }
+
+      try {
+        setDriveStatus('Restoring LocalDb from Google Drive (merge)...');
+        await GoogleDrive.getAuthToken(true);
+        await GoogleDrive.restoreLocalDbBackup({ merge: true });
+        setDriveStatus('LocalDb restore complete (merged). Refresh Salesforce pages to see updates.');
+      } catch (error) {
+        console.error('LocalDb Drive restore failed:', error);
+        setDriveStatus(`Restore failed: ${error.message}`, true);
+      }
+    });
+  }
 });

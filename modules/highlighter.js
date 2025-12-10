@@ -11,6 +11,12 @@ const Highlighter = (function() {
   const HIGHLIGHT_CLASS_PREFIX = 'exl-hl-highlight';
   const STORAGE_VERSION = 1;
   const VERSION_KEY = 'exl_highlighter_storage_version';
+  const SELECTION_PREF_KEY = 'exl_selection_toolbar_pref';
+  const SelectionPalettePreference = {
+    PALETTE: 'palette',
+    DISABLED: 'disabled',
+    FLOATING: 'floating'
+  };
   
   // 11 custom highlight colors
   const COLORS = [
@@ -31,9 +37,25 @@ const Highlighter = (function() {
   let highlights = {};
   let isInitialized = false;
   let selectionToolbar = null;
+  let selectionToolbarPref = SelectionPalettePreference.PALETTE;
+  let selectionDecisionPending = false;
+  let selectionDecisionChoice = null;
+  let selectionPaletteLocked = false;
   let savedRange = null; // Store the selected range for toolbar highlighting
   let contentObserver = null; // Watch for dynamic content loading
   let pendingHighlights = new Set(); // Track highlights that failed to render
+
+  function isLocalDbAvailable() {
+    return typeof LocalDb !== 'undefined' && typeof LocalDb.getAllHighlights === 'function';
+  }
+
+  function getPersistenceContext() {
+    const layerId = typeof LayerManager !== 'undefined' ? LayerManager.getActiveLayerId() : 'default';
+    return {
+      layerId,
+      pageUrl: window.location.href
+    };
+  }
 
   /**
    * Initialize highlighter
@@ -52,11 +74,63 @@ const Highlighter = (function() {
     await loadHighlights();
     await renderHighlights(); // Wait for initial render
     setupContextMenu();
+    await loadSelectionToolbarPreference();
     setupSelectionToolbar();
     setupContentObserver(); // Watch for dynamic content
     
     isInitialized = true;
     console.log('[Highlighter] Initialized with', Object.keys(highlights).length, 'highlights');
+  }
+
+  async function loadSelectionToolbarPreference() {
+    return new Promise((resolve) => {
+      try {
+        chrome.storage.sync.get([SELECTION_PREF_KEY], (result) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[Highlighter] Failed to load selection toolbar preference:', chrome.runtime.lastError);
+            selectionToolbarPref = SelectionPalettePreference.PALETTE;
+            resolve(selectionToolbarPref);
+            return;
+          }
+          const stored = result[SELECTION_PREF_KEY];
+          if (stored && Object.values(SelectionPalettePreference).includes(stored)) {
+            selectionToolbarPref = stored;
+          } else {
+            selectionToolbarPref = SelectionPalettePreference.PALETTE;
+          }
+          resolve(selectionToolbarPref);
+        });
+      } catch (error) {
+        console.warn('[Highlighter] Error loading selection toolbar preference:', error);
+        selectionToolbarPref = SelectionPalettePreference.PALETTE;
+        resolve(selectionToolbarPref);
+      }
+    });
+  }
+
+  async function saveSelectionToolbarPreference(pref) {
+    selectionToolbarPref = pref;
+    return new Promise((resolve) => {
+      try {
+        chrome.storage.sync.set({ [SELECTION_PREF_KEY]: pref }, () => {
+          if (chrome.runtime.lastError) {
+            console.warn('[Highlighter] Failed to save selection toolbar preference:', chrome.runtime.lastError);
+          }
+          resolve();
+        });
+      } catch (error) {
+        console.warn('[Highlighter] Error saving selection toolbar preference:', error);
+        resolve();
+      }
+    });
+  }
+
+  async function setSelectionToolbarPreference(pref) {
+    return saveSelectionToolbarPreference(pref);
+  }
+
+  function getSelectionToolbarPreference() {
+    return selectionToolbarPref;
   }
 
   /**
@@ -158,12 +232,31 @@ const Highlighter = (function() {
    * Load highlights from storage (with backward compatibility for old format)
    */
   async function loadHighlights() {
+    const { layerId, pageUrl } = getPersistenceContext();
+
+    if (isLocalDbAvailable()) {
+      try {
+        const all = await LocalDb.getAllHighlights();
+        const scoped = all.filter((item) => item.pageUrl === pageUrl && item.layerId === layerId);
+        if (scoped.length > 0) {
+          highlights = scoped.reduce((acc, item) => {
+            acc[item.id] = item;
+            return acc;
+          }, {});
+          console.log('[Highlighter] Loaded', scoped.length, 'highlights from LocalDb');
+          return;
+        }
+      } catch (error) {
+        console.warn('[Highlighter] LocalDb load failed, falling back to chrome.storage:', error);
+      }
+    }
+
     return new Promise((resolve) => {
       const key = getStorageKey();
       const oldKey = getOldStorageKey();
       
       // Try new format first, then fall back to old format
-      chrome.storage.local.get([key, oldKey], (result) => {
+      chrome.storage.local.get([key, oldKey], async (result) => {
         if (chrome.runtime.lastError) {
           console.error('[Highlighter] Error loading highlights:', chrome.runtime.lastError);
           highlights = {};
@@ -177,6 +270,15 @@ const Highlighter = (function() {
         if (result[oldKey] && !result[key]) {
           console.log('[Highlighter] Loaded highlights from old format, migration will handle upgrade');
         }
+
+        if (isLocalDbAvailable() && Object.keys(highlights).length > 0) {
+          try {
+            await persistHighlightsToLocalDb();
+            console.log('[Highlighter] Migrated highlights to LocalDb');
+          } catch (error) {
+            console.warn('[Highlighter] Failed to migrate highlights to LocalDb:', error);
+          }
+        }
         
         console.log('[Highlighter] Loaded', Object.keys(highlights).length, 'highlights');
         resolve();
@@ -188,6 +290,16 @@ const Highlighter = (function() {
    * Save highlights to storage
    */
   async function saveHighlights() {
+    if (isLocalDbAvailable()) {
+      try {
+        await persistHighlightsToLocalDb();
+        console.log('[Highlighter] Saved', Object.keys(highlights).length, 'highlights to LocalDb');
+        return;
+      } catch (error) {
+        console.warn('[Highlighter] LocalDb save failed, falling back to chrome.storage:', error);
+      }
+    }
+
     return new Promise((resolve) => {
       const key = getStorageKey();
       chrome.storage.local.set({ [key]: highlights }, () => {
@@ -199,6 +311,29 @@ const Highlighter = (function() {
         resolve();
       });
     });
+  }
+
+  async function persistHighlightsToLocalDb() {
+    const { layerId, pageUrl } = getPersistenceContext();
+    const incomingIds = Object.keys(highlights);
+    const existing = await LocalDb.getAllHighlights();
+    const scopedExisting = existing.filter((item) => item.pageUrl === pageUrl && item.layerId === layerId);
+    const staleIds = scopedExisting.map((item) => item.id).filter((id) => !incomingIds.includes(id));
+
+    // Remove stale records for this page/layer
+    await Promise.all(staleIds.map((id) => LocalDb.deleteHighlight(id)));
+
+    // Upsert current highlights
+    await Promise.all(incomingIds.map((id) => {
+      const record = highlights[id] || {};
+      return LocalDb.putHighlight({
+        ...record,
+        id,
+        pageUrl,
+        layerId,
+        updatedAt: record.timestamp || record.updatedAt || Date.now()
+      });
+    }));
   }
 
   /**
@@ -231,6 +366,7 @@ const Highlighter = (function() {
     }
 
     const highlightId = 'hl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    const { layerId, pageUrl } = getPersistenceContext();
     
     // Get XPath BEFORE wrapping (of the container element)
     const containerElement = range.commonAncestorContainer.nodeType === Node.TEXT_NODE 
@@ -258,6 +394,8 @@ const Highlighter = (function() {
       text: selectedText,
       colorId: currentColor.id,
       timestamp: Date.now(),
+      layerId,
+      pageUrl,
       xpath: xpath,
       containerTag: containerElement.tagName.toLowerCase(),
       startOffset: range.startOffset,
@@ -557,12 +695,15 @@ const Highlighter = (function() {
     // Hide toolbar when clicking outside (but not on banner color palette)
     document.addEventListener('mousedown', (e) => {
       if (selectionToolbar && !selectionToolbar.contains(e.target)) {
+        if (selectionDecisionPending) {
+          return;
+        }
         // Don't hide if clicking on banner color palette
         const clickedElement = e.target;
         if (clickedElement.closest('.exl-hl-color-chip') || clickedElement.closest('.exl-hl-palette')) {
           return; // Let the banner color click handler work
         }
-        
+
         const selection = window.getSelection();
         if (!selection || selection.toString().trim() === '') {
           hideSelectionToolbar();
@@ -592,7 +733,9 @@ const Highlighter = (function() {
 
         showSelectionToolbar(range);
       } else {
-        hideSelectionToolbar();
+        if (!selectionDecisionPending) {
+          hideSelectionToolbar();
+        }
       }
     }, 10);
   }
@@ -601,6 +744,9 @@ const Highlighter = (function() {
    * Show selection toolbar near the selected text
    */
   function showSelectionToolbar(range) {
+    if (selectionToolbarPref !== SelectionPalettePreference.PALETTE) {
+      return;
+    }
     // Remove existing toolbar
     hideSelectionToolbar();
 
@@ -609,6 +755,9 @@ const Highlighter = (function() {
 
     // Get selection position
     const rect = range.getBoundingClientRect();
+    selectionDecisionPending = false;
+    selectionDecisionChoice = null;
+    selectionPaletteLocked = false;
     
     // Create toolbar
     selectionToolbar = document.createElement('div');
@@ -626,24 +775,127 @@ const Highlighter = (function() {
       chip.dataset.colorId = color.id;
       
       chip.addEventListener('click', async () => {
+        if (selectionPaletteLocked) {
+          return;
+        }
         setColor(color.id);
         await createHighlight(savedRange);
+        if (selectionDecisionPending) {
+          selectionPaletteLocked = true;
+          palette.style.pointerEvents = 'none';
+          palette.style.opacity = '0.6';
+          return;
+        }
         hideSelectionToolbar();
       });
       
       palette.appendChild(chip);
     });
-    
-    // Create close button
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'exl-hl-selection-close';
-    closeBtn.innerHTML = '✕';
-    closeBtn.title = 'Close';
-    closeBtn.addEventListener('click', hideSelectionToolbar);
-    
+
+    const optionsContainer = document.createElement('div');
+    optionsContainer.className = 'exl-hl-selection-options';
+
+    const radioName = `exl-hl-selection-pref-${Date.now()}`;
+    let confirmBtn;
+    let cancelBtn;
+
+    const createOption = (labelText, value) => {
+      const wrapper = document.createElement('label');
+      wrapper.className = 'exl-hl-selection-option';
+
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = radioName;
+      input.value = value;
+
+      const text = document.createElement('span');
+      text.textContent = labelText;
+
+      input.addEventListener('change', () => {
+        selectionDecisionPending = true;
+        selectionDecisionChoice = value;
+        if (confirmBtn) confirmBtn.disabled = false;
+        if (cancelBtn) cancelBtn.disabled = false;
+        if (selectionToolbar) {
+          selectionToolbar.classList.add('exl-hl-selection-toolbar--pending');
+        }
+      });
+
+      wrapper.appendChild(input);
+      wrapper.appendChild(text);
+      return wrapper;
+    };
+
+    optionsContainer.appendChild(
+      createOption("Don't show colour bar again", SelectionPalettePreference.DISABLED)
+    );
+    optionsContainer.appendChild(
+      createOption('Show colours via the floating ✨ button', SelectionPalettePreference.FLOATING)
+    );
+
+    const actionsContainer = document.createElement('div');
+    actionsContainer.className = 'exl-hl-selection-actions';
+
+    confirmBtn = document.createElement('button');
+    confirmBtn.className = 'exl-hl-selection-confirm';
+    confirmBtn.innerHTML = '✔';
+    confirmBtn.title = 'Confirm option';
+    confirmBtn.disabled = true;
+    confirmBtn.addEventListener('click', async () => {
+      if (!selectionDecisionChoice) return;
+      if (selectionDecisionChoice === SelectionPalettePreference.DISABLED || selectionDecisionChoice === SelectionPalettePreference.FLOATING) {
+        await saveSelectionToolbarPreference(selectionDecisionChoice);
+      }
+      hideSelectionToolbar();
+    });
+
+    cancelBtn = document.createElement('button');
+    cancelBtn.className = 'exl-hl-selection-cancel';
+    cancelBtn.innerHTML = '✕';
+    cancelBtn.title = 'Cancel';
+    cancelBtn.disabled = true;
+    cancelBtn.addEventListener('click', () => {
+      selectionDecisionPending = false;
+      selectionDecisionChoice = null;
+      selectionPaletteLocked = false;
+      hideSelectionToolbar();
+    });
+
+    actionsContainer.appendChild(confirmBtn);
+    actionsContainer.appendChild(cancelBtn);
+
+    const topRow = document.createElement('div');
+    topRow.className = 'exl-hl-selection-top';
+    topRow.appendChild(optionsContainer);
+    topRow.appendChild(actionsContainer);
+
+    selectionToolbar.appendChild(topRow);
     selectionToolbar.appendChild(palette);
-    selectionToolbar.appendChild(closeBtn);
     document.body.appendChild(selectionToolbar);
+
+    // Auto-fade the mini options panel after 5 seconds of inactivity
+    let fadeTimer = null;
+    let topRowInteracted = false; // Once hovered/focused, keep visible
+
+    const startFadeTimer = () => {
+      if (topRowInteracted) return;
+      clearTimeout(fadeTimer);
+      fadeTimer = setTimeout(() => {
+        if (!topRowInteracted) {
+          topRow.classList.add('exl-hl-selection-top--hidden');
+        }
+      }, 5000);
+    };
+
+    const cancelFade = () => {
+      topRowInteracted = true;
+      clearTimeout(fadeTimer);
+      topRow.classList.remove('exl-hl-selection-top--hidden');
+    };
+
+    startFadeTimer();
+    topRow.addEventListener('mouseenter', cancelFade);
+    topRow.addEventListener('focusin', cancelFade);
     
     // Position toolbar above selection
     const toolbarRect = selectionToolbar.getBoundingClientRect();
@@ -669,6 +921,9 @@ const Highlighter = (function() {
    * Hide selection toolbar
    */
   function hideSelectionToolbar() {
+    selectionDecisionPending = false;
+    selectionDecisionChoice = null;
+    selectionPaletteLocked = false;
     if (selectionToolbar) {
       selectionToolbar.remove();
       selectionToolbar = null;
@@ -917,6 +1172,8 @@ const Highlighter = (function() {
     setColor,
     getCurrentColor,
     getColors,
+    getSelectionToolbarPreference,
+    setSelectionToolbarPreference,
     getAllHighlights,
     importHighlights,
     switchLayer,

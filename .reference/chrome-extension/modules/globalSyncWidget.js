@@ -22,7 +22,105 @@ const GlobalSyncWidget = (() => {
   const UPDATE_INTERVAL_MS = 1000;
   const DRAG_STEP_MINUTES = 10;
 
-  const STYLES = `
+  // ============================================================================
+  // State
+  // ============================================================================
+
+  let _state = {
+    isInitialized: false,
+    container: null,
+    config: null,
+    currentTime: new Date(),
+    simulationTime: null,
+    activeTab: 'converter',
+    meetingStart: null,
+    meetingEnd: null,
+    intervalId: null
+  };
+
+  // ============================================================================
+  // Private Helper Functions
+  // ============================================================================
+
+  /**
+   * Validates the widget configuration
+   * @param {Object} config - Configuration object
+   * @returns {boolean} Whether config is valid
+   */
+  function _validateConfig(config) {
+    if (!config) {
+      console.error('[GlobalSyncWidget] Config is required');
+      return false;
+    }
+
+    if (!config.localTimezone || typeof config.localTimezone !== 'string') {
+      console.error('[GlobalSyncWidget] localTimezone is required and must be a string');
+      return false;
+    }
+
+    if (!config.customerTimezone || typeof config.customerTimezone !== 'string') {
+      console.error('[GlobalSyncWidget] customerTimezone is required and must be a string');
+      return false;
+    }
+
+    if (config.favoriteTimezones && !Array.isArray(config.favoriteTimezones)) {
+      console.error('[GlobalSyncWidget] favoriteTimezones must be an array');
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Gets all zones to display
+   * @returns {Array} Zone objects
+   */
+  function _getZones() {
+    if (!_state.config) return [];
+
+    const zones = [
+      { 
+        id: 'local',
+        timezone: _state.config.localTimezone, 
+        label: 'My Location',
+        isLocal: true 
+      },
+      { 
+        id: 'customer',
+        timezone: _state.config.customerTimezone, 
+        label: 'Customer',
+        isCustomer: true 
+      }
+    ];
+
+    // Add favorites (deduplicated)
+    const seen = new Set([_state.config.localTimezone, _state.config.customerTimezone]);
+    
+    if (_state.config.favoriteTimezones) {
+      _state.config.favoriteTimezones.forEach((tz, index) => {
+        if (!seen.has(tz)) {
+          seen.add(tz);
+          zones.push({
+            id: `fav-${index}`,
+            timezone: tz,
+            label: tz.split('/').pop()?.replace(/_/g, ' ') || tz
+          });
+        }
+      });
+    }
+
+    return zones;
+  }
+
+  /**
+   * Injects widget styles
+   */
+  function _injectStyles() {
+    if (document.getElementById('gsw-styles')) return;
+
+    const styleEl = document.createElement('style');
+    styleEl.id = 'gsw-styles';
+    styleEl.textContent = `
     .gsw-container {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #1a1a2e;
@@ -224,106 +322,6 @@ const GlobalSyncWidget = (() => {
       height: 14px;
     }
   `;
-
-  // ============================================================================
-  // State
-  // ============================================================================
-
-  let _state = {
-    isInitialized: false,
-    container: null,
-    config: null,
-    currentTime: new Date(),
-    simulationTime: null,
-    activeTab: 'converter',
-    meetingStart: null,
-    meetingEnd: null,
-    intervalId: null
-  };
-
-  // ============================================================================
-  // Private Helper Functions
-  // ============================================================================
-
-  /**
-   * Validates the widget configuration
-   * @param {Object} config - Configuration object
-   * @returns {boolean} Whether config is valid
-   */
-  function _validateConfig(config) {
-    if (!config) {
-      console.error('[GlobalSyncWidget] Config is required');
-      return false;
-    }
-
-    if (!config.localTimezone || typeof config.localTimezone !== 'string') {
-      console.error('[GlobalSyncWidget] localTimezone is required and must be a string');
-      return false;
-    }
-
-    if (!config.customerTimezone || typeof config.customerTimezone !== 'string') {
-      console.error('[GlobalSyncWidget] customerTimezone is required and must be a string');
-      return false;
-    }
-
-    if (config.favoriteTimezones && !Array.isArray(config.favoriteTimezones)) {
-      console.error('[GlobalSyncWidget] favoriteTimezones must be an array');
-      return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * Gets all zones to display
-   * @returns {Array} Zone objects
-   */
-  function _getZones() {
-    if (!_state.config) return [];
-
-    const zones = [
-      { 
-        id: 'local',
-        timezone: _state.config.localTimezone, 
-        label: 'My Location',
-        isLocal: true 
-      },
-      { 
-        id: 'customer',
-        timezone: _state.config.customerTimezone, 
-        label: 'Customer',
-        isCustomer: true 
-      }
-    ];
-
-    // Add favorites (deduplicated)
-    const seen = new Set([_state.config.localTimezone, _state.config.customerTimezone]);
-    
-    if (_state.config.favoriteTimezones) {
-      _state.config.favoriteTimezones.forEach((tz, index) => {
-        if (!seen.has(tz)) {
-          seen.add(tz);
-          zones.push({
-            id: `fav-${index}`,
-            timezone: tz,
-            label: tz.split('/').pop()?.replace(/_/g, ' ') || tz
-          });
-        }
-      });
-    }
-
-    return zones;
-  }
-
-  /**
-   * Injects widget styles
-   */
-  function _injectStyles() {
-    if (document.getElementById('gsw-styles')) return;
-
-    const styleEl = document.createElement('style');
-    styleEl.id = 'gsw-styles';
-    styleEl.textContent = STYLES;
     document.head.appendChild(styleEl);
   }
 

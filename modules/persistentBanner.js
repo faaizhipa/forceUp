@@ -45,6 +45,10 @@ const PersistentBanner = {
     activeMessages: [],
     messageSettings: null,
     wasAutoRotating: false,
+
+    // Horizontal scroll state
+    edgePanInterval: null,
+    edgePanDirection: 0,
     
     // Cleanup tracking arrays
     trackedTimers: [],
@@ -410,24 +414,25 @@ const PersistentBanner = {
     async loadMessagesFromLocal() {
         return new Promise((resolve) => {
             chrome.storage.local.get(['exl_bannerMessages'], (result) => {
-                const messagesConfig = result.exl_bannerMessages;
-                
-                if (!messagesConfig) {
-                    this.activeMessages = [];
-                    this.messageSettings = null;
-                    console.log('[PersistentBanner] No messages found in local storage');
-                    resolve();
-                    return;
-                }
-                
+                // Provide a stable fallback structure so downstream callers always receive an object
+                const messagesConfig = result.exl_bannerMessages || {
+                    enabled: true,
+                    autoRotate: true,
+                    rotationInterval: 5000,
+                    defaultMessages: { enabled: true, items: [] },
+                    customMessages: [],
+                    syncEnabled: false,
+                    lastSyncTime: null
+                };
+
                 this.messageSettings = messagesConfig;
                 this.activeMessages = this.getActiveMessages(messagesConfig);
-                
+
                 // Check for pinned message matching current case
                 this.prioritizePinnedMessage();
-                
+
                 console.log(`[PersistentBanner] Loaded ${this.activeMessages.length} active messages from local storage`);
-                resolve();
+                resolve(messagesConfig);
             });
         });
     },
@@ -3631,12 +3636,12 @@ const PersistentBanner = {
         }
 
         // Update customerMetadata fields
-        // if (fields.customerId !== undefined) {
-        //     this.customerMetadata.customerId = fields.customerId;
-        // }
-        // if (fields.institutionId !== undefined) {
-        //     this.customerMetadata.institutionId = fields.institutionId;
-        // }
+        if (fields.customerId !== undefined) {
+            this.customerMetadata.customerId = fields.customerId;
+        }
+        if (fields.institutionId !== undefined) {
+            this.customerMetadata.institutionId = fields.institutionId;
+        }
         if (fields.server !== undefined) {
             this.customerMetadata.server = fields.server;
         }
@@ -4059,6 +4064,7 @@ const PersistentBanner = {
         if (!banner) return;
 
         this.elements.pageType = banner.querySelector('#exl-banner-page-type');
+        this.elements.bannerContainer = banner.querySelector('.exl-banner-container');
         this.elements.subject = banner.querySelector('#exl-banner-subject');
         this.elements.status = banner.querySelector('#exl-banner-status');
         this.elements.subStatus = banner.querySelector('#exl-banner-substatus');
@@ -4204,6 +4210,8 @@ const PersistentBanner = {
                 this.showMessageDropdown();
             });
         }
+
+        this.setupBannerHorizontalScroll();
         
         // Handle close button
         const closeBtn = banner.querySelector('.exl-hl-banner-close-btn');
@@ -5119,7 +5127,7 @@ const PersistentBanner = {
             institutionCode: this.customerMetadata.institutionCode,
             customerId: this.customerMetadata.customerId || this.customerMetadata.custId || this.currentPage.custId || this.currentPage.customerId || null,
             instID: this.customerMetadata.institutionId || this.customerMetadata.instId || this.currentPage.instId || this.currentPage.institutionId || null,
-            accountName: this.currentPage?.accountName || this.customerMetadata.accountName || this.data.accountName || null
+            accountName: this.currentPage?.accountName || this.customerMetadata.accountName || null
         };
 
         if (typeof CustomerDataManager !== 'undefined' && typeof CustomerDataManager.getCustomerTimezone === 'function') {
@@ -5778,6 +5786,94 @@ const PersistentBanner = {
         return active;
     },
 
+    setupBannerHorizontalScroll() {
+        const container = this.elements.bannerContainer;
+        if (!container) {
+            return;
+        }
+
+        const handleWheel = (event) => {
+            const overflow = container.scrollWidth - container.clientWidth;
+            if (overflow <= 0) {
+                return;
+            }
+
+            const delta = event.deltaY || event.deltaX;
+            if (delta === 0) {
+                return;
+            }
+
+            container.scrollLeft += delta;
+            event.preventDefault();
+        };
+
+        const handleMouseMove = (event) => {
+            const overflow = container.scrollWidth - container.clientWidth;
+            if (overflow <= 0) {
+                this.stopEdgePan();
+                return;
+            }
+
+            const rect = container.getBoundingClientRect();
+            const edgeZone = 32;
+            let direction = 0;
+
+            if (event.clientX <= rect.left + edgeZone) {
+                direction = -1;
+            } else if (event.clientX >= rect.right - edgeZone) {
+                direction = 1;
+            }
+
+            this.updateEdgePan(direction, overflow);
+        };
+
+        const handleLeave = () => {
+            this.stopEdgePan();
+        };
+
+        this.registerListener(container, 'wheel', handleWheel, { passive: false });
+        this.registerListener(container, 'mousemove', handleMouseMove);
+        this.registerListener(container, 'mouseleave', handleLeave);
+
+        if (this.elements.messageContent) {
+            this.registerListener(this.elements.messageContent, 'wheel', handleWheel, { passive: false });
+        }
+    },
+
+    updateEdgePan(direction, overflow) {
+        const container = this.elements.bannerContainer;
+        if (!container) {
+            return;
+        }
+
+        if (direction === 0) {
+            this.stopEdgePan();
+            return;
+        }
+
+        const step = Math.max(2, Math.min(20, Math.round((overflow / Math.max(container.clientWidth, 1)) * 4)));
+        this.edgePanDirection = step * direction;
+
+        if (this.edgePanInterval) {
+            return;
+        }
+
+        this.edgePanInterval = this.registerTimer(
+            setInterval(() => {
+                container.scrollLeft += this.edgePanDirection;
+            }, 16),
+            'interval'
+        );
+    },
+
+    stopEdgePan() {
+        if (this.edgePanInterval) {
+            clearInterval(this.edgePanInterval);
+            this.edgePanInterval = null;
+        }
+        this.edgePanDirection = 0;
+    },
+
     /**
      * Start message rotation timer
      */
@@ -5956,13 +6052,8 @@ const PersistentBanner = {
             if (!featureEnabled) {
                 return false;
             }
-            
-            // Check if we have active messages
-            if (this.activeMessages.length === 0) {
-                return false;
-            }
-            
-            // All checks passed - can show messages (including on case pages)
+
+            // Allow the section to render even when there are no messages so the empty state is visible
             return true;
         } catch (error) {
             // Some environments throw on Function.caller access; treat as disabled instead of breaking UI
@@ -5985,6 +6076,8 @@ const PersistentBanner = {
         
         // Stop polling
         this.stopDataPolling();
+
+        this.stopEdgePan();
         
         // Clear data reception timeout
         if (this.dataReceptionTimeout) {

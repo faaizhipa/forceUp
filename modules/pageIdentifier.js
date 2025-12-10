@@ -179,7 +179,8 @@ const PageIdentifier = {
         caseId: context?.caseId || caseId,
         caseNumber: caseNumberFromTitle || context?.caseNumber || null,
         reportId: null,
-        view: 'case_comments'
+        view: 'case_comments',
+        url: url
       };
       const validatedResult = this.validatePageInfo(result);
       console.log('PageIdentifier: Detected CASE_COMMENTS:', validatedResult);
@@ -192,7 +193,8 @@ const PageIdentifier = {
         type: this.pageTypes.CASES_LIST,
         caseId: null,
         reportId: null,
-        view: null
+        view: null,
+        url: url
       };
       console.log('PageIdentifier: Detected CASES_LIST:', result);
       return result;
@@ -204,7 +206,8 @@ const PageIdentifier = {
         type: this.pageTypes.REPORT_HOME,
         caseId: null,
         reportId: null,
-        view: null
+        view: null,
+        url: url
       };
       console.log('PageIdentifier: Detected REPORT_HOME:', result);
       return result;
@@ -217,7 +220,8 @@ const PageIdentifier = {
         type: this.pageTypes.REPORT_PAGE,
         caseId: null,
         reportId: reportMatch[1],
-        view: null
+        view: null,
+        url: url
       };
       console.log('PageIdentifier: Detected REPORT_PAGE:', result);
       return result;
@@ -229,7 +233,8 @@ const PageIdentifier = {
         type: this.pageTypes.SEARCH_PAGE,
         caseId: null,
         reportId: null,
-        view: null
+        view: null,
+        url: url
       };
       console.log('PageIdentifier: Detected SEARCH_PAGE (direct):', result);
       return result;
@@ -250,7 +255,8 @@ const PageIdentifier = {
             type: this.pageTypes.REPORT_BUILDER,
             caseId: null,
             reportId: jsonData.attributes?.recordId || null,
-            view: null
+            view: null,
+            url: url
           };
           console.log('PageIdentifier: Detected REPORT_BUILDER (encoded):', result);
           return result;
@@ -262,7 +268,8 @@ const PageIdentifier = {
             type: this.pageTypes.SEARCH_PAGE,
             caseId: null,
             reportId: null,
-            view: null
+            view: null,
+            url: url
           };
           console.log('PageIdentifier: Detected SEARCH_PAGE (encoded):', result);
           return result;
@@ -278,7 +285,8 @@ const PageIdentifier = {
       caseId: null,
       caseNumber: null,
       reportId: null,
-      view: null
+      view: null,
+      url: url
     };
     console.log('PageIdentifier: Detected UNKNOWN page type:', result);
     return result;
@@ -390,9 +398,16 @@ const PageIdentifier = {
   _handleNavigationChange(callback) {
     const newPageInfo = this.identifyPage();
 
-    // Check if page actually changed
-    const hasChanges = this._detectPageChanges(newPageInfo);
-    hasChanges = newPageInfo.url ?? (newPageInfo.url !== result._lastPageInfo.url || newPageInfo.url !== window.location.href);
+    // Keep the first resolved page type until the URL actually changes
+    const urlChanged = Boolean(newPageInfo.url && newPageInfo.url !== this._lastPageInfo?.url);
+    if (!urlChanged && this._lastPageInfo?.type && this._lastPageInfo.type !== this.pageTypes.UNKNOWN && newPageInfo.type !== this._lastPageInfo.type) {
+      console.log('PageIdentifier: URL unchanged; keeping existing page type until URL changes.');
+      newPageInfo.type = this._lastPageInfo.type;
+    }
+
+    // Check if page actually changed (include URL drift safety)
+    const baseChangesDetected = this._detectPageChanges(newPageInfo);
+    const hasChanges = baseChangesDetected || urlChanged;
 
     if (!hasChanges) {
       console.log('PageIdentifier: URL same, page info unchanged');

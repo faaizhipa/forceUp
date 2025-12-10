@@ -3,15 +3,43 @@ const GoogleDrive = {
   // Scopes must match manifest
   // backupFileId: cached ID to avoid searching every time
   backupFileId: null,
+  lastAuthError: null,
 
-  async getAuthToken(interactive = true) {
-    return new Promise((resolve) => {
-      chrome.identity.getAuthToken({ interactive }, (token) => {
-        if (chrome.runtime.lastError || !token) {
-          console.error('Auth Error:', chrome.runtime.lastError);
-          resolve(null);
+  async getAuthToken(interactive = true, attempt = 0) {
+    const { token, error } = await new Promise((resolve) => {
+      chrome.identity.getAuthToken({ interactive }, (result) => {
+        if (chrome.runtime.lastError || !result) {
+          resolve({ token: null, error: chrome.runtime.lastError });
         } else {
-          resolve(token);
+          resolve({ token: result, error: null });
+        }
+      });
+    });
+
+    if (token) {
+      this.lastAuthError = null;
+      return token;
+    }
+
+    this.lastAuthError = error;
+
+    // If interactive and first failure, clear cached token and retry once
+    if (interactive && attempt === 0) {
+      await this.clearCachedToken();
+      return this.getAuthToken(interactive, attempt + 1);
+    }
+
+    console.error('Auth Error:', error);
+    return null;
+  },
+
+  async clearCachedToken() {
+    return new Promise((resolve) => {
+      chrome.identity.getAuthToken({ interactive: false }, (token) => {
+        if (token) {
+          chrome.identity.removeCachedAuthToken({ token }, () => resolve());
+        } else {
+          resolve();
         }
       });
     });
@@ -29,10 +57,8 @@ const GoogleDrive = {
 
   // --- Drive API Helpers ---
 
-  async findBackupFile(token) {
-    if (this.backupFileId) return this.backupFileId;
-
-    const query = "name = 'smart_notes_backup.json' and 'appDataFolder' in parents and trashed = false";
+  async findFileInAppData(token, fileName) {
+    const query = `name = '${fileName}' and 'appDataFolder' in parents and trashed = false`;
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&spaces=appDataFolder`;
 
     const response = await fetch(url, {
@@ -41,19 +67,31 @@ const GoogleDrive = {
     const data = await response.json();
 
     if (data.files && data.files.length > 0) {
-      this.backupFileId = data.files[0].id;
-      return this.backupFileId;
+      return data.files[0].id;
     }
     return null;
   },
 
-  async createBackupFile(token, content) {
+  async uploadJsonToAppData(token, fileName, content, existingFileId = null) {
+    const fileContent = new Blob([JSON.stringify(content)], { type: 'application/json' });
+
+    if (existingFileId) {
+      const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=media`, {
+        method: 'PATCH',
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: fileContent
+      });
+      return response.ok ? existingFileId : null;
+    }
+
     const metadata = {
-      name: 'smart_notes_backup.json',
+      name: fileName,
       parents: ['appDataFolder']
     };
 
-    const fileContent = new Blob([JSON.stringify(content)], { type: 'application/json' });
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
     form.append('file', fileContent);
@@ -65,23 +103,36 @@ const GoogleDrive = {
     });
     
     const data = await response.json();
-    this.backupFileId = data.id;
     return data.id;
   },
 
-  async updateBackupFile(token, fileId, content) {
-    const fileContent = new Blob([JSON.stringify(content)], { type: 'application/json' });
-
-    // Use upload endpoint with PATCH for content
-    const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
-      method: 'PATCH',
-      headers: { 
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: fileContent
+  async downloadJsonFromAppData(token, fileId) {
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      headers: { Authorization: `Bearer ${token}` }
     });
-    return response.ok;
+    if (!response.ok) return null;
+    return response.json();
+  },
+
+  async findBackupFile(token) {
+    if (this.backupFileId) return this.backupFileId;
+    const fileId = await this.findFileInAppData(token, 'smart_notes_backup.json');
+    if (fileId) {
+      this.backupFileId = fileId;
+      return fileId;
+    }
+    return null;
+  },
+
+  async createBackupFile(token, content) {
+    const id = await this.uploadJsonToAppData(token, 'smart_notes_backup.json', content, null);
+    this.backupFileId = id;
+    return id;
+  },
+
+  async updateBackupFile(token, fileId, content) {
+    const id = await this.uploadJsonToAppData(token, 'smart_notes_backup.json', content, fileId);
+    return Boolean(id);
   },
 
   async performBackup(notesData) {
@@ -94,6 +145,38 @@ const GoogleDrive = {
     } else {
       await this.createBackupFile(token, notesData);
     }
+    return true;
+  },
+
+  async performLocalDbBackup(localDbPayload = null) {
+    const token = await this.getAuthToken(true);
+    if (!token) throw new Error("Not authenticated");
+
+    const payload = localDbPayload || (typeof LocalDb !== 'undefined' ? await LocalDb.exportEntities() : null);
+    if (!payload) throw new Error('No LocalDb data to back up');
+
+    const fileId = await this.findFileInAppData(token, 'exl_localdb_backup.json');
+    const updatedId = await this.uploadJsonToAppData(token, 'exl_localdb_backup.json', payload, fileId);
+    if (!updatedId) throw new Error('Failed to upload LocalDb backup');
+    return true;
+  },
+
+  async restoreLocalDbBackup({ merge = true } = {}) {
+    const token = await this.getAuthToken(true);
+    if (!token) throw new Error("Not authenticated");
+
+    const fileId = await this.findFileInAppData(token, 'exl_localdb_backup.json');
+    if (!fileId) throw new Error('No LocalDb backup found');
+
+    const data = await this.downloadJsonFromAppData(token, fileId);
+    if (!data) throw new Error('Failed to download LocalDb backup');
+
+    if (typeof LocalDb === 'undefined') {
+      throw new Error('LocalDb not available for import');
+    }
+
+    const imported = await LocalDb.importEntities(data, { merge });
+    if (!imported) throw new Error('LocalDb import failed');
     return true;
   },
 

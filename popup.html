@@ -497,6 +497,10 @@
             <input type="checkbox" id="featureBannerMessages">
             <label for="featureBannerMessages">Banner Rotating Messages</label>
           </div>
+          <div class="checkbox-item">
+            <input type="checkbox" id="featureStorageQuota">
+            <label for="featureStorageQuota">Enforce Storage Quotas (notes, screenshots, banners)</label>
+          </div>
         </div>
       </div>
 
@@ -621,6 +625,15 @@
       </div>
 
       <div class="setting-group">
+        <h2>🎥 Recording Storage</h2>
+        <div class="checkbox-item">
+          <input type="checkbox" id="recordingQuotaEnforced" checked>
+          <label for="recordingQuotaEnforced">Enforce 150MB recording quota (recommended)</label>
+        </div>
+        <p class="info-text">Turn off only if you manage recording cleanup manually. Recordings still save to browser storage.</p>
+      </div>
+
+      <div class="setting-group">
         <h2>🗄️ Cache Management</h2>
         <p class="info-text">Clear cached case data to free up storage space</p>
         <button id="clearCacheButton" class="button-secondary">Clear Cache</button>
@@ -635,7 +648,7 @@
       <div class="setting-group">
         <h2>⌨️ Keyboard Shortcuts</h2>
         <div class="checkbox-item">
-          <input type="checkbox" id="shortcutsEnabled" checked>
+          <input type="checkbox" id="shortcutsEnabled">
           <label for="shortcutsEnabled">Enable Keyboard Shortcuts</label>
         </div>
       </div>
@@ -688,13 +701,24 @@
         <button id="resetButton" class="button-secondary">Reset to Defaults</button>
         <button id="exportButton" class="button-secondary">Export Settings</button>
         <button id="importButton" class="button-secondary">Import Settings</button>
+        <button id="localDbExportButton" class="button-secondary">Export Local Data (IndexedDB)</button>
+        <button id="localDbImportButton" class="button-secondary">Import Local Data (IndexedDB)</button>
+        <button id="localDbDriveBackupButton" class="button-secondary">Backup Local Data to Google Drive</button>
+        <button id="localDbDriveRevealButton" class="button-secondary">Reveal Google Drive Backup</button>
+        <button id="localDbDriveRestoreButton" class="button-secondary">Restore Local Data from Google Drive (merge)</button>
+        <div id="localDbDriveStatus" class="info-text info-text-spacing"></div>
         <p class="info-text info-text-spacing">
           Export files now include workspace data (highlights, notes, bookmarks, layers) and their backups so you can move them to another browser.
+        </p>
+        <p class="info-text info-text-spacing">
+          Local data export/import works directly with the extension's IndexedDB (LocalDb) for highlights, notes, bookmarks, collections, and settings.
         </p>
       </div>
     </div>
   </div>
 
+<script src="modules/localDb.js"></script>
+<script src="utils/google-drive.js"></script>
 <script src="modules/dataMigration.js"></script>
 <script src="popup.js"></script>
 </body>

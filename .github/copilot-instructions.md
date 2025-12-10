@@ -1,22 +1,23 @@
 # Salesforce Chrome Extension - Copilot Instructions
 
-**IMPORTANT:** Before making any changes, review **[PROJECT_RULES.md](../PROJECT_RULES.md)** _and_ the condensed knowledge base in **[explaination.md](../explaination.md)** so new work aligns with current architecture and lessons learned.
+**IMPORTANT:** Before making any changes, review **[PROJECT_RULES.md](../PROJECT_RULES.md)**, the condensed knowledge base in **[explaination.md](../explaination.md)**, _and_ the short **[minimal-knowledge-base.md](../docs/minimal-knowledge-base.md)** so new work aligns with current architecture and lessons learned.
 
 ## Project Overview
-This is a **Manifest V3 Chrome Extension** for Salesforce (Lightning/Console/Visualforce), specifically targeting ProQuest/Ex Libris case management workflows. The extension provides dynamic menus, field highlighting, URL generation, comment memory, and text formatting capabilities.
+This is a **Manifest V3 Chrome Extension** for Salesforce (Lightning/Console/Visualforce), specifically targeting ProQuest/Ex Libris case management workflows. The extension provides dynamic menus, field highlighting, URL generation, comment memory, text formatting, and workspace tooling (highlighter/notes/bookmarks).
 
 ## Core Architecture
 
 ### Component Roles
 - **`background.js`**: Service worker that routes page type identification requests
-- **`content_script.js`**: Main worker script injected into all Salesforce domains (977+ lines)
-- **`content_script_exlibris.js`**: Controller orchestrating all modules for ProQuest domain only
+- **`content_script.js`**: Legacy helpers for Clarivate/other Salesforce domains
+- **`content_script_exlibris.js`**: Controller orchestrating ProQuest modules; wires observers → context → data store → features
 - **`popup.js` + `popup.html`**: Settings configurator (timezone, button styles, menu location)
-- **`modules/`**: 15+ isolated feature modules (pageIdentifier, cacheManager, fieldHighlighter, dynamicMenu, etc.)
+- **`modules/`**: 40+ isolated feature modules (pageIdentifier, navigationObserver, CaseContextWatcher, CaseDataStore, CasePageDataExtractor, dynamicMenu, persistentBanner, highlighter tooling, etc.)
 
 ### Storage Strategy
-- **`chrome.storage.sync`**: User settings (timezone, label style, menu location)
-- **`chrome.storage.local`**: Case data cache keyed by `caseId + lastModifiedDate`
+- **In-memory (per tab)**: `CaseDataStore` holds the single active case payload; clear on navigation/context mismatch.
+- **`chrome.storage.sync`**: User settings (timezone, label style, menu location, feature flags).
+- **`chrome.storage.local`**: Workspace artifacts (highlighter/notes/bookmarks + backups), comment history, migrations. Do **not** persist per-case payloads here.
 
 ### Critical Pattern: "Check-Then-Observe"
 **ALWAYS** use this pattern when searching for Salesforce DOM elements that may load asynchronously:
@@ -89,20 +90,12 @@ async function handlePageChanges(pageType) {
 const inputField = element.shadowRoot?.querySelector('input');
 ```
 
-## Data Caching Strategy
+## Case State & Validation
 
-### Cache Key Format
-```javascript
-const cacheKey = `caseData_${caseId}_${lastModifiedDate}`;
-```
-
-### Cache Workflow
-1. **Read**: Check `chrome.storage.local` for existing key
-2. **Validate**: Compare `last_modified` with current Salesforce field value
-3. **Extract**: If stale/missing, run `CaseDataExtractor.extractCaseData()`
-4. **Store**: Save with new `lastModifiedDate`
-
-**Benefit**: Prevents redundant DOM parsing on page revisits if case data hasn't changed.
+- **Primary flow**: NavigationObserver/PageIdentifier → CaseContextWatcher (title + URL) → CaseDataStore → subscribers (banner/menu/highlighter/etc.).
+- **Validation**: Always call `PageContextValidator.validatePageContextBeforeDisplay()` with `{caseId, caseNumber}` before showing data to avoid stale renders.
+- **Extraction**: Use `CasePageDataExtractor`/`CaseDataExtractor` with check-then-observe + visibility checks; avoid writing per-case data to storage.
+- **Cleanup**: Disconnect observers, clear timers, and remove injected DOM on navigation; tag injected nodes with `data-exl-*` for idempotency.
 
 ## Dynamic Menu Generation
 
@@ -141,10 +134,10 @@ new MutationObserver(() => {
 ### When Modifying Features
 1. **Read AGENTS.md first** for architecture overview and selector reference
 2. **Check `content_script_exlibris.js`** for module initialization order
-3. **Use Check-Then-Observe pattern** for any new DOM queries
-4. **Test in ProQuest Salesforce** (`proquestllc.lightning.force.com`)
-5. **Update cache keys** if changing data extraction logic
-6. **Refresh the snapshot in `explaination.md`** when architecture, data flow, or best practices change, and log the update in `CHANGES.md` (Date, Category, Description, Files, Lessons Learned, Related Issues).
+3. **Resolve context via `CaseContextWatcher`** before DOM work; validate with `PageContextValidator` prior to display.
+4. **Use Check-Then-Observe pattern** for any new DOM queries; debounce noisy observers (~250 ms) and clean up listeners/observers on navigation.
+5. **Test in ProQuest Salesforce** (`proquestllc.lightning.force.com`) across SPA navigation (back/forward, tab switches).
+6. **Refresh the snapshot in `explaination.md` and `docs/minimal-knowledge-base.md`** when architecture, data flow, or best practices change, and log the update in `CHANGES.md` (Date, Category, Description, Files, Lessons Learned, Related Issues).
 
 ### When Adding New Modules
 1. Create in `modules/` directory with single responsibility
@@ -212,6 +205,7 @@ new MutationObserver(() => {
      this.handleExpensiveOperation();
    }, 1000);
    ```
+   Use ~250 ms for navigation/title observers; use higher values (≥250 ms) for heavy DOM work.
 
 ### Selector Best Practices
 
@@ -267,7 +261,7 @@ new MutationObserver(() => {
    - Link to related issues/PRs
 
 4. **Knowledge Base Sync**
-  - Update `../explaination.md` whenever you learn something new about architecture, data flow, or best practices
+  - Update `../explaination.md` and `../docs/minimal-knowledge-base.md` whenever you learn something new about architecture, data flow, or best practices
   - Mirror any high-level discoveries back into this instruction file if they affect agent guidance
 
 ### Common Patterns
@@ -282,9 +276,10 @@ See **[BEST_PRACTICES.md](../BEST_PRACTICES.md)** for:
 ## Critical Files Reference
 - **Architecture**: `ARCHITECTURE.md` (diagrams), `AGENTS.md` (patterns)
 - **Entry points**: `content_script_exlibris.js` (controller), `background.js` (router)
-- **Core modules**: `pageIdentifier.js`, `caseDataExtractor.js`, `dynamicMenu.js`, `cacheManager.js`
+- **Core modules**: `pageIdentifier.js`, `navigationObserver.js`, `caseContextWatcher.js`, `caseDataStore.js`, `casePageDataExtractor.js`, `dynamicMenu.js`, `persistentBanner.js`
 - **Comprehensive Docs**: 
   - `explaination.md` (condensed knowledge base + do/don't list)
+  - `docs/minimal-knowledge-base.md` (short cheat sheet for devs/AI)
   - `explanation.md` (legacy overview with navigation links)
   - `FUNCTIONS.md` (complete function catalog)
   - `SELECTORS.md` (DOM selector registry)

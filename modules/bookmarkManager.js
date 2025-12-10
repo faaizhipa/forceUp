@@ -17,6 +17,19 @@ const BookmarkManager = (function() {
   let isInitialized = false;
   let isPanelOpen = false;
 
+  function isLocalDbAvailable() {
+    return typeof LocalDb !== 'undefined' && typeof LocalDb.getAllBookmarks === 'function';
+  }
+
+  function arrayToMap(list = []) {
+    return list.reduce((acc, item) => {
+      if (item && item.id) {
+        acc[item.id] = item;
+      }
+      return acc;
+    }, {});
+  }
+
   /**
    * Initialize bookmark manager
    */
@@ -87,6 +100,23 @@ const BookmarkManager = (function() {
    * Load collections and bookmarks from storage (with backward compatibility)
    */
   async function loadData() {
+    if (isLocalDbAvailable()) {
+      try {
+        const [dbCollections, dbBookmarks] = await Promise.all([
+          LocalDb.getAllCollections(),
+          LocalDb.getAllBookmarks()
+        ]);
+
+        if (dbCollections.length > 0 || dbBookmarks.length > 0) {
+          collections = arrayToMap(dbCollections);
+          bookmarks = arrayToMap(dbBookmarks);
+          return;
+        }
+      } catch (error) {
+        console.warn('[BookmarkManager] LocalDb load failed, falling back to chrome.storage:', error);
+      }
+    }
+
     return new Promise((resolve) => {
       const keys = getStorageKeys();
       const oldCollectionKey = STORAGE_KEY_COLLECTIONS;
@@ -96,7 +126,7 @@ const BookmarkManager = (function() {
       chrome.storage.local.get([
         keys.collections, keys.bookmarks,
         oldCollectionKey, oldBookmarkKey
-      ], (result) => {
+      ], async (result) => {
         if (chrome.runtime.lastError) {
           console.error('[BookmarkManager] Error loading data:', chrome.runtime.lastError);
           collections = {};
@@ -113,6 +143,15 @@ const BookmarkManager = (function() {
             (!result[keys.collections] && !result[keys.bookmarks])) {
           console.log('[BookmarkManager] Loaded data from old format, migration will handle upgrade');
         }
+
+        if (isLocalDbAvailable() && (Object.keys(collections).length > 0 || Object.keys(bookmarks).length > 0)) {
+          try {
+            await persistBookmarksToLocalDb();
+            console.log('[BookmarkManager] Migrated bookmarks/collections to LocalDb');
+          } catch (error) {
+            console.warn('[BookmarkManager] Failed to migrate bookmarks to LocalDb:', error);
+          }
+        }
         
         resolve();
       });
@@ -123,6 +162,15 @@ const BookmarkManager = (function() {
    * Save collections to storage
    */
   async function saveCollections() {
+    if (isLocalDbAvailable()) {
+      try {
+        await persistBookmarksToLocalDb();
+        return;
+      } catch (error) {
+        console.warn('[BookmarkManager] LocalDb saveCollections failed, falling back to chrome.storage:', error);
+      }
+    }
+
     return new Promise((resolve) => {
       chrome.storage.local.set({ [STORAGE_KEY_COLLECTIONS]: collections }, () => {
         if (chrome.runtime.lastError) {
@@ -137,6 +185,15 @@ const BookmarkManager = (function() {
    * Save bookmarks to storage
    */
   async function saveBookmarks() {
+    if (isLocalDbAvailable()) {
+      try {
+        await persistBookmarksToLocalDb();
+        return;
+      } catch (error) {
+        console.warn('[BookmarkManager] LocalDb saveBookmarks failed, falling back to chrome.storage:', error);
+      }
+    }
+
     return new Promise((resolve) => {
       chrome.storage.local.set({ [STORAGE_KEY_BOOKMARKS]: bookmarks }, () => {
         if (chrome.runtime.lastError) {
@@ -145,6 +202,44 @@ const BookmarkManager = (function() {
         resolve();
       });
     });
+  }
+
+  async function persistBookmarksToLocalDb() {
+    const incomingCollectionIds = Object.keys(collections);
+    const incomingBookmarkIds = Object.keys(bookmarks);
+
+    const [existingCollections, existingBookmarks] = await Promise.all([
+      LocalDb.getAllCollections(),
+      LocalDb.getAllBookmarks()
+    ]);
+
+    const staleCollectionIds = existingCollections
+      .map((item) => item.id)
+      .filter((id) => !incomingCollectionIds.includes(id));
+    const staleBookmarkIds = existingBookmarks
+      .map((item) => item.id)
+      .filter((id) => !incomingBookmarkIds.includes(id));
+
+    await Promise.all(staleCollectionIds.map((id) => LocalDb.deleteCollection(id)));
+    await Promise.all(staleBookmarkIds.map((id) => LocalDb.deleteBookmark(id)));
+
+    await Promise.all(incomingCollectionIds.map((id) => {
+      const record = collections[id] || {};
+      return LocalDb.putCollection({
+        ...record,
+        id,
+        updatedAt: record.updatedAt || record.updated || record.created || Date.now()
+      });
+    }));
+
+    await Promise.all(incomingBookmarkIds.map((id) => {
+      const record = bookmarks[id] || {};
+      return LocalDb.putBookmark({
+        ...record,
+        id,
+        updatedAt: record.updatedAt || record.updated || record.created || Date.now()
+      });
+    }));
   }
 
   /**

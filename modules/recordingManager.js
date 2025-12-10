@@ -47,6 +47,17 @@ const RecordingManager = (function() {
     }
   }
 
+  async function shouldEnforceRecordingQuota() {
+    try {
+      const result = await chrome.storage.sync.get(['exlibris']);
+      const enforce = result?.exlibris?.features?.recordingQuotaEnforced;
+      return enforce !== false; // default to enforce when unset
+    } catch (error) {
+      logWarn('[RecordingManager] Failed to read recording quota setting', error);
+      return true;
+    }
+  }
+
   function notifyStatus(status, extra = {}) {
     if (typeof onStatus === 'function') {
       onStatus({ status, ...extra });
@@ -92,14 +103,10 @@ const RecordingManager = (function() {
     onStatus = statusCallback || null;
 
     try {
-      captureStream = await chrome.tabCapture.capture({
-        audio: true,
-        video: true,
-        videoConstraints: { mandatory: { chromeMediaSource: 'tab' } }
-      });
-
+      captureStream = await getCaptureStream();
       if (!captureStream) {
-        logWarn('[RecordingManager] tabCapture returned null stream');
+        logWarn('[RecordingManager] No capture stream available');
+        notifyStatus('error', { error: 'Unable to start recording (stream missing).' });
         return false;
       }
 
@@ -189,16 +196,35 @@ const RecordingManager = (function() {
         layerId
       };
 
+      const enforceQuota = await shouldEnforceRecordingQuota();
+      if (enforceQuota && typeof StorageQuotaManager !== 'undefined' && typeof StorageQuotaManager.canStoreRecording === 'function') {
+        const estimatedBytes = typeof StorageQuotaManager.estimateSize === 'function'
+          ? StorageQuotaManager.estimateSize(recordingData)
+          : Math.ceil(sizeBytes * 1.4);
+
+        const allowed = await StorageQuotaManager.canStoreRecording(estimatedBytes);
+        if (!allowed) {
+          logWarn('[RecordingManager] Recording dropped due to quota', { estimatedBytes });
+          notifyStatus('discarded', { reason: 'quota', sizeBytes: estimatedBytes });
+          clearState();
+          return;
+        }
+      }
+
       await saveRecording(recordingData);
 
-      try {
-        chrome.runtime.sendMessage({
-          type: 'OPEN_SIDEPANEL',
-          tab: 'recorded',
-          payload: { justSavedId: recordingData.id, url: recordingData.url }
-        });
-      } catch (err) {
-        logWarn('[RecordingManager] Failed to open side panel after save', err);
+      if (typeof CapturePanel !== 'undefined' && typeof CapturePanel.open === 'function') {
+        CapturePanel.open({ tab: 'recordings', justSavedId: recordingData.id, url: recordingData.url });
+      } else {
+        try {
+          chrome.runtime.sendMessage({
+            type: 'OPEN_SIDEPANEL',
+            tab: 'recorded',
+            payload: { justSavedId: recordingData.id, url: recordingData.url }
+          });
+        } catch (err) {
+          logWarn('[RecordingManager] Failed to open side panel after save', err);
+        }
       }
 
       notifyStatus('saved', { durationMs, sizeBytes });
@@ -209,6 +235,49 @@ const RecordingManager = (function() {
     } finally {
       clearState();
     }
+  }
+
+  /**
+   * Acquire capture stream using tabCapture when available, otherwise fall back to getDisplayMedia.
+   * @returns {Promise<MediaStream|null>}
+   */
+  async function getCaptureStream() {
+    // Preferred path: chrome.tabCapture from extension context
+    if (chrome?.tabCapture && typeof chrome.tabCapture.capture === 'function') {
+      try {
+        const stream = await chrome.tabCapture.capture({
+          audio: true,
+          video: true,
+          videoConstraints: { mandatory: { chromeMediaSource: 'tab' } }
+        });
+        if (stream) {
+          logInfo('[RecordingManager] Using chrome.tabCapture');
+          return stream;
+        }
+        logWarn('[RecordingManager] tabCapture returned null stream');
+      } catch (err) {
+        logWarn('[RecordingManager] tabCapture failed, will try getDisplayMedia', err);
+      }
+    }
+
+    // Fallback: user-mediated getDisplayMedia (will prompt for surface selection)
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          displaySurface: 'browser',
+          preferCurrentTab: true
+        },
+        audio: true
+      });
+      if (stream) {
+        logInfo('[RecordingManager] Using getDisplayMedia fallback');
+        return stream;
+      }
+    } catch (err) {
+      logError('[RecordingManager] getDisplayMedia failed', err);
+    }
+
+    return null;
   }
 
   async function saveRecording(recordingData) {

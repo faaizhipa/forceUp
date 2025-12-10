@@ -171,7 +171,17 @@ function setupEventListeners() {
 
   // Backup & Restore
   document.getElementById('btn-auth').addEventListener('click', async () => {
-    await GoogleDrive.getAuthToken(true);
+    const statusEl = document.getElementById('auth-status');
+    statusEl.innerText = 'Connecting to Google...';
+    const token = await GoogleDrive.getAuthToken(true);
+    if (token) {
+      statusEl.innerText = 'Connected to Google Drive';
+      statusEl.className = 'status-online';
+    } else {
+      const errMsg = GoogleDrive.lastAuthError?.message || 'Unable to sign in. Please try again.';
+      statusEl.innerText = `Sign-in failed: ${errMsg}`;
+      statusEl.className = 'status-offline';
+    }
     checkAuthStatus();
   });
 

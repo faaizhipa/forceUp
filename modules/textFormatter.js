@@ -38,6 +38,20 @@ const TextFormatter = {
     }
   },
 
+  /**
+   * Converts text from any style to target style (normalizes first)
+   * @param {string} text
+   * @param {string} style
+   * @returns {string}
+   */
+  convertStyle(text, style) {
+    if (!style || style === 'normal') {
+      return this.convertToNormal(text);
+    }
+    const base = this.convertToNormal(text);
+    return this.convertToStyle(base, style);
+  },
+
   // Bullet symbols
   symbols: ['▪', '∘', '▫', '►', '▻', '▸', '▹', '▿', '▾', '⋯', '⋮'],
 

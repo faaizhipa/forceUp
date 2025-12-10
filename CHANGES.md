@@ -35,6 +35,92 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2025-12-10] - Features - Floating comment formatter toolbar
+
+**Description**: Added a floating formatter that appears when text is selected in the case comment textarea, providing bold/italic/mono/plain swaps plus bullet/indent/outdent helpers with style swapping that normalizes styled characters before reapplying formatting.
+
+**Files Changed**:
+
+- `modules/caseCommentMemory.js`
+
+**Lessons Learned**:
+
+- Normalize unicode-styled text before applying a new style so switching between bold/italic/mono stays reversible.
+- Keep formatter listeners cleaned up with module teardown to avoid duplicate toolbars across SPA navigations.
+
+**Related Issues/PRs**: n/a
+
+### [2025-12-10] - UX - Persistent banner height lock and scroll
+
+**Description**: Locked the persistent banner to 48px height, kept sections on a single row, and enabled horizontal scrolling so sections no longer overlap or exceed the 48px vertical space.
+
+**Files Changed**:
+
+- `modules/styles/persistent-banner.css`
+
+**Lessons Learned**:
+
+- For fixed-height toolbars, avoid wrapping and let horizontal scrolling handle overflow to prevent overlap.
+- Using `width: max-content` on the inner container preserves natural section sizing while allowing overflow-x scrolling.
+
+**Related Issues/PRs**: n/a
+
+### [2025-12-10] - Documentation - Minimal knowledge base & copilot refresh
+
+**Description**: Added a concise `docs/minimal-knowledge-base.md` cheat sheet for developers/AI and updated `.github/copilot-instructions.md` to reflect the CaseContextWatcher/CaseDataStore flow, storage boundaries, and new doc syncing expectations.
+
+**Files Changed**:
+
+- `docs/minimal-knowledge-base.md`
+- `.github/copilot-instructions.md`
+- `CHANGES.md`
+
+**Lessons Learned**:
+
+- Keep a single lightweight cheat sheet in sync with the fuller knowledge base to reduce drift and onboarding time.
+- Copilot guidance must mirror current data-flow ownership (CaseContextWatcher + CaseDataStore) and storage rules to prevent stale instructions.
+
+**Related Issues/PRs**: n/a
+
+### [2025-12-09] - Features - Capture panel cleanup & recording quota toggle
+
+**Description**: Removed the legacy capture/record tabs from the sidepanel now that CapturePanel owns the UX, and added a popup toggle to allow operators to opt out of the 150MB recording cap (default stays enforced). RecordingManager now honors that preference while keeping quota checks as the safe default.
+
+**Files Changed**:
+
+- `sidepanel.html`
+- `sidepanel.js`
+- `popup.html`
+- `popup.js`
+- `modules/settingsManager.js`
+- `modules/recordingManager.js`
+- `CHANGES.md`
+
+**Lessons Learned**:
+
+- When migrating UI to a new surface, strip obsolete tabs to reduce confusion and guard legacy events so they fail gracefully.
+- User-facing toggles for storage caps need a safe default and explicit messaging; keep the enforcement path opt-out instead of opt-in.
+- Keep popup defaults and SettingsManager defaults in lockstep to avoid config drift.
+
+**Related Issues/PRs**: n/a
+
+### [2025-12-09] - Features - Radial quick menu and banner mode migration
+
+**Description**: Ported the radial quick-access menu into the main highlighter, rewired the floating button to open it (with drag + persisted position), coerced legacy floating banner mode back to sticky with a one-time log, and added a cloud-sync stub alert. Also hardened teardown by cleaning radial overlays/styles during controller cleanup.
+
+**Files Changed**:
+
+- `content_script_highlighter.js`
+- `CHANGES.md`
+
+**Lessons Learned**:
+
+- When introducing injected UI (radial overlay/menu), ensure cleanup runs during controller teardown to avoid orphaned overlays.
+- Gate style injection with an id and remove the tag on cleanup to prevent duplicates across SPA navigations.
+- Migration logs help surface silent setting coercions (floating → sticky) without surprising users.
+
+**Related Issues/PRs**: n/a
+
 ### [2025-12-06] - Documentation - Knowledge base snapshot refresh
 
 **Description**: Added a concise snapshot section to `explaination.md` capturing purpose, surfaces, critical modules, data flow, dependencies, and doc hygiene expectations so new contributors and AI agents can orient quickly.
