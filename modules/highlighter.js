@@ -44,6 +44,19 @@ const Highlighter = (function() {
   let savedRange = null; // Store the selected range for toolbar highlighting
   let contentObserver = null; // Watch for dynamic content loading
   let pendingHighlights = new Set(); // Track highlights that failed to render
+  let floatingButtonElement = null;
+  let floatingButtonPosition = { x: null, y: null };
+  let radialMenuState = {
+    isExpanded: false,
+    menuElement: null,
+    items: [],
+    radius: 70,
+    innerRadius: 30,
+    animationDelay: 20,
+    keyboardHandler: null
+  };
+  let resizeHandler = null;
+  let proximityHandler = null;
 
   function isLocalDbAvailable() {
     return typeof LocalDb !== 'undefined' && typeof LocalDb.getAllHighlights === 'function';
@@ -76,6 +89,7 @@ const Highlighter = (function() {
     setupContextMenu();
     await loadSelectionToolbarPreference();
     setupSelectionToolbar();
+    handleSelectionPreferenceChange(selectionToolbarPref);
     setupContentObserver(); // Watch for dynamic content
     
     isInitialized = true;
@@ -131,6 +145,864 @@ const Highlighter = (function() {
 
   function getSelectionToolbarPreference() {
     return selectionToolbarPref;
+  }
+
+  function handleSelectionPreferenceChange(pref) {
+    if (pref === SelectionPalettePreference.FLOATING) {
+      hideSelectionToolbar();
+      showFloatingButton();
+      return;
+    }
+    hideSelectionToolbar();
+    hideRadialMenu();
+    removeFloatingButton();
+  }
+
+  function ensureRadialStyles() {
+    const STYLE_ID = 'exl-hl-radial-styles';
+    if (document.getElementById(STYLE_ID)) return;
+
+    const style = document.createElement('style');
+    style.id = STYLE_ID;
+    style.textContent = `
+      .exl-hl-floating-btn {
+        position: fixed;
+        right: 20px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 48px;
+        height: 48px;
+        background: linear-gradient(160deg, rgba(70, 52, 150, 0.82) 0%, rgba(48, 122, 255, 0.88) 80%),
+          linear-gradient(var(--exl-glow-angle, 135deg), rgba(152, 121, 255, 0.45), rgba(82, 188, 255, 0.12));
+        color: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.45);
+        border-radius: 50%;
+        cursor: grab;
+        font-size: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 999997;
+        box-shadow: 0 6px 18px rgba(38, 58, 136, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.12);
+        transition: opacity 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+        opacity: 0.82;
+        padding: 0;
+        line-height: 1;
+        -webkit-user-select: none;
+        user-select: none;
+        touch-action: none;
+        position: relative;
+        overflow: visible;
+        backdrop-filter: blur(12px);
+        --exl-glow-angle: 135deg;
+      }
+
+      .exl-hl-floating-btn::before {
+        content: '';
+        position: absolute;
+        inset: -8px;
+        border-radius: 50%;
+        background: linear-gradient(var(--exl-glow-angle, 135deg), rgba(120, 167, 255, 0.32), rgba(132, 104, 255, 0.12));
+        filter: blur(10px);
+        opacity: 0;
+        transition: opacity 150ms ease, transform 150ms ease;
+        pointer-events: none;
+      }
+
+      .exl-hl-floating-btn::after {
+        content: '';
+        position: absolute;
+        inset: 4px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0));
+        opacity: 0.9;
+        pointer-events: none;
+        mix-blend-mode: screen;
+      }
+
+      .exl-hl-floating-btn:hover {
+        opacity: 1;
+        box-shadow: 0 10px 26px rgba(47, 86, 180, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.22);
+        border-color: rgba(255, 255, 255, 0.6);
+      }
+
+      .exl-hl-floating-btn.dragging {
+        cursor: grabbing;
+        opacity: 0.8;
+        transition: none;
+      }
+
+      .exl-hl-floating-btn.expanded {
+        opacity: 1;
+        border-color: rgba(255, 255, 255, 0.65);
+        background: linear-gradient(170deg, #0d1026 0%, #111734 65%, #162043 100%);
+        box-shadow: 0 14px 32px rgba(9, 12, 32, 0.65), inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+        animation: exl-hl-button-pulse 1.5s ease-in-out infinite;
+      }
+
+      .exl-hl-floating-btn.proximity {
+        box-shadow: 0 12px 30px rgba(76, 119, 255, 0.55), 0 0 0 10px rgba(126, 110, 255, 0.18);
+      }
+
+      .exl-hl-floating-btn.proximity::before {
+        opacity: 1;
+        transform: scale(1.05);
+      }
+
+      @keyframes exl-hl-button-pulse {
+        0%, 100% { box-shadow: 0 0 20px rgba(0,112,210,0.4); }
+        50% { box-shadow: 0 0 28px rgba(0,112,210,0.6); }
+      }
+
+      .exl-hl-radial-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 999996;
+        background: transparent;
+      }
+
+      .exl-hl-radial-menu {
+        position: fixed;
+        z-index: 999998;
+        pointer-events: none;
+        transform: translate(-50%, -50%);
+        width: 1px;
+        height: 1px;
+      }
+
+      .exl-hl-radial-menu.collapsing .exl-hl-radial-item,
+      .exl-hl-radial-menu.collapsing .exl-hl-radial-color-chip {
+        animation: exl-hl-radial-collapse 150ms ease-in forwards;
+      }
+
+      .exl-hl-radial-item {
+        position: absolute;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        color: #ffffff;
+        font-size: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        pointer-events: auto;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%) scale(0);
+        animation: exl-hl-radial-expand 200ms ease-out forwards;
+        animation-delay: var(--animation-delay, 0ms);
+      }
+
+      .exl-hl-radial-item:hover {
+        transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1.15);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+        border-color: #0070d2;
+        z-index: 10;
+      }
+
+      .exl-hl-radial-item:focus {
+        outline: none;
+        border-color: #0070d2;
+        box-shadow: 0 0 0 3px rgba(0, 112, 210, 0.4);
+      }
+
+      .exl-hl-radial-item:active {
+        transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(0.95);
+      }
+
+      .exl-hl-radial-color-chip {
+        position: absolute;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 255, 255, 0.5);
+        cursor: pointer;
+        pointer-events: auto;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%) scale(0);
+        animation: exl-hl-radial-expand 200ms ease-out forwards;
+        animation-delay: var(--animation-delay, 0ms);
+      }
+
+      .exl-hl-radial-color-chip:hover {
+        transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1.3);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        z-index: 10;
+      }
+
+      .exl-hl-radial-color-chip:focus {
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.6);
+      }
+
+      .exl-hl-radial-color-chip.selected {
+        border-color: #ffffff;
+        box-shadow: 0 0 0 3px rgba(0, 112, 210, 0.8), 0 4px 12px rgba(0, 0, 0, 0.4);
+        transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1.1);
+      }
+
+      .exl-hl-radial-color-chip.selected::after {
+        content: '✓';
+        position: absolute;
+        font-size: 14px;
+        color: #1a1a2e;
+        font-weight: bold;
+        text-shadow: 0 0 2px rgba(255, 255, 255, 0.8);
+      }
+
+      .exl-hl-radial-item::before {
+        content: attr(title);
+        position: absolute;
+        bottom: calc(100% + 8px);
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 4px 8px;
+        background: rgba(0, 0, 0, 0.9);
+        color: #ffffff;
+        font-size: 11px;
+        font-family: Arial, sans-serif;
+        white-space: nowrap;
+        border-radius: 4px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+      }
+
+      .exl-hl-radial-item:hover::before {
+        opacity: 1;
+      }
+
+      @keyframes exl-hl-radial-expand {
+        0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+        50% { opacity: 1; }
+        100% { transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1); opacity: 1; }
+      }
+
+      @keyframes exl-hl-radial-collapse {
+        0% { transform: translate(calc(-50% + var(--final-x)), calc(-50% + var(--final-y))) scale(1); opacity: 1; }
+        100% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+      }
+    `;
+
+    (document.head || document.documentElement || document.body)?.appendChild(style);
+  }
+
+  async function loadFloatingButtonPosition() {
+    return new Promise((resolve) => {
+      try {
+        chrome.storage.local.get(['exl_hl_floating_btn_pos'], (result) => {
+          const pos = result.exl_hl_floating_btn_pos;
+          if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
+            floatingButtonPosition = { x: pos.x, y: pos.y };
+          }
+          resolve();
+        });
+      } catch (error) {
+        console.warn('[Highlighter] Failed to load floating position:', error);
+        resolve();
+      }
+    });
+  }
+
+  function saveFloatingButtonPosition(x, y) {
+    floatingButtonPosition = { x, y };
+    try {
+      chrome.storage.local.set({ exl_hl_floating_btn_pos: { x, y } });
+    } catch (error) {
+      console.warn('[Highlighter] Failed to save floating position:', error);
+    }
+  }
+
+  function applyFloatingButtonPosition() {
+    if (!floatingButtonElement) return;
+    const { x, y } = floatingButtonPosition;
+    if (x === null || y === null) return;
+    floatingButtonElement.style.left = `${x}px`;
+    floatingButtonElement.style.top = `${y}px`;
+    floatingButtonElement.style.right = 'auto';
+    floatingButtonElement.style.bottom = 'auto';
+    floatingButtonElement.style.transform = 'none';
+  }
+
+  function clampFloatingButtonToViewport() {
+    if (!floatingButtonElement) return;
+    const rect = floatingButtonElement.getBoundingClientRect();
+    const padding = 8;
+    const width = rect.width || 48;
+    const height = rect.height || 48;
+    const clampedX = Math.min(Math.max(rect.left, padding), Math.max(padding, window.innerWidth - width - padding));
+    const clampedY = Math.min(Math.max(rect.top, padding), Math.max(padding, window.innerHeight - height - padding));
+    floatingButtonElement.style.left = `${clampedX}px`;
+    floatingButtonElement.style.top = `${clampedY}px`;
+    floatingButtonElement.style.right = 'auto';
+    floatingButtonElement.style.bottom = 'auto';
+    saveFloatingButtonPosition(clampedX, clampedY);
+
+    if (radialMenuState.isExpanded && radialMenuState.menuElement) {
+      const centerX = clampedX + (width / 2);
+      const centerY = clampedY + (height / 2);
+      radialMenuState.menuElement.style.left = `${centerX}px`;
+      radialMenuState.menuElement.style.top = `${centerY}px`;
+    }
+  }
+
+  function setupResizeHandler() {
+    if (resizeHandler) return;
+    const debounced = (() => {
+      let timer = null;
+      return () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          clampFloatingButtonToViewport();
+          if (radialMenuState.isExpanded) {
+            hideRadialMenu();
+            showRadialMenu();
+          }
+        }, 120);
+      };
+    })();
+
+    resizeHandler = debounced;
+    window.addEventListener('resize', resizeHandler);
+  }
+
+  function setupFloatingButtonProximity() {
+    if (!floatingButtonElement) return;
+    if (proximityHandler) return;
+
+    const button = floatingButtonElement;
+    const handler = (evt) => {
+      if (!button || button.style.display === 'none') return;
+      const rect = button.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const dx = evt.clientX - centerX;
+      const dy = evt.clientY - centerY;
+      const distance = Math.hypot(dx, dy);
+      const radius = rect.width / 2;
+      const proximityThreshold = radius + 30;
+
+      if (distance <= proximityThreshold) {
+        const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+        button.style.setProperty('--exl-glow-angle', `${angleDeg}deg`);
+        button.classList.add('proximity');
+      } else {
+        button.classList.remove('proximity');
+      }
+    };
+
+    proximityHandler = handler;
+    window.addEventListener('mousemove', handler);
+  }
+
+  function makeFloatingButtonDraggable(button) {
+    if (!button) return;
+
+    loadFloatingButtonPosition().then(() => applyFloatingButtonPosition());
+
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let originX = 0;
+    let originY = 0;
+    const DRAG_THRESHOLD = 5;
+
+    const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
+
+    const onMouseMove = (e) => {
+      if (!isDragging) return;
+      const deltaX = e.clientX - startX;
+      const deltaY = e.clientY - startY;
+      const newX = clamp(originX + deltaX, 8, window.innerWidth - 56);
+      const newY = clamp(originY + deltaY, 8, window.innerHeight - 56);
+      button.style.left = `${newX}px`;
+      button.style.top = `${newY}px`;
+      button.style.right = 'auto';
+      button.style.bottom = 'auto';
+
+      if (radialMenuState.isExpanded && radialMenuState.menuElement) {
+        const centerX = newX + button.offsetWidth / 2;
+        const centerY = newY + button.offsetHeight / 2;
+        radialMenuState.menuElement.style.left = `${centerX}px`;
+        radialMenuState.menuElement.style.top = `${centerY}px`;
+      }
+    };
+
+    const onMouseUp = (e) => {
+      if (isDragging) {
+        const moved = Math.abs(e.clientX - startX) > DRAG_THRESHOLD || Math.abs(e.clientY - startY) > DRAG_THRESHOLD;
+        const rect = button.getBoundingClientRect();
+        saveFloatingButtonPosition(rect.left, rect.top);
+        button.classList.remove('dragging');
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        isDragging = false;
+        if (!moved) {
+          toggleRadialMenu(e);
+        }
+      }
+    };
+
+    button.addEventListener('mousedown', (e) => {
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = button.getBoundingClientRect();
+      originX = rect.left;
+      originY = rect.top;
+      isDragging = true;
+      button.classList.add('dragging');
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
+
+    button.addEventListener('contextmenu', (e) => {
+      if (isDragging) {
+        e.preventDefault();
+      }
+    });
+  }
+
+  function showFloatingButton() {
+    if (selectionToolbarPref !== SelectionPalettePreference.FLOATING) return;
+
+    if (!document.body) {
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => showFloatingButton());
+      } else {
+        setTimeout(() => showFloatingButton(), 100);
+      }
+      return;
+    }
+
+    if (floatingButtonElement) {
+      floatingButtonElement.style.display = 'block';
+      applyFloatingButtonPosition();
+      setupFloatingButtonProximity();
+      return;
+    }
+
+    ensureRadialStyles();
+
+    const floatingBtn = document.createElement('button');
+    floatingBtn.className = 'exl-hl-floating-btn';
+    floatingBtn.innerHTML = '✨';
+    floatingBtn.title = 'Highlighter quick actions';
+    floatingBtn.setAttribute('aria-label', 'Highlighter quick actions');
+
+    makeFloatingButtonDraggable(floatingBtn);
+
+    document.body.appendChild(floatingBtn);
+    floatingButtonElement = floatingBtn;
+    setupResizeHandler();
+    setupFloatingButtonProximity();
+  }
+
+  function hideFloatingButton() {
+    if (floatingButtonElement) {
+      floatingButtonElement.style.display = 'none';
+    }
+  }
+
+  function removeFloatingButton() {
+    hideRadialMenu();
+    if (floatingButtonElement) {
+      floatingButtonElement.remove();
+      floatingButtonElement = null;
+    }
+    if (resizeHandler) {
+      window.removeEventListener('resize', resizeHandler);
+      resizeHandler = null;
+    }
+    if (proximityHandler) {
+      window.removeEventListener('mousemove', proximityHandler);
+      proximityHandler = null;
+    }
+  }
+
+  function toggleRadialMenu(event) {
+    if (radialMenuState.isExpanded) {
+      hideRadialMenu();
+    } else {
+      showRadialMenu(event);
+    }
+  }
+
+  function showRadialMenu(event) {
+    if (radialMenuState.isExpanded || !floatingButtonElement) return;
+
+    ensureRadialStyles();
+    hideRadialMenu();
+
+    const buttonRect = floatingButtonElement.getBoundingClientRect();
+    const centerX = buttonRect.left + buttonRect.width / 2;
+    const centerY = buttonRect.top + buttonRect.height / 2;
+
+    const menu = document.createElement('div');
+    menu.className = 'exl-hl-radial-menu';
+    menu.id = 'exl-hl-radial-menu';
+    menu.style.left = `${centerX}px`;
+    menu.style.top = `${centerY}px`;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'exl-hl-radial-overlay';
+    overlay.addEventListener('click', () => hideRadialMenu());
+    document.body.appendChild(overlay);
+
+    const items = getRadialMenuItems();
+    const colors = getColors();
+    const currentColor = getCurrentColor();
+
+    const mouseX = event ? event.clientX : centerX;
+    const mouseY = event ? event.clientY : centerY;
+    const deltaX = mouseX - centerX;
+    const deltaY = mouseY - centerY;
+    const entryAngle = Math.atan2(deltaY, deltaX);
+
+    const radius = radialMenuState.radius;
+    const colorRadius = Math.max(40, Math.min(radialMenuState.innerRadius || 55, radius - 20));
+    const angleRangeDeg = 180;
+    const angleRangeRad = angleRangeDeg * Math.PI / 180;
+
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const itemSize = 44;
+    const colorSize = 28;
+    const padding = 20;
+
+    const baseStartAngle = entryAngle - (angleRangeRad / 2);
+    let startAngleRad = baseStartAngle;
+
+    const edgeThreshold = 120;
+    const nearLeft = centerX < edgeThreshold;
+    const nearRight = centerX > viewportWidth - edgeThreshold;
+    const nearTop = centerY < edgeThreshold;
+    const nearBottom = centerY > viewportHeight - edgeThreshold;
+
+    const angleStep = items.length > 1 ? angleRangeRad / (items.length - 1) : 0;
+
+    let bestAngle = startAngleRad;
+    let minOverflow = Infinity;
+    let minItemsOutside = Infinity;
+    const testAngles = [];
+
+    if (nearLeft) {
+      testAngles.push(Math.PI / 2 - (angleRangeRad / 2));
+      testAngles.push(Math.PI / 4 - (angleRangeRad / 2));
+      testAngles.push(0 - (angleRangeRad / 2));
+    }
+    if (nearRight) {
+      testAngles.push(-Math.PI / 2 - (angleRangeRad / 2));
+      testAngles.push(-Math.PI / 4 - (angleRangeRad / 2));
+      testAngles.push(Math.PI - (angleRangeRad / 2));
+    }
+    if (nearTop) {
+      testAngles.push(0 - (angleRangeRad / 2));
+      testAngles.push(Math.PI / 4 - (angleRangeRad / 2));
+      testAngles.push(-Math.PI / 4 - (angleRangeRad / 2));
+    }
+    if (nearBottom) {
+      testAngles.push(Math.PI - (angleRangeRad / 2));
+      testAngles.push(3 * Math.PI / 4 - (angleRangeRad / 2));
+      testAngles.push(-3 * Math.PI / 4 - (angleRangeRad / 2));
+    }
+
+    if ((nearLeft && nearTop) || (nearRight && nearBottom)) {
+      testAngles.push(Math.PI / 4 - (angleRangeRad / 2));
+      testAngles.push(Math.PI / 2 - (angleRangeRad / 2));
+    }
+    if ((nearLeft && nearBottom) || (nearRight && nearTop)) {
+      testAngles.push(-Math.PI / 4 - (angleRangeRad / 2));
+      testAngles.push(-Math.PI / 2 - (angleRangeRad / 2));
+    }
+
+    testAngles.push(startAngleRad);
+
+    const normalizeAngle = (angle) => {
+      const twoPi = Math.PI * 2;
+      let a = angle % twoPi;
+      if (a > Math.PI) a -= twoPi;
+      if (a < -Math.PI) a += twoPi;
+      return a;
+    };
+
+    const uniqueAngles = [...new Set([baseStartAngle, ...testAngles])];
+
+    for (const testAngle of uniqueAngles) {
+      let overflow = 0;
+      let itemsOutside = 0;
+
+      for (let i = 0; i < items.length; i++) {
+        const angle = testAngle + (i * angleStep);
+        const testX = centerX + Math.cos(angle) * radius;
+        const testY = centerY + Math.sin(angle) * radius;
+
+        const leftEdge = testX - itemSize / 2;
+        const rightEdge = testX + itemSize / 2;
+        const topEdge = testY - itemSize / 2;
+        const bottomEdge = testY + itemSize / 2;
+
+        if (leftEdge < padding) {
+          overflow += (padding - leftEdge) * 2;
+          itemsOutside++;
+        }
+        if (rightEdge > viewportWidth - padding) {
+          overflow += (rightEdge - (viewportWidth - padding)) * 2;
+          itemsOutside++;
+        }
+        if (topEdge < padding) {
+          overflow += (padding - topEdge) * 2;
+          itemsOutside++;
+        }
+        if (bottomEdge > viewportHeight - padding) {
+          overflow += (bottomEdge - (viewportHeight - padding)) * 2;
+          itemsOutside++;
+        }
+      }
+
+      const colorAngleStep = colors.length > 1 ? angleRangeRad / (colors.length - 1) : 0;
+      for (let i = 0; i < colors.length; i++) {
+        const angle = testAngle + (i * colorAngleStep);
+        const testX = centerX + Math.cos(angle) * colorRadius;
+        const testY = centerY + Math.sin(angle) * colorRadius;
+
+        const leftEdge = testX - colorSize / 2;
+        const rightEdge = testX + colorSize / 2;
+        const topEdge = testY - colorSize / 2;
+        const bottomEdge = testY + colorSize / 2;
+
+        if (leftEdge < padding) {
+          overflow += (padding - leftEdge);
+          itemsOutside++;
+        }
+        if (rightEdge > viewportWidth - padding) {
+          overflow += (rightEdge - (viewportWidth - padding));
+          itemsOutside++;
+        }
+        if (topEdge < padding) {
+          overflow += (padding - topEdge);
+          itemsOutside++;
+        }
+        if (bottomEdge > viewportHeight - padding) {
+          overflow += (bottomEdge - (viewportHeight - padding));
+          itemsOutside++;
+        }
+      }
+
+      const deviationPenalty = Math.abs(normalizeAngle(testAngle - baseStartAngle)) * 50;
+      const score = (itemsOutside * 200) + overflow + deviationPenalty;
+
+      if (itemsOutside === 0 && overflow === 0 && deviationPenalty === 0) {
+        bestAngle = testAngle;
+        break;
+      }
+
+      if (itemsOutside < minItemsOutside || (itemsOutside === minItemsOutside && score < minOverflow)) {
+        minItemsOutside = itemsOutside;
+        minOverflow = score;
+        bestAngle = testAngle;
+      }
+    }
+
+    startAngleRad = bestAngle;
+    const angleStepDeg = items.length > 1 ? angleRangeRad / (items.length - 1) : 0;
+
+    items.forEach((item, index) => {
+      const angle = startAngleRad + (index * angleStepDeg);
+      let x = Math.cos(angle) * radius;
+      let y = Math.sin(angle) * radius;
+
+      const finalX = centerX + x;
+      const finalY = centerY + y;
+
+      if (finalX - itemSize / 2 < padding) {
+        x = padding + itemSize / 2 - centerX;
+      } else if (finalX + itemSize / 2 > viewportWidth - padding) {
+        x = viewportWidth - padding - itemSize / 2 - centerX;
+      }
+
+      if (finalY - itemSize / 2 < padding) {
+        y = padding + itemSize / 2 - centerY;
+      } else if (finalY + itemSize / 2 > viewportHeight - padding) {
+        y = viewportHeight - padding - itemSize / 2 - centerY;
+      }
+
+      const itemEl = document.createElement('button');
+      itemEl.className = 'exl-hl-radial-item';
+      itemEl.innerHTML = item.icon;
+      itemEl.title = item.label;
+      itemEl.setAttribute('aria-label', item.label);
+      itemEl.setAttribute('tabindex', '0');
+      itemEl.style.setProperty('--final-x', `${x}px`);
+      itemEl.style.setProperty('--final-y', `${y}px`);
+      itemEl.style.setProperty('--animation-delay', `${index * radialMenuState.animationDelay}ms`);
+
+      itemEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (item.action) {
+          item.action();
+        }
+        if (item.closeOnAction !== false) {
+          hideRadialMenu();
+        }
+      });
+
+      menu.appendChild(itemEl);
+      radialMenuState.items.push(itemEl);
+    });
+
+    const colorAngleStep = colors.length > 1 ? angleRangeRad / (colors.length - 1) : 0;
+
+    colors.forEach((color, index) => {
+      const angle = startAngleRad + (index * colorAngleStep);
+      let x = Math.cos(angle) * colorRadius;
+      let y = Math.sin(angle) * colorRadius;
+
+      const finalX = centerX + x;
+      const finalY = centerY + y;
+
+      if (finalX - colorSize / 2 < padding) {
+        x = padding + colorSize / 2 - centerX;
+      } else if (finalX + colorSize / 2 > viewportWidth - padding) {
+        x = viewportWidth - padding - colorSize / 2 - centerX;
+      }
+
+      if (finalY - colorSize / 2 < padding) {
+        y = padding + colorSize / 2 - centerY;
+      } else if (finalY + colorSize / 2 > viewportHeight - padding) {
+        y = viewportHeight - padding - colorSize / 2 - centerY;
+      }
+
+      const chip = document.createElement('button');
+      chip.className = 'exl-hl-radial-color-chip';
+      chip.style.backgroundColor = color.rgb;
+      chip.title = color.name;
+      chip.setAttribute('aria-label', `Color: ${color.name}`);
+      chip.dataset.colorId = color.id;
+      chip.style.setProperty('--final-x', `${x}px`);
+      chip.style.setProperty('--final-y', `${y}px`);
+      chip.style.setProperty('--animation-delay', `${(items.length + index) * radialMenuState.animationDelay}ms`);
+
+      if (currentColor && currentColor.id === color.id) {
+        chip.classList.add('selected');
+      }
+
+      chip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectRadialColor(color.id, chip);
+      });
+
+      menu.appendChild(chip);
+      radialMenuState.items.push(chip);
+    });
+
+    document.body.appendChild(menu);
+    radialMenuState.menuElement = menu;
+    radialMenuState.isExpanded = true;
+
+    floatingButtonElement.classList.add('expanded');
+    floatingButtonElement.setAttribute('aria-expanded', 'true');
+
+    setupRadialMenuKeyboard(menu);
+  }
+
+  function getRadialMenuItems() {
+    const items = [
+      {
+        icon: '🖍️',
+        label: 'Highlight selection',
+        closeOnAction: false,
+        action: () => createHighlight()
+      }
+    ];
+
+    if (selectionToolbarPref !== SelectionPalettePreference.PALETTE) {
+      items.push({
+        icon: '🚦',
+        label: 'Restore selection palette',
+        action: async () => {
+          await setSelectionToolbarPreference(SelectionPalettePreference.PALETTE);
+          handleSelectionPreferenceChange(SelectionPalettePreference.PALETTE);
+        }
+      });
+    }
+
+    return items;
+  }
+
+  function selectRadialColor(colorId, element) {
+    setColor(colorId);
+    const allColorChips = document.querySelectorAll('.exl-hl-radial-color-chip');
+    allColorChips.forEach(chip => chip.classList.remove('selected'));
+    if (element) {
+      element.classList.add('selected');
+    }
+  }
+
+  function setupRadialMenuKeyboard(menu) {
+    const handleKeydown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        hideRadialMenu();
+      } else if (e.key === 'Tab') {
+        const focusable = menu.querySelectorAll('button');
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeydown);
+    radialMenuState.keyboardHandler = handleKeydown;
+
+    const firstItem = menu.querySelector('button');
+    if (firstItem) {
+      setTimeout(() => firstItem.focus(), 100);
+    }
+  }
+
+  function hideRadialMenu() {
+    if (!radialMenuState.isExpanded) return;
+
+    const menu = radialMenuState.menuElement;
+    const overlay = document.querySelector('.exl-hl-radial-overlay');
+
+    if (menu) {
+      menu.classList.add('collapsing');
+      setTimeout(() => menu.remove(), 200);
+    }
+    if (overlay) overlay.remove();
+
+    if (radialMenuState.keyboardHandler) {
+      document.removeEventListener('keydown', radialMenuState.keyboardHandler);
+      radialMenuState.keyboardHandler = null;
+    }
+
+    if (floatingButtonElement) {
+      floatingButtonElement.classList.remove('expanded');
+      floatingButtonElement.setAttribute('aria-expanded', 'false');
+      floatingButtonElement.focus();
+    }
+
+    radialMenuState.menuElement = null;
+    radialMenuState.items = [];
+    radialMenuState.isExpanded = false;
   }
 
   /**
@@ -845,6 +1717,7 @@ const Highlighter = (function() {
       if (!selectionDecisionChoice) return;
       if (selectionDecisionChoice === SelectionPalettePreference.DISABLED || selectionDecisionChoice === SelectionPalettePreference.FLOATING) {
         await saveSelectionToolbarPreference(selectionDecisionChoice);
+        handleSelectionPreferenceChange(selectionDecisionChoice);
       }
       hideSelectionToolbar();
     });

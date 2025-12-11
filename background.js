@@ -203,14 +203,87 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         }
       })();
       return true;
+    } else if (request.type === 'OPEN_TAB') {
+      try {
+        chrome.tabs.create({ url: request.url || 'about:blank' }, () => {
+          if (chrome.runtime.lastError) {
+            sendResponse({ success: false, error: chrome.runtime.lastError?.message });
+          } else {
+            sendResponse({ success: true });
+          }
+        });
+      } catch (err) {
+        sendResponse({ success: false, error: err?.message });
+      }
+      return true;
     } else if (request.type === 'CAPTURE_VISIBLE_TAB') {
-      chrome.tabs.captureVisibleTab(sender.tab?.windowId || undefined, { format: 'png' }, (dataUrl) => {
-        if (chrome.runtime.lastError || !dataUrl) {
-          sendResponse({ success: false, error: chrome.runtime.lastError?.message || 'captureVisibleTab failed' });
-          return;
+      const tabId = sender.tab?.id;
+      const windowId = sender.tab?.windowId;
+
+      const fallbackToVisibleTab = () => {
+        chrome.tabs.captureVisibleTab(windowId || undefined, { format: 'png' }, (dataUrl) => {
+          if (chrome.runtime.lastError || !dataUrl) {
+            sendResponse({ success: false, error: chrome.runtime.lastError?.message || 'captureVisibleTab failed' });
+            return;
+          }
+          sendResponse({ success: true, dataUrl });
+        });
+      };
+
+      if (chrome.tabCapture && typeof chrome.tabCapture.capture === 'function' && typeof tabId === 'number') {
+        try {
+          chrome.tabCapture.capture({ audio: false, video: true, videoConstraints: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: tabId } } }, (stream) => {
+            if (chrome.runtime.lastError || !stream) {
+              // Fall back to captureVisibleTab when tabCapture is unavailable/blocked
+              fallbackToVisibleTab();
+              return;
+            }
+
+            const track = stream.getVideoTracks()[0];
+            const imageCapture = track ? new ImageCapture(track) : null;
+
+            if (!imageCapture || typeof imageCapture.grabFrame !== 'function') {
+              try { track?.stop(); } catch (e) { /* ignore */ }
+              fallbackToVisibleTab();
+              return;
+            }
+
+            imageCapture.grabFrame().then((bitmap) => {
+              try { track.stop(); } catch (e) { /* ignore */ }
+
+              let canvas;
+              try {
+                canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+              } catch (err) {
+                // OffscreenCanvas may be unavailable; fall back to visibleTab
+                fallbackToVisibleTab();
+                return;
+              }
+
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(bitmap, 0, 0);
+              canvas.convertToBlob({ type: 'image/png' }).then((blob) => {
+                const reader = new FileReader();
+                reader.onloadend = () => sendResponse({ success: true, dataUrl: reader.result });
+                reader.onerror = () => sendResponse({ success: false, error: 'Failed to read capture blob' });
+                reader.readAsDataURL(blob);
+              }).catch((err) => {
+                sendResponse({ success: false, error: err?.message || 'convertToBlob failed' });
+              });
+            }).catch((err) => {
+              try { track.stop(); } catch (e) { /* ignore */ }
+              sendResponse({ success: false, error: err?.message || 'grabFrame failed' });
+            });
+          });
+          return true;
+        } catch (err) {
+          // Unexpected failure in tabCapture path; fall back
+          fallbackToVisibleTab();
+          return true;
         }
-        sendResponse({ success: true, dataUrl });
-      });
+      }
+
+      fallbackToVisibleTab();
       return true;
     }
   });

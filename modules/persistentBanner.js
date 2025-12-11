@@ -15,6 +15,11 @@ const PersistentBanner = {
     // Navigation history queue (max 3 items)
     navigationHistory: [],
     maxHistoryItems: 3,
+    navigationHistoryPendingEntry: null,
+    navigationHistoryRetryTimer: null,
+    navigationHistoryRetryStartedAt: null,
+    navigationHistoryRetryTimeoutMs: 5000,
+    navigationHistoryRetryDelayMs: 250,
     
     // Current case tracking (to detect navigation to different case)
     currentCaseId: null,
@@ -22,13 +27,14 @@ const PersistentBanner = {
     // Displayed case tracking (for stale data prevention)
     displayedCaseId: null,
     displayedCaseNumber: null,
+    lastRenderSignature: null,
     validationInterval: null,
     
     // Polling state for incremental data updates
     dataPollingInterval: null,
     pollingStartTime: null,
     maxPollingDuration: 10000, // Stop polling after 10 seconds
-    pollingIntervalMs: 500, // Poll every 500ms
+    pollingIntervalMs: 1000, // Poll every 500ms
     
     // Retry state for exponential backoff
     retryTimeoutId: null,
@@ -354,6 +360,48 @@ const PersistentBanner = {
     // STORAGE MANAGEMENT - Local Storage with Sync Preparation
     // =================================================================
 
+    getDefaultMessagesConfig() {
+        // Prefer defaults from SettingsManager to avoid drift from popup.js
+        const defaultsFromSettings = (typeof SettingsManager !== 'undefined' && SettingsManager.DEFAULT_SETTINGS)
+            ? SettingsManager.DEFAULT_SETTINGS.exlibris?.persistentBanner?.messages
+            : null;
+
+        if (defaultsFromSettings) {
+            return {
+                enabled: defaultsFromSettings.enabled !== false,
+                autoRotate: defaultsFromSettings.autoRotate !== false,
+                rotationInterval: defaultsFromSettings.rotationInterval || 5000,
+                defaultMessages: defaultsFromSettings.defaultMessages || { enabled: true, items: [] },
+                customMessages: defaultsFromSettings.customMessages || [],
+                syncEnabled: false,
+                lastSyncTime: null
+            };
+        }
+
+        // Fallback hard-coded defaults (must stay in sync with popup.js)
+        return {
+            enabled: true,
+            autoRotate: true,
+            rotationInterval: 5000,
+            defaultMessages: {
+                enabled: true,
+                items: [
+                    { id: 'default_1', text: 'Field Highlighting', enabled: true },
+                    { id: 'default_2', text: 'Context Menu Formatting', enabled: true },
+                    { id: 'default_3', text: 'Multi-Tab Warning', enabled: true },
+                    { id: 'default_4', text: 'Auto-Save Comments', enabled: true },
+                    { id: 'default_5', text: 'Character Counter', enabled: true },
+                    { id: 'default_6', text: 'Dynamic Buttons', enabled: true },
+                    { id: 'default_7', text: 'Persistent Banner', enabled: true },
+                    { id: 'default_8', text: 'Text Highlighter & Sticky Notes', enabled: true }
+                ]
+            },
+            customMessages: [],
+            syncEnabled: false,
+            lastSyncTime: null
+        };
+    },
+
     /**
      * Migrate legacy messages from chrome.storage.sync to chrome.storage.local
      * Called once during initialization if migration not yet complete
@@ -415,15 +463,7 @@ const PersistentBanner = {
         return new Promise((resolve) => {
             chrome.storage.local.get(['exl_bannerMessages'], (result) => {
                 // Provide a stable fallback structure so downstream callers always receive an object
-                const messagesConfig = result.exl_bannerMessages || {
-                    enabled: true,
-                    autoRotate: true,
-                    rotationInterval: 5000,
-                    defaultMessages: { enabled: true, items: [] },
-                    customMessages: [],
-                    syncEnabled: false,
-                    lastSyncTime: null
-                };
+                const messagesConfig = result.exl_bannerMessages || this.getDefaultMessagesConfig();
 
                 this.messageSettings = messagesConfig;
                 this.activeMessages = this.getActiveMessages(messagesConfig);
@@ -1718,7 +1758,7 @@ const PersistentBanner = {
 
             // Add text content
             const content = document.createElement('div');
-            content.style.cssText = 'flex: 1; min-width: 0;';
+            content.style.cssText = 'flex: 1; width: min-content;';
 
             // Message preview (first 50 chars)
             const preview = document.createElement('div');
@@ -1914,10 +1954,18 @@ const PersistentBanner = {
         
         if (isCasePage) {
             const extractionState = this.isCaseDataExtractionComplete();
-            let urlCasePage = window.location.href;
-            this.currentPage.caseId = document.urlCasePage.match(/\/Case\/([a-zA-Z0-9]{15,18})\//)[1];
-            this.currentPage.caseNumber = document.head.querySelector('title').textContent.split(' | ')[0];
-            this.displayedCaseId = this.currentPage.caseId;
+            const urlCasePage = window.location.href;
+            const caseMatch = urlCasePage.match(/\/Case\/([a-zA-Z0-9]{15,18})\//);
+            if (caseMatch) {
+                this.currentPage.caseId = caseMatch[1];
+                this.displayedCaseId = caseMatch[1];
+            }
+            const titleText = document.head?.querySelector('title')?.textContent || '';
+            const inferredCaseNumber = titleText.split(' | ')[0];
+            if (inferredCaseNumber) {
+                this.currentPage.caseNumber = inferredCaseNumber;
+                this.displayedCaseNumber = inferredCaseNumber;
+            }
             console.log('[PersistentBanner] Initial state check - extraction state:', extractionState);
             
             // If extraction is complete, update UI immediately
@@ -2115,19 +2163,17 @@ const PersistentBanner = {
             if (elapsed >= this.maxPollingDuration) {
                 console.log('[PersistentBanner] Polling timeout reached, checking completeness...');
                 
-                // Check if metadata is complete before stopping
+                // Check if metadata is complete before adjusting
                 const isComplete = this.fullCaseMetadata && this.isMetadataComplete(this.fullCaseMetadata);
                 
                 if (isComplete) {
-                    console.log('[PersistentBanner] Metadata is complete, stopping polling');
-                this.stopDataPolling();
-                    this.cancelMetadataRetry(); // Cancel any pending retries
+                    console.log('[PersistentBanner] Metadata is complete, continuing polling in listen mode');
                 } else {
-                    console.log('[PersistentBanner] Metadata incomplete after timeout, scheduling retry');
-                    // Stop polling but schedule retry with exponential backoff
-                    this.stopDataPolling();
-                    this.scheduleMetadataRetry();
+                    console.log('[PersistentBanner] Metadata incomplete after timeout, continuing to listen');
                 }
+
+                // Reset timer and keep polling instead of stopping/restarting
+                this.pollingStartTime = Date.now();
                 return;
             }
 
@@ -2152,9 +2198,9 @@ const PersistentBanner = {
                         
                         // Check if metadata is now complete
                         if (this.fullCaseMetadata && this.isMetadataComplete(this.fullCaseMetadata)) {
-                            console.log('[PersistentBanner] All metadata fields captured, stopping polling');
-                            this.stopDataPolling();
-                            this.cancelMetadataRetry();
+                            console.log('[PersistentBanner] All metadata fields captured, continuing polling in listen mode');
+                            // Reset timer so we don't hit timeout immediately after completion
+                            this.pollingStartTime = Date.now();
                             return;
                         }
                     } else {
@@ -2634,7 +2680,7 @@ const PersistentBanner = {
         if (this.customerMetadata.institutionCode && 
             (!this.customerMetadata.customerId || !this.customerMetadata.institutionId || !this.customerMetadata.server)) {
             this.enrichCustomerMetadataFromManagers(data.accountName);
-        }
+                    }
 
         // Update page type
         if (!this.currentPage.type || this.currentPage.type !== 'case_page') {
@@ -2648,13 +2694,6 @@ const PersistentBanner = {
         const shouldUpdateUI = hasChanges || source === 'polling';
         
         if (shouldUpdateUI) {
-            console.log(`[PersistentBanner] Applied data update from ${source}:`, {
-                caseNumber: this.currentPage.caseNumber,
-                subject: this.currentPage.subject,
-                status: this.currentPage.status,
-                metadataComplete: this.fullCaseMetadata ? this.isMetadataComplete(this.fullCaseMetadata) : false
-            });
-            
             // Update UI immediately to show progressive loading
             this.updateBannerUI();
         }
@@ -3244,16 +3283,22 @@ const PersistentBanner = {
             
             // Messages can now appear on case pages - check if should show
             this.shouldShowMessages().then(showMessages => {
-                if (showMessages && this.elements.messagesSection) {
+                if (this.elements.messagesSection) {
                     this.elements.messagesSection.style.display = 'flex';
+                }
+
+                if (showMessages) {
                     this.updateMessageDisplay();
                     this.startMessageRotation();
-                } else if (this.elements.messagesSection) {
-                    this.elements.messagesSection.style.display = 'none';
+                } else {
                     this.stopMessageRotation();
                 }
             }).catch(error => {
                 console.error('[PersistentBanner] Error checking shouldShowMessages:', error);
+                // Keep section visible even if we hit an error to avoid collapsing the UI
+                if (this.elements.messagesSection) {
+                    this.elements.messagesSection.style.display = 'flex';
+                }
             });
             
             // Update banner UI with new metadata and status
@@ -3570,14 +3615,7 @@ const PersistentBanner = {
             this.startDataPolling();
         }
         
-        // Stop polling if all primary metadata is captured
-        const hasAllPrimaryMetadata = this.currentPage.caseNumber && 
-                                     this.currentPage.subject && 
-                                     this.currentPage.status;
-        if (hasAllPrimaryMetadata && this.dataPollingInterval) {
-            console.log('[PersistentBanner] All primary metadata captured, stopping polling');
-            this.stopDataPolling();
-        }
+        // Keep polling active; we now rely on continuous listen mode instead of stopping here
     },
 
     /**
@@ -3717,6 +3755,7 @@ const PersistentBanner = {
         // Clear displayed case tracking
         this.displayedCaseId = null;
         this.displayedCaseNumber = null;
+        this.lastRenderSignature = null;
         
         // Stop customer time refresh
         this.stopCustomerTimeRefresh();
@@ -3752,8 +3791,6 @@ const PersistentBanner = {
             if (window.ExLibrisExtension.caseToolkit) {
                 window.ExLibrisExtension.caseToolkit.caseData = null;
             }
-            window.ExLibrisExtension.apiCaseData = null;
-            window.ExLibrisExtension.apiCaseDataTimestamp = null;
         }
         
         // Clear last extracted data in CasePageDataExtractor
@@ -3823,49 +3860,126 @@ const PersistentBanner = {
         }
     },
 
+    resolveNavigationHistoryFields(pageInfo) {
+        const subjectSources = [
+            pageInfo.subject,
+            this.currentPage.subject,
+            this.fullCaseMetadata?.subject,
+            this.fullCaseMetadata?.caseSubject
+        ];
+
+        const institutionCodeSources = [
+            pageInfo.institutionCode,
+            this.customerMetadata.institutionCode,
+            this.fullCaseMetadata?.institutionCode,
+            this.fullCaseMetadata?.exLibrisAccountNumber
+        ];
+
+        const resolvedSubject = subjectSources.find((value) => value !== null && value !== undefined && `${value}`.trim() !== '') || null;
+        const resolvedInstitutionCode = institutionCodeSources.find((value) => value !== null && value !== undefined && `${value}`.trim() !== '') || null;
+
+        return { resolvedSubject, resolvedInstitutionCode };
+    },
+
+    buildNavigationHistoryEntry(pageInfo) {
+        const { resolvedSubject, resolvedInstitutionCode } = this.resolveNavigationHistoryFields(pageInfo);
+
+        if (!resolvedSubject || !resolvedInstitutionCode) {
+            return null;
+        }
+
+        return {
+            ...pageInfo,
+            subject: resolvedSubject,
+            description: this.currentPage.description || this.fullCaseMetadata?.description || null,
+            custID: this.customerMetadata.customerId || this.fullCaseMetadata?.custID || null,
+            instID: this.customerMetadata.institutionId || this.fullCaseMetadata?.instID || null,
+            server: this.customerMetadata.server || null,
+            institutionCode: resolvedInstitutionCode,
+            status: pageInfo.status || this.currentPage.status || this.fullCaseMetadata?.status || null
+        };
+    },
+
+    queueNavigationHistoryEntry(pageInfo) {
+        this.navigationHistoryPendingEntry = { ...pageInfo };
+        this.navigationHistoryRetryStartedAt = Date.now();
+
+        const attemptAdd = () => {
+            const builtEntry = this.buildNavigationHistoryEntry(this.navigationHistoryPendingEntry || {});
+
+            if (builtEntry) {
+                this.navigationHistoryPendingEntry = null;
+                this.navigationHistoryRetryStartedAt = null;
+                this.navigationHistoryRetryTimer = null;
+                this.finalizeNavigationHistoryEntry(builtEntry);
+                return;
+            }
+
+            if (!this.navigationHistoryPendingEntry) {
+                this.navigationHistoryRetryTimer = null;
+                return;
+            }
+
+            const elapsed = Date.now() - (this.navigationHistoryRetryStartedAt || Date.now());
+            if (elapsed >= this.navigationHistoryRetryTimeoutMs) {
+                console.warn('[PersistentBanner] Navigation history entry skipped - subject or institution code not resolved in time');
+                this.navigationHistoryPendingEntry = null;
+                this.navigationHistoryRetryStartedAt = null;
+                this.navigationHistoryRetryTimer = null;
+                return;
+            }
+
+            this.navigationHistoryRetryTimer = this.registerTimer(setTimeout(attemptAdd, this.navigationHistoryRetryDelayMs), 'timeout');
+        };
+
+        if (this.navigationHistoryRetryTimer) {
+            return;
+        }
+
+        attemptAdd();
+    },
+
+    finalizeNavigationHistoryEntry(historyEntry) {
+        if (historyEntry.type !== 'case_page') {
+            return;
+        }
+
+        const lastEntry = this.navigationHistory[this.navigationHistory.length - 1];
+        if (lastEntry && lastEntry.url === historyEntry.url) {
+            console.log('[PersistentBanner] Page already in history, skipping');
+            return;
+        }
+
+        this.navigationHistory.push(historyEntry);
+
+        if (this.navigationHistory.length > this.maxHistoryItems) {
+            this.navigationHistory.shift();
+        }
+
+        this.saveNavigationHistory();
+
+        console.log('[PersistentBanner] Updated navigation history:', this.navigationHistory);
+
+        this.updateNavigationHistoryUI();
+    },
+
     /**
      * Add current page to navigation history
      * @param {Object} pageInfo
      */
     addToNavigationHistory(pageInfo) {
-        // Only add case pages to history
         if (pageInfo.type !== 'case_page') {
             return;
         }
 
-        // Don't add if it's the same as the last entry
-        const lastEntry = this.navigationHistory[this.navigationHistory.length - 1];
-        if (lastEntry && lastEntry.url === pageInfo.url) {
-            console.log('[PersistentBanner] Page already in history, skipping');
+        const historyEntry = this.buildNavigationHistoryEntry(pageInfo);
+
+        if (!historyEntry) {
+            this.queueNavigationHistoryEntry(pageInfo);
             return;
         }
 
-        // Add to history with additional data for tooltip
-        const historyEntry = {
-            ...pageInfo,
-            subject: pageInfo.subject || this.currentPage.subject || null,
-            description: this.currentPage.description || null,
-            custID: this.customerMetadata.customerId || null,
-            instID: this.customerMetadata.institutionId || null,
-            server: this.customerMetadata.server || null,
-            institutionCode: this.customerMetadata.institutionCode || null,
-            status: this.currentPage.status || null
-        };
-        
-        this.navigationHistory.push(historyEntry);
-
-        // Keep only last 3 items
-        if (this.navigationHistory.length > this.maxHistoryItems) {
-            this.navigationHistory.shift(); // Remove oldest
-        }
-
-        // Save to sessionStorage
-        this.saveNavigationHistory();
-        
-        console.log('[PersistentBanner] Updated navigation history:', this.navigationHistory);
-        
-        // Update UI
-        this.updateNavigationHistoryUI();
+        this.finalizeNavigationHistoryEntry(historyEntry);
     },
 
     /**
@@ -4042,11 +4156,83 @@ const PersistentBanner = {
                 <div class="exl-banner-section exl-banner-history">
                     <div class="exl-banner-label">Navigation<br>History</div>
                     <div class="exl-banner-history-list" id="exl-banner-history">
+                    <div class="exl-banner-history-list" id="exl-banner-history">
                         <div class="exl-banner-history-placeholder">No navigation history yet</div>
                     </div>
                 </div>
             </div>
         `;
+
+              // 1. Check the domain to ensure this only runs where intended
+        if (window.location.hostname === 'clarivateanalytics.lightning.force.com') {
+            
+            // 2. Create a style element to hide the banner
+            banner.innerHTML = `
+            <div class="exl-banner-container"> 
+                <div class="exl-banner-section exl-banner-metadata" id="exl-banner-metadata-section">
+                    <div class="exl-banner-label">Primary<br>Metadata</div>
+                    <div class="exl-banner-metadata-grid" id="exl-banner-metadata">
+                        <span class="exl-banner-meta-item" id="exl-banner-timezone-item"><span class="exl-meta-label">Timezone:</span><strong id="exl-banner-timezone">—</strong></span>
+                        <span class="exl-banner-meta-item" id="exl-banner-customer-time-item"><span class="exl-meta-label">Customer Time:</span><strong id="exl-banner-customer-time">—</strong></span>
+                        <span class="exl-refresh-emoji" id="exl-refresh-emoji" data-action="refresh" title="Refresh and display the correct data and codes from the currently-viewed case">↺</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="exl-banner-section exl-banner-actions">
+                    <button class="exl-banner-btn exl-popup-trigger" data-popup="env" title="Open Customer Environment menu" tabindex="0">Customer Env</button>
+                    <button class="exl-banner-btn exl-popup-trigger" data-popup="tools" title="Open Tools menu" tabindex="0">Tools</button>
+                    <button class="exl-banner-btn exl-popup-trigger" data-popup="wiki" title="Open Wiki Shortcuts menu" tabindex="0">Wiki Shortcuts</button>
+                    <button class="exl-banner-btn exl-timezone-sync-btn" data-action="timezone-sync" title="Open Timezone Sync" tabindex="0">Timezone Sync</button>
+                </div>
+                
+                <!-- Tools popup menu -->
+                <div class="exl-popup-menu" id="exl-tools-popup" style="display: none;">
+                    <div class="exl-popup-menu-content">
+                        <button class="exl-popup-menu-item exl-disabled" data-tool="timezone-inspector" title="Timezone Inspector (Coming Soon)" disabled tabindex="-1">Timezone Inspector</button>
+                        <button class="exl-popup-menu-item exl-disabled" data-tool="sql-wizard" title="SQL Wizard (Coming Soon)" disabled tabindex="-1">SQL Wizard</button>
+                        <button class="exl-popup-menu-item" data-tool="customer-data" title="Open Add/Modify Customer Data tool" tabindex="0">Add/Modify Customer Data</button>
+                        <button class="exl-popup-menu-item" data-tool="color-handler-settings" title="Configure colors for status, anchor, and case highlighting" tabindex="0">Color Handler Settings</button>
+                        <button class="exl-popup-menu-item" data-action="action1" title="Extract and enable copy buttons for case comments" tabindex="0">Extract Case Comments</button>
+                        <button class="exl-popup-menu-item" data-action="open-screenshot-panel" title="Open screenshots side panel" tabindex="0">Screenshots Panel</button>
+                        <button class="exl-popup-menu-item" data-action="action3" title="Copy case details as XML or TSV" tabindex="0">Copy Case Details</button>
+                    </div>
+                </div>
+                
+                <!-- Wiki Shortcuts popup menu -->
+                <div class="exl-popup-menu" id="exl-wiki-popup" style="display: none;">
+                    <div class="exl-popup-menu-content" id="exl-wiki-popup-content">
+                        <!-- Populated dynamically from URLBuilder.getWikiLinks() -->
+                    </div>
+                </div>
+                
+                <!-- Customer Environment popup menu -->
+                <div class="exl-popup-menu" id="exl-env-popup" style="display: none;">
+                    <div class="exl-popup-menu-content" id="exl-env-popup-content">
+                        <!-- Populated dynamically from populateEnvButtons() -->
+                    </div>
+                </div>
+
+                <div class="exl-banner-section exl-banner-messages" id="exl-banner-messages" style="display: none;">
+                    <div class="exl-banner-message-content" id="exl-banner-message-content">
+                        <!-- Message text rendered here (multiline support) -->
+                    </div>
+                    <div class="exl-banner-message-nav">
+                        <button class="exl-banner-nav-btn" id="exl-message-prev" title="Previous message" tabindex="0">◀</button>
+                        <span class="exl-banner-message-index" id="exl-message-index">1/1</span>
+                        <button class="exl-banner-nav-btn" id="exl-message-next" title="Next message" tabindex="0">▶</button>
+                    </div>
+                </div>
+                
+                <div class="exl-banner-section exl-banner-history">
+                    <div class="exl-banner-label">Navigation<br>History</div>
+                    <div class="exl-banner-history-list" id="exl-banner-history">
+                        <div class="exl-banner-history-placeholder">No navigation history yet</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
 
         this.elements.banner = banner;
         this.cacheElements();
@@ -4932,11 +5118,51 @@ const PersistentBanner = {
         return displayNames[pageType] || pageType;
     },
 
+    computeRenderSignature() {
+        const extractionState = typeof this.isCaseDataExtractionComplete === 'function'
+            ? this.isCaseDataExtractionComplete()
+            : {};
+        const metadataComplete = this.fullCaseMetadata ? this.isMetadataComplete(this.fullCaseMetadata) : false;
+
+        return JSON.stringify({
+            rawType: this.currentPage.type,
+            displayType: this.currentPage.displayType,
+            caseId: this.displayedCaseId || this.currentCaseId,
+            caseNumber: this.currentPage.caseNumber,
+            displayedCaseNumber: this.displayedCaseNumber,
+            subject: this.currentPage.subject,
+            status: this.currentPage.status,
+            subStatus: this.currentPage.subStatus,
+            product: this.customerMetadata.productServiceName,
+            instCode: this.customerMetadata.institutionCode,
+            custId: this.customerMetadata.customerId || this.customerMetadata.custId,
+            instId: this.customerMetadata.institutionId || this.customerMetadata.instId,
+            server: this.customerMetadata.server,
+            timezone: this.customerMetadata.timezone,
+            messages: {
+                count: Array.isArray(this.activeMessages) ? this.activeMessages.length : 0,
+                index: this.currentMessageIndex
+            },
+            extractionState: {
+                complete: extractionState.complete || false,
+                hasData: extractionState.hasData || false,
+                isExtracting: extractionState.isExtracting || false
+            },
+            metadataComplete
+        });
+    },
+
     /**
      * Update banner UI with current page data
      */
-    updateBannerUI() {
+    updateBannerUI(forceRender = false) {
         if (!this.elements.pageType) return;
+
+        const renderSignature = this.computeRenderSignature();
+        if (!forceRender && this.lastRenderSignature === renderSignature) {
+            return;
+        }
+        this.lastRenderSignature = renderSignature;
         
         // Update page type styling based on raw type
         const rawType = this.currentPage.type;
@@ -4997,26 +5223,22 @@ const PersistentBanner = {
             
             // Check if should show messages (messages can now appear on case pages)
             this.shouldShowMessages().then(showMessages => {
+                if (messagesSection) {
+                    messagesSection.style.display = 'flex';
+                }
+
                 if (showMessages) {
-                    // Show messages
-                    if (messagesSection) {
-                        messagesSection.style.display = 'flex';
-                        this.updateMessageDisplay();
-                        this.startMessageRotation();
-                    }
+                    this.updateMessageDisplay();
+                    this.startMessageRotation();
                 } else {
-                    // Don't show messages (feature disabled or no messages)
-                    if (messagesSection) {
-                        messagesSection.style.display = 'none';
-                        this.stopMessageRotation();
-                    }
+                    this.stopMessageRotation();
                 }
             }).catch(error => {
                 console.error('[PersistentBanner] Error checking shouldShowMessages:', error);
                 if (messagesSection) {
-                    messagesSection.style.display = 'none';
-                    this.stopMessageRotation();
+                    messagesSection.style.display = 'flex';
                 }
+                this.stopMessageRotation();
             });
             
         } else {
@@ -5027,26 +5249,22 @@ const PersistentBanner = {
             
             // Check if should show messages
             this.shouldShowMessages().then(showMessages => {
+                if (messagesSection) {
+                    messagesSection.style.display = 'flex';
+                }
+
                 if (showMessages) {
-                    // Show messages
-                    if (messagesSection) {
-                        messagesSection.style.display = 'flex';
-                        this.updateMessageDisplay();
-                        this.startMessageRotation();
-                    }
+                    this.updateMessageDisplay();
+                    this.startMessageRotation();
                 } else {
-                    // Don't show messages (feature disabled or no messages)
-                    if (messagesSection) {
-                        messagesSection.style.display = 'none';
-                        this.stopMessageRotation();
-                    }
+                    this.stopMessageRotation();
                 }
             }).catch(error => {
                 console.error('[PersistentBanner] Error checking shouldShowMessages:', error);
                 if (messagesSection) {
-                    messagesSection.style.display = 'none';
-                    this.stopMessageRotation();
+                    messagesSection.style.display = 'flex';
                 }
+                this.stopMessageRotation();
             });
         }
         
@@ -5077,6 +5295,7 @@ const PersistentBanner = {
         if (this.elements.instCode) {
             this.elements.instCode.textContent = this.customerMetadata.institutionCode || '—';
         }
+        debugger;
         if (this.elements.custId) {
             this.elements.custId.textContent = this.customerMetadata.custId || this.customerMetadata.customerId || '—';
         }

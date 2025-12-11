@@ -738,11 +738,13 @@ const StickyNotes = (function() {
   /**
    * Create a new sticky note (Enhanced with rich text support)
    */
-  async function createNote() {
+  async function createNote(options = {}) {
+    const { colorId } = options || {};
     const noteId = 'note_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
     const palette = getNoteColors();
-    const defaultColorId = resolveNoteColorId(palette[0]?.id || NOTE_COLORS_DEFAULT[0].id);
+    const fallbackColorId = resolveNoteColorId(palette[0]?.id || NOTE_COLORS_DEFAULT[0].id);
+    const defaultColorId = colorId ? resolveNoteColorId(colorId) : fallbackColorId;
     
     // Position in center of viewport
     const x = window.innerWidth / 2 - 150; // 150 = half of default note width (300px)

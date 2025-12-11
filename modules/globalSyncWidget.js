@@ -126,6 +126,7 @@ const GlobalSyncWidget = (() => {
       padding: 12px 0;
       border-bottom: 1px solid var(--gsw-border);
       gap: 12px;
+      flex-wrap: wrap;
     }
 
     .gsw-timezone-row:last-child {
@@ -220,11 +221,13 @@ const GlobalSyncWidget = (() => {
 
     .gsw-meeting-block {
       position: absolute;
+      top: 0;
       height: 100%;
       background: rgba(99, 102, 241, 0.55);
       border: 2px solid var(--gsw-accent);
       border-radius: 4px;
       cursor: move;
+      z-index: 1;
     }
 
     .gsw-meeting-handle {
@@ -237,6 +240,55 @@ const GlobalSyncWidget = (() => {
 
     .gsw-meeting-handle.left { left: 0; border-radius: 4px 0 0 4px; }
     .gsw-meeting-handle.right { right: 0; border-radius: 0 4px 4px 0; }
+
+    .gsw-hour-grid-wrapper {
+      position: relative;
+      width: 100%;
+      flex: 1;
+    }
+
+    .gsw-meeting-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--gsw-foreground-muted);
+      margin-top: 6px;
+      gap: 8px;
+      flex-wrap: wrap;
+      width: 100%;
+    }
+
+    .gsw-time-edit {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 6px;
+      width: 100%;
+    }
+
+    .gsw-time-edit input[type="datetime-local"] {
+      background: var(--gsw-bg-muted);
+      border: 1px solid var(--gsw-border);
+      color: var(--gsw-foreground);
+      border-radius: var(--gsw-radius-sm);
+      padding: 6px 8px;
+      font-size: 11px;
+      flex: 1;
+    }
+
+    .gsw-time-edit button {
+      padding: 6px 10px;
+      border: 1px solid var(--gsw-border);
+      background: transparent;
+      color: var(--gsw-foreground);
+      border-radius: var(--gsw-radius-sm);
+      cursor: pointer;
+      font-size: 11px;
+    }
+
+    .gsw-time-edit button:hover {
+      background: var(--gsw-bg-muted);
+    }
 
     .gsw-scheduler-header {
       display: flex;
@@ -289,6 +341,17 @@ const GlobalSyncWidget = (() => {
     meetingStart: null,
     meetingEnd: null,
     intervalId: null
+  };
+
+  const _dragState = {
+    active: false,
+    type: null,
+    startX: 0,
+    startMinutes: 0,
+    endMinutes: 0,
+    baseDayStart: null,
+    timezone: null,
+    gridRect: null
   };
 
   // ============================================================================
@@ -393,7 +456,8 @@ const GlobalSyncWidget = (() => {
    * @param {Object} zone - Zone object
    * @returns {HTMLElement} Row element
    */
-  function _renderTimezoneRow(zone) {
+  function _renderTimezoneRow(zone, options = {}) {
+    const { enableEditing = false, showMeetingMeta = false } = options;
     if (typeof TimezoneUtils === 'undefined') {
       console.error('[GlobalSyncWidget] TimezoneUtils is not loaded');
       return document.createElement('div');
@@ -443,7 +507,60 @@ const GlobalSyncWidget = (() => {
 
     row.appendChild(timeDisplay);
 
+    if (enableEditing) {
+      const editor = document.createElement('div');
+      editor.className = 'gsw-time-edit';
+
+      const input = document.createElement('input');
+      input.type = 'datetime-local';
+      input.value = _formatDateTimeLocal(time, zone.timezone);
+      input.addEventListener('change', (event) => {
+        _handleTimeEdit(zone.timezone, event.target.value);
+      });
+
+      const resetBtn = document.createElement('button');
+      resetBtn.textContent = 'Now';
+      resetBtn.addEventListener('click', () => {
+        _state.simulationTime = null;
+        _updateTime();
+        _render();
+      });
+
+      editor.appendChild(input);
+      editor.appendChild(resetBtn);
+      row.appendChild(editor);
+    }
+
+    if (showMeetingMeta && _state.meetingStart && _state.meetingEnd) {
+      const meta = document.createElement('div');
+      meta.className = 'gsw-meeting-meta';
+      const startLabel = TimezoneUtils.formatInTimeZone(_state.meetingStart, zone.timezone, 'EEE, MMM d • h:mm a');
+      const endLabel = TimezoneUtils.formatInTimeZone(_state.meetingEnd, zone.timezone, 'EEE, MMM d • h:mm a');
+      meta.textContent = `Start: ${startLabel}  •  End: ${endLabel}`;
+      row.appendChild(meta);
+    }
+
     return row;
+  }
+
+  function _formatDateTimeLocal(date, timezone) {
+    const components = TimezoneUtils.getTimeComponents(date, timezone);
+    const pad = (value) => value.toString().padStart(2, '0');
+    return `${components.year}-${pad(components.month + 1)}-${pad(components.day)}T${pad(components.hour)}:${pad(components.minute)}`;
+  }
+
+  function _handleTimeEdit(timezone, value) {
+    if (!value || typeof TimezoneUtils === 'undefined') return;
+
+    const [datePart, timePart] = value.split('T');
+    if (!datePart || !timePart) return;
+
+    const [year, month, day] = datePart.split('-').map((v) => parseInt(v, 10));
+    const [hour, minute] = timePart.split(':').map((v) => parseInt(v, 10));
+
+    const updated = TimezoneUtils.createDateInTimezone(timezone, year, month - 1, day, hour, minute || 0);
+    _state.simulationTime = updated;
+    _render();
   }
 
   /**
@@ -459,6 +576,9 @@ const GlobalSyncWidget = (() => {
     const time = _state.simulationTime || _state.currentTime;
     const currentHour = TimezoneUtils.getHourInTimezone(time, zone.timezone);
     
+    const gridWrapper = document.createElement('div');
+    gridWrapper.className = 'gsw-hour-grid-wrapper';
+
     const grid = document.createElement('div');
     grid.className = 'gsw-hour-grid';
     grid.dataset.timezone = zone.timezone;
@@ -480,7 +600,129 @@ const GlobalSyncWidget = (() => {
       grid.appendChild(block);
     }
 
-    return grid;
+    gridWrapper.appendChild(grid);
+
+    if (_state.meetingStart && _state.meetingEnd) {
+      const buildResult = _buildMeetingBlock(zone);
+      if (buildResult.meetingBlock) {
+        _attachDragHandlers({
+          block: buildResult.meetingBlock,
+          grid: gridWrapper,
+          timezone: zone.timezone,
+          baseDayStart: buildResult.baseDayStart
+        });
+        gridWrapper.appendChild(buildResult.meetingBlock);
+      }
+    }
+
+    return gridWrapper;
+  }
+
+  function _buildMeetingBlock(zone) {
+    const startComp = TimezoneUtils.getTimeComponents(_state.meetingStart, zone.timezone);
+    const endComp = TimezoneUtils.getTimeComponents(_state.meetingEnd, zone.timezone);
+
+    const dayStart = TimezoneUtils.createDateInTimezone(zone.timezone, startComp.year, startComp.month, startComp.day, 0, 0);
+    const startMinutes = ((TimezoneUtils.createDateInTimezone(zone.timezone, startComp.year, startComp.month, startComp.day, startComp.hour, startComp.minute).getTime() - dayStart.getTime()) / 60000);
+    const endMinutes = ((TimezoneUtils.createDateInTimezone(zone.timezone, endComp.year, endComp.month, endComp.day, endComp.hour, endComp.minute).getTime() - dayStart.getTime()) / 60000);
+
+    const durationMinutes = Math.max(endMinutes - startMinutes, MIN_DURATION_MINUTES);
+    const clampedStart = Math.max(0, startMinutes);
+    const clampedWidthMinutes = Math.min(durationMinutes, 24 * 60 - clampedStart);
+
+    const meetingBlock = document.createElement('div');
+    meetingBlock.className = 'gsw-meeting-block';
+    meetingBlock.style.left = `${(clampedStart / (24 * 60)) * 100}%`;
+    meetingBlock.style.width = `${(clampedWidthMinutes / (24 * 60)) * 100}%`;
+
+    const leftHandle = document.createElement('div');
+    leftHandle.className = 'gsw-meeting-handle left';
+    const rightHandle = document.createElement('div');
+    rightHandle.className = 'gsw-meeting-handle right';
+
+    meetingBlock.appendChild(leftHandle);
+    meetingBlock.appendChild(rightHandle);
+
+    return { meetingBlock, baseDayStart: dayStart, startMinutes, endMinutes };
+  }
+
+  function _attachDragHandlers({ block, grid, timezone, baseDayStart }) {
+    const gridRect = () => grid.getBoundingClientRect();
+
+    const startDrag = (event, type) => {
+      event.preventDefault();
+      const components = TimezoneUtils.getTimeComponents(_state.meetingStart, timezone);
+      const endComponents = TimezoneUtils.getTimeComponents(_state.meetingEnd, timezone);
+      const startMinutes = ((TimezoneUtils.createDateInTimezone(timezone, components.year, components.month, components.day, components.hour, components.minute).getTime() - baseDayStart.getTime()) / 60000);
+      const endMinutes = ((TimezoneUtils.createDateInTimezone(timezone, endComponents.year, endComponents.month, endComponents.day, endComponents.hour, endComponents.minute).getTime() - baseDayStart.getTime()) / 60000);
+
+      _dragState.active = true;
+      _dragState.type = type;
+      _dragState.startX = event.clientX;
+      _dragState.startMinutes = startMinutes;
+      _dragState.endMinutes = endMinutes;
+      _dragState.timezone = timezone;
+      _dragState.baseDayStart = baseDayStart;
+      _dragState.gridRect = gridRect();
+
+      document.addEventListener('mousemove', onDragMove);
+      document.addEventListener('mouseup', endDrag);
+    };
+
+    const onDragMove = (event) => {
+      if (!_dragState.active || !_dragState.gridRect) return;
+      const deltaPx = event.clientX - _dragState.startX;
+      const minutesPerPx = (24 * 60) / _dragState.gridRect.width;
+      let deltaMinutes = Math.round(deltaPx * minutesPerPx / DRAG_STEP_MINUTES) * DRAG_STEP_MINUTES;
+
+      let newStart = _dragState.startMinutes;
+      let newEnd = _dragState.endMinutes;
+
+      if (_dragState.type === 'move') {
+        newStart += deltaMinutes;
+        newEnd += deltaMinutes;
+      } else if (_dragState.type === 'resize-start') {
+        newStart = Math.min(newEnd - MIN_DURATION_MINUTES, newStart + deltaMinutes);
+      } else if (_dragState.type === 'resize-end') {
+        newEnd = Math.max(newStart + MIN_DURATION_MINUTES, newEnd + deltaMinutes);
+      }
+
+      _applyDraggedMeeting(newStart, newEnd, _dragState.timezone, _dragState.baseDayStart);
+    };
+
+    const endDrag = () => {
+      _dragState.active = false;
+      document.removeEventListener('mousemove', onDragMove);
+      document.removeEventListener('mouseup', endDrag);
+    };
+
+    block.addEventListener('mousedown', (event) => {
+      if (event.target.classList.contains('gsw-meeting-handle')) return;
+      startDrag(event, 'move');
+    });
+
+    const handles = block.querySelectorAll('.gsw-meeting-handle');
+    handles.forEach((handle) => {
+      const type = handle.classList.contains('left') ? 'resize-start' : 'resize-end';
+      handle.addEventListener('mousedown', (event) => {
+        event.stopPropagation();
+        startDrag(event, type);
+      });
+    });
+  }
+
+  function _applyDraggedMeeting(startMinutes, endMinutes, timezone, baseDayStart) {
+    if (typeof TimezoneUtils === 'undefined') return;
+
+    const snappedStart = Math.round(startMinutes / DRAG_STEP_MINUTES) * DRAG_STEP_MINUTES;
+    const snappedEnd = Math.round(endMinutes / DRAG_STEP_MINUTES) * DRAG_STEP_MINUTES;
+
+    const newStart = new Date(baseDayStart.getTime() + snappedStart * 60000);
+    const newEnd = new Date(baseDayStart.getTime() + Math.max(snappedEnd, snappedStart + MIN_DURATION_MINUTES) * 60000);
+
+    _state.meetingStart = newStart;
+    _state.meetingEnd = newEnd;
+    _render();
   }
 
   /**
@@ -523,7 +765,7 @@ const GlobalSyncWidget = (() => {
     if (_state.activeTab === 'converter') {
       // Time Converter view
       zones.forEach(zone => {
-        content.appendChild(_renderTimezoneRow(zone));
+        content.appendChild(_renderTimezoneRow(zone, { enableEditing: true }));
       });
     } else {
       // Meeting Scheduler view
@@ -550,7 +792,7 @@ const GlobalSyncWidget = (() => {
       content.appendChild(header);
 
       zones.forEach(zone => {
-        const row = _renderTimezoneRow(zone);
+        const row = _renderTimezoneRow(zone, { showMeetingMeta: true });
         row.appendChild(_renderHourGrid(zone));
         content.appendChild(row);
       });

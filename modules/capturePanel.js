@@ -314,7 +314,8 @@ const CapturePanel = (function() {
     const actions = document.createElement('div');
     actions.className = 'screenshot-actions';
     const playBtn = createActionButton('Play', () => playRecording(item));
-    const downloadBtn = createActionButton('Download', () => downloadDataUrl(item.dataUrl, `${item.id || 'recording'}.webm`));
+    const ext = item.fileExt || (item.mimeType && item.mimeType.includes('mp4') ? 'mp4' : 'webm');
+    const downloadBtn = createActionButton('Download', () => downloadDataUrl(item.dataUrl, `${item.id || 'recording'}.${ext}`));
     const copyBtn = createActionButton('Copy', () => copyDataUrl(item.dataUrl));
     const deleteBtn = createActionButton('Delete', async () => {
       await deleteRecording(item);
@@ -390,7 +391,21 @@ const CapturePanel = (function() {
   function playRecording(item) {
     if (!item || !item.dataUrl) return;
     const url = item.dataUrl.startsWith('blob:') ? item.dataUrl : item.dataUrl;
-    chrome.tabs.create({ url });
+
+    // Prefer background-assisted tab creation when tabs API is unavailable in content scripts
+    if (chrome?.tabs?.create) {
+      chrome.tabs.create({ url });
+      return;
+    }
+
+    try {
+      chrome.runtime.sendMessage({ type: 'OPEN_TAB', url }, (resp) => {
+        if (resp && resp.success) return;
+        window.open(url, '_blank');
+      });
+    } catch (err) {
+      window.open(url, '_blank');
+    }
   }
 
   function escapeHtml(text) {

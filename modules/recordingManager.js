@@ -1,6 +1,6 @@
 /**
  * RecordingManager Module
- * Tab-only WebM recording with 150MB cap and safety guards.
+ * Tab-only recording (prefers MP4/H.264+AAC when supported, falls back to WebM) with 150MB cap and safety guards.
  * Runs on non-Salesforce domains (see manifest excludes).
  */
 const RecordingManager = (function() {
@@ -8,7 +8,32 @@ const RecordingManager = (function() {
 
   const MAX_SIZE_BYTES = 150 * 1024 * 1024; // 150MB hard cap
   const MAX_DURATION_MS = 10 * 60 * 1000; // 10 minutes
-  const MIME_TYPE = 'video/webm;codecs=vp8,opus';
+  const MIME_PREFERRED_MP4 = 'video/mp4;codecs=avc1.42E01E,mp4a.40.2';
+  const MIME_FALLBACK_WEBM = 'video/webm;codecs=vp8,opus';
+  let activeMimeType = MIME_FALLBACK_WEBM;
+
+  function selectMimeType() {
+    try {
+      if (typeof MediaRecorder !== 'undefined' && typeof MediaRecorder.isTypeSupported === 'function') {
+        if (MediaRecorder.isTypeSupported(MIME_PREFERRED_MP4)) {
+          activeMimeType = MIME_PREFERRED_MP4;
+          logInfo('[RecordingManager] Using MP4/H.264 for recording');
+          return;
+        }
+        if (MediaRecorder.isTypeSupported(MIME_FALLBACK_WEBM)) {
+          activeMimeType = MIME_FALLBACK_WEBM;
+          logInfo('[RecordingManager] MP4 unsupported, falling back to WebM');
+          return;
+        }
+      }
+      activeMimeType = MIME_FALLBACK_WEBM;
+      logWarn('[RecordingManager] MediaRecorder.isTypeSupported unavailable; defaulting to WebM');
+    } catch (err) {
+      activeMimeType = MIME_FALLBACK_WEBM;
+      logWarn('[RecordingManager] Failed to select MIME type, defaulting to WebM', err);
+    }
+  }
+
 
   let mediaRecorder = null;
   let recordedChunks = [];
@@ -17,6 +42,34 @@ const RecordingManager = (function() {
   let stopTimer = null;
   let onStatus = null;
   let isStopping = false;
+
+  function resolveLayerId() {
+    try {
+      if (typeof LayerManager === 'undefined') return 'default';
+
+      if (typeof LayerManager.getCurrentLayerId === 'function') {
+        return LayerManager.getCurrentLayerId();
+      }
+
+      if (typeof LayerManager.getActiveLayerId === 'function') {
+        return LayerManager.getActiveLayerId();
+      }
+
+      if (LayerManager.activeLayerId) {
+        return LayerManager.activeLayerId;
+      }
+
+      if (LayerManager.currentLayerId) {
+        return LayerManager.currentLayerId;
+      }
+
+      logWarn('[RecordingManager] LayerManager present without layer ID accessors; using default');
+      return 'default';
+    } catch (err) {
+      logWarn('[RecordingManager] Failed to resolve layer ID, using default', err);
+      return 'default';
+    }
+  }
 
   function isSalesforceDomain() {
     const host = (location.hostname || '').toLowerCase();
@@ -48,19 +101,25 @@ const RecordingManager = (function() {
   }
 
   async function shouldEnforceRecordingQuota() {
-    try {
-      const result = await chrome.storage.sync.get(['exlibris']);
-      const enforce = result?.exlibris?.features?.recordingQuotaEnforced;
-      return enforce !== false; // default to enforce when unset
-    } catch (error) {
-      logWarn('[RecordingManager] Failed to read recording quota setting', error);
-      return true;
-    }
+    // Quota enforcement is disabled per user request
+    return false;
   }
 
   function notifyStatus(status, extra = {}) {
+    const payload = { status, ...extra };
+
     if (typeof onStatus === 'function') {
-      onStatus({ status, ...extra });
+      onStatus(payload);
+    }
+
+    try {
+      document.dispatchEvent(new CustomEvent('exlRecordingStatus', {
+        detail: payload,
+        bubbles: true,
+        composed: true
+      }));
+    } catch (err) {
+      logWarn('[RecordingManager] Failed to dispatch status event', err);
     }
   }
 
@@ -114,7 +173,8 @@ const RecordingManager = (function() {
       startTime = Date.now();
       isStopping = false;
 
-      mediaRecorder = new MediaRecorder(captureStream, { mimeType: MIME_TYPE });
+      selectMimeType();
+      mediaRecorder = new MediaRecorder(captureStream, { mimeType: activeMimeType });
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
@@ -171,7 +231,7 @@ const RecordingManager = (function() {
   async function finalizeRecording() {
     window.removeEventListener('beforeunload', handleBeforeUnload);
     const durationMs = startTime ? Date.now() - startTime : 0;
-    const blob = new Blob(recordedChunks, { type: MIME_TYPE });
+    const blob = new Blob(recordedChunks, { type: activeMimeType });
     const sizeBytes = blob.size;
 
     if (sizeBytes > MAX_SIZE_BYTES) {
@@ -184,7 +244,7 @@ const RecordingManager = (function() {
     try {
       const dataUrl = await blobToDataUrl(blob);
       const poster = await createPoster(blob);
-      const layerId = typeof LayerManager !== 'undefined' ? LayerManager.getCurrentLayerId() : 'default';
+      const layerId = resolveLayerId();
       const recordingData = {
         id: `recording_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`,
         dataUrl,
@@ -193,6 +253,8 @@ const RecordingManager = (function() {
         url: window.location.href,
         durationMs,
         sizeBytes,
+        mimeType: activeMimeType,
+        fileExt: activeMimeType.includes('mp4') ? 'mp4' : 'webm',
         layerId
       };
 
@@ -211,7 +273,14 @@ const RecordingManager = (function() {
         }
       }
 
-      await saveRecording(recordingData);
+      try {
+        await saveRecording(recordingData);
+      } catch (err) {
+        logWarn('[RecordingManager] Recording dropped while saving (likely quota)', err);
+        notifyStatus('discarded', { reason: 'quota', sizeBytes });
+        clearState();
+        return;
+      }
 
       if (typeof CapturePanel !== 'undefined' && typeof CapturePanel.open === 'function') {
         CapturePanel.open({ tab: 'recordings', justSavedId: recordingData.id, url: recordingData.url });
@@ -337,13 +406,19 @@ const RecordingManager = (function() {
   return {
     startRecording,
     stopRecording: () => safeStop('manual'),
-    toggleRecording: (statusCb) => {
+    toggleRecording: async (statusCb) => {
       if (mediaRecorder) {
         safeStop('manual');
         return 'stopping';
       }
-      startRecording(statusCb);
-      return 'starting';
+
+      const started = await startRecording(statusCb);
+      if (started) {
+        return 'starting';
+      }
+
+      // Start failed (likely restricted domain or missing stream)
+      return 'blocked';
     },
     getStatus
   };

@@ -32,7 +32,8 @@ const StorageQuotaManager = (function() {
   let lastBreakdown = null;
   let lastCheckTime = 0;
   const CACHE_DURATION = 5000; // 5 seconds
-  let enforcementEnabled = true;
+  // Enforcement can be globally disabled; default to false to honor request to disable quota gating
+  let enforcementEnabled = false;
 
   /**
    * Get storage breakdown by category
@@ -147,27 +148,12 @@ const StorageQuotaManager = (function() {
   }
 
   function isQuotaEnforced() {
-    return enforcementEnabled !== false;
+    return false; // Hard-disable enforcement
   }
 
   async function refreshEnforcementFlag() {
-    try {
-      if (typeof SettingsManager !== 'undefined' && typeof SettingsManager.get === 'function') {
-        const settings = SettingsManager.get();
-        enforcementEnabled = settings?.exlibris?.features?.storageQuotaEnforced !== false;
-        return enforcementEnabled;
-      }
-
-      const result = await chrome.storage.sync.get(['exlibris']);
-      enforcementEnabled = result?.exlibris?.features?.storageQuotaEnforced !== false;
-      return enforcementEnabled;
-    } catch (error) {
-      enforcementEnabled = true; // Fail safe to enforcing
-      if (typeof Logger !== 'undefined') {
-        Logger.warn('[StorageQuotaManager] Failed to refresh enforcement flag, defaulting to enforce', error);
-      }
-      return enforcementEnabled;
-    }
+    enforcementEnabled = false;
+    return enforcementEnabled;
   }
 
   /**

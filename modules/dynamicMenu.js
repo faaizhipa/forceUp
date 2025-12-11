@@ -480,18 +480,59 @@ const DynamicMenu = {
     const caseTimezone = caseTimezoneResult.timezone;
     const userTimezone = userTimezoneResult.timezone;
 
-    // Get available dates
+    // Get available dates and default selection
     const availableDates = TimezoneDisplayUtils.getAvailableDates(caseData, refreshInfo);
     let selectedDate = availableDates.length > 0 ? availableDates[0].date : new Date();
-    let selectedValue = availableDates.length > 0 ? availableDates[0].value : 'now';
 
-    // Dropdown container
-    const dropdownContainer = document.createElement('div');
-    dropdownContainer.style.cssText = 'margin-bottom: 12px;';
+    const formatInputValue = (date) => {
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: userTimezone,
+        day: '2-digit',
+        month: '2-digit',
+        year: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).formatToParts(date).reduce((acc, part) => {
+        if (part.type !== 'literal') {
+          acc[part.type] = part.value;
+        }
+        return acc;
+      }, {});
+      return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
+    };
 
-    const dropdownLabel = document.createElement('label');
-    dropdownLabel.textContent = 'Select Date:';
-    dropdownLabel.style.cssText = `
+    const parseInputValue = (value) => {
+      const match = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})\s+(\d{1,2}):(\d{2})$/);
+      if (!match) {
+        return null;
+      }
+
+      let [, day, month, yearPart, hour, minute] = match;
+      day = parseInt(day, 10);
+      month = parseInt(month, 10);
+      hour = parseInt(hour, 10);
+      minute = parseInt(minute, 10);
+
+      if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) {
+        return null;
+      }
+
+      let year = parseInt(yearPart, 10);
+      if (yearPart.length === 2) {
+        year += 2000;
+      }
+
+      const parsed = new Date(year, month - 1, day, hour, minute);
+      return isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const inputContainer = document.createElement('div');
+    inputContainer.style.cssText = 'margin-bottom: 12px;';
+
+    const inputLabel = document.createElement('label');
+    inputLabel.textContent = 'Enter Date/Time (DD/MM/YY HH:MM, 24h)';
+    inputLabel.style.cssText = `
       display: block;
       font-size: 12px;
       font-weight: 600;
@@ -499,8 +540,10 @@ const DynamicMenu = {
       color: #333;
     `;
 
-    const dropdown = document.createElement('select');
-    dropdown.style.cssText = `
+    const manualInput = document.createElement('input');
+    manualInput.type = 'text';
+    manualInput.placeholder = 'e.g. 06/12/25 14:30';
+    manualInput.style.cssText = `
       width: 100%;
       padding: 6px;
       font-size: 12px;
@@ -508,15 +551,57 @@ const DynamicMenu = {
       border-radius: 4px;
     `;
 
-    availableDates.forEach((date) => {
-      const option = document.createElement('option');
-      option.value = date.value;
-      option.textContent = date.label;
-      dropdown.appendChild(option);
-    });
+    const helperText = document.createElement('div');
+    helperText.textContent = 'Assumes your local timezone; converts to case, user, and UTC.';
+    helperText.style.cssText = `
+      font-size: 11px;
+      color: #666;
+      margin-top: 4px;
+    `;
 
-    dropdownContainer.appendChild(dropdownLabel);
-    dropdownContainer.appendChild(dropdown);
+    const errorText = document.createElement('div');
+    errorText.style.cssText = `
+      font-size: 11px;
+      color: #b00020;
+      margin-top: 4px;
+      display: none;
+    `;
+
+    const quickPickContainer = document.createElement('div');
+    quickPickContainer.style.cssText = 'margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap;';
+
+    if (availableDates.length > 0) {
+      const quickPickLabel = document.createElement('div');
+      quickPickLabel.textContent = 'Quick picks:';
+      quickPickLabel.style.cssText = 'font-size: 11px; color: #555; width: 100%;';
+      quickPickContainer.appendChild(quickPickLabel);
+
+      availableDates.forEach((date) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = date.label;
+        btn.style.cssText = `
+          font-size: 11px;
+          padding: 4px 8px;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+          background: #f4f6f9;
+          cursor: pointer;
+        `;
+        btn.addEventListener('click', () => {
+          applySelectedDate(date.date);
+        });
+        quickPickContainer.appendChild(btn);
+      });
+    }
+
+    inputContainer.appendChild(inputLabel);
+    inputContainer.appendChild(manualInput);
+    inputContainer.appendChild(helperText);
+    inputContainer.appendChild(errorText);
+    if (availableDates.length > 0) {
+      inputContainer.appendChild(quickPickContainer);
+    }
 
     // Timezones container
     const timezonesContainer = document.createElement('div');
@@ -589,19 +674,28 @@ const DynamicMenu = {
       timezonesContainer.appendChild(createTimezoneDisplay('UTC', conversions.utc));
     };
 
+    const applySelectedDate = (date) => {
+      selectedDate = date;
+      manualInput.value = formatInputValue(selectedDate);
+      errorText.style.display = 'none';
+      errorText.textContent = '';
+      updateSummary();
+      updateTimezoneDisplays();
+    };
+
     // Initial render
+    manualInput.value = formatInputValue(selectedDate);
     updateSummary();
     updateTimezoneDisplays();
 
-    // Dropdown change handler
-    dropdown.addEventListener('change', (e) => {
-      const selectedOption = availableDates.find(d => d.value === e.target.value);
-      if (selectedOption) {
-        selectedDate = selectedOption.date;
-        selectedValue = selectedOption.value;
-        updateSummary();
-        updateTimezoneDisplays();
+    manualInput.addEventListener('input', () => {
+      const parsed = parseInputValue(manualInput.value);
+      if (!parsed) {
+        errorText.textContent = 'Enter date/time as DD/MM/YY HH:MM (24h).';
+        errorText.style.display = 'block';
+        return;
       }
+      applySelectedDate(parsed);
     });
 
     // Expand/collapse handler
@@ -622,7 +716,7 @@ const DynamicMenu = {
     });
 
     // Assemble container
-    expandedContent.appendChild(dropdownContainer);
+  expandedContent.appendChild(inputContainer);
     expandedContent.appendChild(timezonesContainer);
 
     container.appendChild(header);

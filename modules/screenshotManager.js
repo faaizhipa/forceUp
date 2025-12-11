@@ -228,10 +228,12 @@ const ScreenshotManager = (function() {
       // Wait a brief moment for overlay to hide
       await new Promise(resolve => setTimeout(resolve, 120));
 
+      const devicePixelRatio = window.devicePixelRatio || 1;
+
       // Capture via Chrome API with scroll-and-stitch
       const initialScroll = { x: window.scrollX, y: window.scrollY };
-      const fullCanvas = await captureFullPageWithChromeAPI(initialScroll);
-      const croppedCanvas = cropCanvas(fullCanvas, bounds, initialScroll);
+      const fullCanvas = await captureFullPageWithChromeAPI(initialScroll, devicePixelRatio);
+      const croppedCanvas = cropCanvas(fullCanvas, bounds, initialScroll, devicePixelRatio);
 
       // Cleanup overlay
       cancelCapture();
@@ -244,7 +246,8 @@ const ScreenshotManager = (function() {
         dataUrl: dataUrl,
         bounds: bounds,
         timestamp: Date.now(),
-        url: window.location.href
+        url: window.location.href,
+        devicePixelRatio
       };
 
       // Open annotation UI
@@ -272,14 +275,14 @@ const ScreenshotManager = (function() {
    * @param {Object} initialScroll - {x, y} scroll position before capture
    * @returns {Promise<HTMLCanvasElement>} Stitched canvas of full page
    */
-  async function captureFullPageWithChromeAPI(initialScroll) {
+  async function captureFullPageWithChromeAPI(initialScroll, devicePixelRatio = 1) {
     const totalHeight = document.documentElement.scrollHeight;
     const totalWidth = document.documentElement.scrollWidth;
     const viewportHeight = window.innerHeight;
 
     const stitchedCanvas = document.createElement('canvas');
-    stitchedCanvas.width = totalWidth;
-    stitchedCanvas.height = totalHeight;
+    stitchedCanvas.width = Math.ceil(totalWidth * devicePixelRatio);
+    stitchedCanvas.height = Math.ceil(totalHeight * devicePixelRatio);
     const ctx = stitchedCanvas.getContext('2d');
 
     for (let y = 0; y < totalHeight; y += viewportHeight) {
@@ -287,8 +290,23 @@ const ScreenshotManager = (function() {
       await waitForFrame();
       const capture = await captureVisibleTab();
       const img = await dataUrlToImage(capture);
-      const drawHeight = Math.min(img.height, totalHeight - y);
-      ctx.drawImage(img, 0, 0, img.width, drawHeight, 0, y, img.width, drawHeight);
+      const srcHeight = Math.min(img.height, Math.ceil((totalHeight - y) * devicePixelRatio));
+      const srcWidth = img.width;
+      const destY = Math.round(y * devicePixelRatio);
+      const destWidth = Math.min(srcWidth, stitchedCanvas.width);
+      const destHeight = Math.min(srcHeight, stitchedCanvas.height - destY);
+
+      ctx.drawImage(
+        img,
+        0,
+        0,
+        srcWidth,
+        srcHeight,
+        0,
+        destY,
+        destWidth,
+        destHeight
+      );
     }
 
     // Restore original scroll
@@ -304,21 +322,25 @@ const ScreenshotManager = (function() {
    * @param {Object} initialScroll - Scroll position when selection occurred
    * @returns {HTMLCanvasElement} Cropped canvas
    */
-  function cropCanvas(fullCanvas, bounds, initialScroll) {
+  function cropCanvas(fullCanvas, bounds, initialScroll, devicePixelRatio = 1) {
     const crop = document.createElement('canvas');
-    crop.width = bounds.width;
-    crop.height = bounds.height;
+    const cropWidth = Math.max(1, Math.round(bounds.width * devicePixelRatio));
+    const cropHeight = Math.max(1, Math.round(bounds.height * devicePixelRatio));
+    crop.width = cropWidth;
+    crop.height = cropHeight;
     const ctx = crop.getContext('2d');
+    const sourceX = Math.round((bounds.left + initialScroll.x) * devicePixelRatio);
+    const sourceY = Math.round((bounds.top + initialScroll.y) * devicePixelRatio);
     ctx.drawImage(
       fullCanvas,
-      bounds.left + initialScroll.x,
-      bounds.top + initialScroll.y,
-      bounds.width,
-      bounds.height,
+      sourceX,
+      sourceY,
+      cropWidth,
+      cropHeight,
       0,
       0,
-      bounds.width,
-      bounds.height
+      cropWidth,
+      cropHeight
     );
     return crop;
   }

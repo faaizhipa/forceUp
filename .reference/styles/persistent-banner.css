@@ -64,6 +64,7 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     pointer-events: auto; /* Restore pointer events for interactive and text elements */
 }
 
+
 .exl-banner-container {
     display: flex;
     align-items: center;
@@ -575,10 +576,6 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 /* Higher specificity to override .exl-banner-section */
 .exl-banner-section.exl-banner-messages,
 .exl-banner-messages {
-    flex: 1 1 auto !important; /* Grow to fill remaining space */
-    flex-shrink: 1 !important; /* Allow shrinking if needed */
-    min-width: 150px; /* Reduced minimum to allow better compression */
-    max-width: none; /* Fill available space */
     display: flex;
     flex-direction: row;
     align-items: center;
@@ -587,7 +584,11 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     container-type: inline-size; /* Enable container queries */
 }
 
-/* Hover expansion only when narrow (controlled via JS class) */
+#exl-banner-messages {
+    width: min-content !important;
+}
+
+/* Hover expansion only when narrow (controlled via JS class)
 .exl-banner-messages.narrow-mode {
     max-width: 350px;
     transition: max-width 0.3s ease;
@@ -595,10 +596,11 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 
 .exl-banner-messages.narrow-mode:hover {
     max-width: 500px;
-}
+} */
 
 /* Collapsed state for message section when width < 175px */
 /* In collapsed mode: message section uses column layout with message on top, nav below */
+/*
 .exl-banner-messages.collapsed {
     flex-direction: column !important;
     align-items: flex-start !important;
@@ -606,16 +608,18 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     padding: 4px 8px !important;
     gap: 2px !important;
 }
-
+*/
+/*
 .exl-banner-messages.collapsed .exl-banner-message-content {
     flex: none !important;
     width: 100% !important;
-    max-width: none !important; /* Remove max-width restriction in collapsed mode */
+    max-width: none !important; /* Remove max-width restriction in collapsed mode *//*
     min-width: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
 }
-
+*/
+/*
 .exl-banner-messages.collapsed .exl-banner-message-nav {
     flex: none !important;
     position: static !important;
@@ -624,18 +628,18 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     padding: 0 !important;
     gap: 4px !important;
 }
+*/
 
 /* Normal (non-collapsed) state: row layout with message and nav side by side */
-.exl-banner-message-content {
+#exl-banner-message-content {
     flex: 1 1 auto;
-    min-width: 0;
     display: flex;
     flex-direction: column;
     justify-content: center;
     gap: 0;
     padding: 0 8px;
-    max-width: calc(100% - 120px); /* Reserve space for navigation */
     transition: max-width 0.2s ease;
+    width: min-content;
 }
 
 .message-line {

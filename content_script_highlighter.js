@@ -27,6 +27,21 @@
   if (window[STATE_FLAG]) {
     return;
   }
+
+  // Determine session type using Navigation Timing API
+  window.addEventListener('load', () => {
+    const navEntry = performance.getEntriesByType("navigation")[0];
+    const isNewSession = !sessionStorage.getItem('session_active');
+
+    if (isNewSession) {
+        console.log("This is a completely new tab/window session.");
+        sessionStorage.setItem('session_active', 'true');
+    } else if (navEntry.type === 'reload') {
+        console.log("This is a refresh within an existing tab session.");
+    } else if (navEntry.type === 'navigate' || navEntry.type === 'back_forward') {
+        console.log("This is navigation within the same tab, but not a simple refresh.");
+    }
+});
   
   // Check if current site is a default banner domain
   // Only apply early layout adjustment if it's a default domain (optimistic)
@@ -128,8 +143,12 @@
     currentUrl: null,
     urlCheckInterval: null,
     floatingButtonElement: null,
+    floatingBannerElement: null,
     undoNotificationTimer: null,
     closeButtonElement: null,
+    bannerMode: 'hidden', // 'hidden' | 'floating' | 'sticky'
+    isDragging: false,
+    dragStartPos: { x: 0, y: 0 },
 
     // Radial menu + floating button state
     radialMenuState: {
@@ -142,6 +161,7 @@
       keyboardHandler: null
     },
     floatingButtonPosition: { x: null, y: null },
+    recordingStatusHandler: null,
 
     /**
      * Safe storage helpers to tolerate invalidated contexts
@@ -176,6 +196,24 @@
         console.warn('[HighlighterController] storage.local.set threw:', error);
         cb();
       }
+    },
+
+    getActiveNoteColorId() {
+      if (typeof Highlighter === 'undefined' || typeof Highlighter.getCurrentColor !== 'function') {
+        return null;
+      }
+
+      const current = Highlighter.getCurrentColor();
+      if (!current || current.id === undefined || current.id === null) {
+        return null;
+      }
+
+      const rawId = current.id;
+      if (typeof rawId === 'string') {
+        return rawId.startsWith('hl-') ? rawId : `hl-${rawId}`;
+      }
+
+      return `hl-${rawId}`;
     },
 
     safeSyncGet(keys, cb) {
@@ -446,20 +484,6 @@
       (document.head || document.documentElement || document.body)?.appendChild(style);
     },
 
-    async coerceBannerMode() {
-      return new Promise((resolve) => {
-        this.safeLocalGet(['exl_hl_banner_mode'], (result) => {
-          const mode = result.exl_hl_banner_mode;
-          if (mode === 'floating') {
-            console.log('[HighlighterController] Migrated banner mode from floating to sticky');
-            this.safeLocalSet({ exl_hl_banner_mode: 'sticky' }, resolve);
-            return;
-          }
-          resolve();
-        });
-      });
-    },
-
     /**
      * Initialize controller
      * Follows best practices: feature flag check, early returns, error handling
@@ -499,9 +523,6 @@
           }
         }
 
-        // Coerce legacy floating banner mode back to sticky (radial menu uses floating button only)
-        await this.coerceBannerMode();
-
         // Initialize modules (sequential - best practice for dependencies)
         // LayerManager must be initialized first as other modules depend on it
         if (typeof LayerManager !== 'undefined') {
@@ -511,19 +532,25 @@
         await StickyNotes.init();
         await BookmarkManager.init();
 
+        // Load banner mode preference before deciding what to render
+        await this.loadBannerMode();
+
         // Check if banner should be shown using new decision logic BEFORE creating UI
         const bannerResult = await this.shouldShowBannerForSite();
         
-        if (bannerResult.show) {
-          // Banner should show - create it
+        if (bannerResult.show && this.bannerMode !== 'floating') {
+          // Banner should show as sticky (default) unless explicitly set to floating
           this.createBanner();
           this.setupListeners();
           
-          // Setup MutationObserver to watch for dynamically added fixed elements
-          this.setupFixedElementObserver();
+          // Setup MutationObserver to watch for dynamically added fixed elements (only relevant for sticky)
+          if (this.bannerMode === 'sticky') {
+            this.setupFixedElementObserver();
+          }
           
-          // Hide floating button
+          // Hide floating affordances when sticky is active
           this.hideFloatingButton();
+          this.hideFloatingBanner();
         } else {
           console.log('[HighlighterController] Banner should not show:', bannerResult.reason);
           // Banner should not show - create it but keep it hidden, show floating button instead
@@ -540,6 +567,7 @@
           }
           this.adjustPageLayout(false);
           this.removeEarlyLayoutAdjustment();
+          this.removeFixedElementAdjustments();
           
           // Ensure gaps are removed - force cleanup after a short delay
           setTimeout(() => {
@@ -553,14 +581,17 @@
                 document.body.style.setProperty('margin-top', '0', 'important');
               }
             }
+            this.removeFixedElementAdjustments();
           }, 100);
           
           // Show floating button (for non-default/non-whitelisted sites or dismissed sites)
-          await this.checkAndShowFloatingButton();
-          
-          // Ensure floating button is shown even if check failed
-          if (!this.floatingButtonElement || this.floatingButtonElement.style.display === 'none') {
-            this.showFloatingButton();
+          if (this.bannerMode !== 'sticky') {
+            await this.checkAndShowFloatingButton();
+            
+            // Ensure floating button is shown even if check failed
+            if (!this.floatingButtonElement || this.floatingButtonElement.style.display === 'none') {
+              await this.showFloatingButton();
+            }
           }
         }
 
@@ -988,13 +1019,17 @@
      * Shows on non-default, non-whitelisted sites (or when banner is dismissed)
      * @returns {Promise<boolean>} True if floating button should show
      */
-    async shouldShowFloatingButton() {
+    async shouldShowFloatingButton(force = false) {
       try {
         // Exclude Salesforce domains
         const hostname = window.location.hostname.toLowerCase();
         const isSalesforce = /\.force\.com$|\.salesforce\.com$|\.lightning\.force\.com$/i.test(hostname);
         if (isSalesforce) {
           return false;
+        }
+
+        if (force) {
+          return true;
         }
 
         // Show floating button if banner shouldn't be shown
@@ -1109,7 +1144,8 @@
       noteBtn.innerHTML = '📝 Add Note';
       noteBtn.title = 'Create sticky note';
       noteBtn.addEventListener('click', () => {
-        StickyNotes.createNote();
+        const colorId = this.getActiveNoteColorId();
+        StickyNotes.createNote(colorId ? { colorId } : {});
       });
 
       const collectionsBtn = document.createElement('button');
@@ -1128,32 +1164,7 @@
         this.showBookmarkDialog();
       });
 
-      const screenshotBtn = document.createElement('button');
-      screenshotBtn.className = 'exl-hl-btn';
-      screenshotBtn.innerHTML = '📸 Screens';
-      screenshotBtn.title = 'Open captures panel';
-      screenshotBtn.addEventListener('click', () => {
-        if (typeof CapturePanel !== 'undefined' && typeof CapturePanel.open === 'function') {
-          CapturePanel.open({ tab: 'screenshots' });
-          return;
-        }
-        try {
-          chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL', tab: 'captured' });
-        } catch (err) {
-          console.warn('[HighlighterController] Failed to open screenshots panel', err);
-        }
-      });
-
-      const recordBtn = document.createElement('button');
-      recordBtn.className = 'exl-hl-btn';
-      const setRecordLabel = (isRecording) => {
-        recordBtn.innerHTML = isRecording ? '⏹ Stop Rec' : '🎥 Record';
-        recordBtn.title = isRecording ? 'Stop recording and save' : 'Start tab recording (150MB cap)';
-      };
-
-      setRecordLabel(typeof RecordingManager !== 'undefined' && typeof RecordingManager.getStatus === 'function' && RecordingManager.getStatus().isRecording);
-
-      const showRecordToast = (text) => {
+      function showActionToast(text) {
         try {
           const toast = document.createElement('div');
           toast.className = 'exl-hl-toast';
@@ -1163,41 +1174,83 @@
         } catch (err) {
           console.warn('[HighlighterController] Toast failed', err);
         }
+      }
+
+      const captureBtn = document.createElement('button');
+      captureBtn.className = 'exl-hl-btn';
+      captureBtn.innerHTML = '📸 Capture';
+      captureBtn.title = 'Capture a screenshot of this page';
+      captureBtn.addEventListener('click', () => {
+        if (typeof ScreenshotManager !== 'undefined' && typeof ScreenshotManager.startCapture === 'function') {
+          ScreenshotManager.startCapture();
+          showActionToast('Drag to capture a region.');
+          return;
+        }
+        showActionToast('Screenshots are unavailable on this page.');
+        console.warn('[HighlighterController] ScreenshotManager not available (likely restricted domain).');
+      });
+
+      const recordBtn = document.createElement('button');
+      recordBtn.className = 'exl-hl-btn';
+      const setRecordLabel = (isRecording) => {
+        recordBtn.innerHTML = isRecording ? '⏹ Stop Rec' : '🎥 Record';
+        recordBtn.title = isRecording ? 'Stop recording and save' : 'Start tab recording (150MB cap)';
       };
 
-      recordBtn.addEventListener('click', () => {
+      const handleRecordingStatus = (payload) => {
+        const status = payload?.status;
+        if (!status) return;
+
+        if (status === 'recording') {
+          setRecordLabel(true);
+          showRecordToast('Recording... click ⏹ to stop.');
+        } else if (status === 'stopping') {
+          setRecordLabel(true);
+          showRecordToast('Stopping recording...');
+        } else if (status === 'saved') {
+          setRecordLabel(false);
+          showRecordToast('Recording saved. Opening capture panel...');
+        } else if (status === 'discarded') {
+          setRecordLabel(false);
+          showRecordToast('Recording discarded (limit hit).');
+        } else if (status === 'error') {
+          setRecordLabel(false);
+          showRecordToast('Recording failed. See console for details.');
+        }
+      };
+
+      // Listen for global recording status events (from RecordingManager)
+      try {
+        if (this.recordingStatusHandler) {
+          document.removeEventListener('exlRecordingStatus', this.recordingStatusHandler);
+        }
+        this.recordingStatusHandler = (evt) => handleRecordingStatus(evt?.detail);
+        document.addEventListener('exlRecordingStatus', this.recordingStatusHandler);
+      } catch (err) {
+        console.warn('[HighlighterController] Failed to register recording status listener', err);
+      }
+
+      setRecordLabel(typeof RecordingManager !== 'undefined' && typeof RecordingManager.getStatus === 'function' && RecordingManager.getStatus().isRecording);
+
+      const showRecordToast = (text) => showActionToast(text);
+
+      recordBtn.addEventListener('click', async () => {
         if (typeof RecordingManager === 'undefined' || typeof RecordingManager.toggleRecording !== 'function') {
           showRecordToast('Recording unavailable on this page.');
           console.warn('[HighlighterController] RecordingManager not available (recording is disabled on Salesforce pages).');
           return;
         }
 
-        const statusCb = (evt) => {
-          if (evt.status === 'recording') {
-            setRecordLabel(true);
-            showRecordToast('Recording... click ⏹ to stop.');
-          } else if (evt.status === 'stopping') {
-            setRecordLabel(true);
-            showRecordToast('Stopping recording...');
-          } else if (evt.status === 'saved') {
-            setRecordLabel(false);
-            showRecordToast('Recording saved. Opening capture panel...');
-          } else if (evt.status === 'discarded') {
-            setRecordLabel(false);
-            showRecordToast('Recording discarded (limit hit).');
-          } else if (evt.status === 'error') {
-            setRecordLabel(false);
-            showRecordToast('Recording failed. See console for details.');
-          }
-        };
-
         const current = typeof RecordingManager.getStatus === 'function' && RecordingManager.getStatus().isRecording;
         setRecordLabel(!current);
-        const result = RecordingManager.toggleRecording(statusCb);
+        const result = await RecordingManager.toggleRecording();
         if (result === 'starting') {
           showRecordToast('Starting recording...');
         } else if (result === 'stopping') {
           showRecordToast('Stopping recording...');
+        } else if (result === 'blocked') {
+          setRecordLabel(false);
+          showRecordToast('Recording is blocked on this page. Try a non-Salesforce tab.');
         }
       });
       
@@ -1205,20 +1258,20 @@
       actionsSection.appendChild(collectionsBtn);
       actionsSection.appendChild(bookmarkBtn);
       actionsSection.appendChild(recordBtn);
-      actionsSection.appendChild(screenshotBtn);
+      actionsSection.appendChild(captureBtn);
       const recordingsPanelBtn = document.createElement('button');
       recordingsPanelBtn.className = 'exl-hl-btn';
-      recordingsPanelBtn.innerHTML = '📼 Recorded';
-      recordingsPanelBtn.title = 'Open recordings';
+      recordingsPanelBtn.innerHTML = '📷 Gallery';
+      recordingsPanelBtn.title = 'Open captures (shots + recordings)';
       recordingsPanelBtn.addEventListener('click', () => {
         if (typeof CapturePanel !== 'undefined' && typeof CapturePanel.open === 'function') {
-          CapturePanel.open({ tab: 'recordings' });
+          CapturePanel.open({ tab: 'screenshots' });
           return;
         }
         try {
-          chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL', tab: 'recorded' });
+          chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL', tab: 'captured' });
         } catch (err) {
-          console.warn('[HighlighterController] Failed to open recorded panel', err);
+          console.warn('[HighlighterController] Failed to open gallery panel', err);
         }
       });
       actionsSection.appendChild(recordingsPanelBtn);
@@ -1665,12 +1718,34 @@
       }, 7000);
     },
 
+    async loadBannerMode() {
+      return new Promise((resolve) => {
+        this.safeLocalGet(['exl_hl_banner_mode'], (result) => {
+          const mode = result.exl_hl_banner_mode;
+          if (mode === 'sticky' || mode === 'floating') {
+            this.bannerMode = mode;
+          } else {
+            this.bannerMode = 'hidden';
+          }
+          resolve(this.bannerMode);
+        });
+      });
+    },
+
+    async saveBannerMode(mode) {
+      const normalized = mode === 'floating' ? 'floating' : mode === 'sticky' ? 'sticky' : 'hidden';
+      this.bannerMode = normalized;
+      return new Promise((resolve) => {
+        this.safeLocalSet({ exl_hl_banner_mode: normalized }, resolve);
+      });
+    },
+
     /**
      * Check and show floating button if conditions are met
      * Shows if: banner should not be shown (not default/whitelisted or dismissed)
      */
-    async checkAndShowFloatingButton() {
-      const shouldShow = await this.shouldShowFloatingButton();
+    async checkAndShowFloatingButton(options = {}) {
+      const shouldShow = await this.shouldShowFloatingButton(options.force === true);
       if (shouldShow) {
         this.showFloatingButton();
       } else {
@@ -1699,6 +1774,7 @@
         this.floatingButtonElement.style.display = 'block';
         // Restore saved position if available
         this.applyFloatingButtonPosition();
+        this.clampFloatingButtonToViewport();
         this.setupFloatingButtonProximity();
         return;
       }
@@ -1716,6 +1792,7 @@
       
       document.body.appendChild(floatingBtn);
       this.floatingButtonElement = floatingBtn;
+      this.clampFloatingButtonToViewport();
       this.setupResizeHandler();
       this.setupFloatingButtonProximity();
       console.log('[HighlighterController] Floating button shown');
@@ -1807,65 +1884,101 @@
     makeFloatingButtonDraggable(button) {
       if (!button) return;
 
-      // Load saved position then apply
-      this.loadFloatingButtonPosition().then(() => this.applyFloatingButtonPosition());
+      // Load saved position then apply and clamp to viewport
+      this.loadFloatingButtonPosition().then(() => {
+        this.applyFloatingButtonPosition();
+        this.clampFloatingButtonToViewport();
+      });
 
       let isDragging = false;
       let startX = 0;
       let startY = 0;
-      let originX = 0;
-      let originY = 0;
-      const DRAG_THRESHOLD = 5;
-
-      const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
+      let initialLeft = 0;
+      let initialTop = 0;
+      const CLICK_THRESHOLD = 5;
 
       const onMouseMove = (e) => {
         if (!isDragging) return;
         const deltaX = e.clientX - startX;
         const deltaY = e.clientY - startY;
-        const newX = clamp(originX + deltaX, 8, window.innerWidth - 56);
-        const newY = clamp(originY + deltaY, 8, window.innerHeight - 56);
-        button.style.left = `${newX}px`;
-        button.style.top = `${newY}px`;
+
+        let newLeft = initialLeft + deltaX;
+        let newTop = initialTop + deltaY;
+
+        // Constrain to viewport with padding
+        const padding = 8;
+        const maxX = Math.max(padding, window.innerWidth - (button.offsetWidth || 48) - padding);
+        const maxY = Math.max(padding, window.innerHeight - (button.offsetHeight || 48) - padding);
+        newLeft = Math.min(Math.max(newLeft, padding), maxX);
+        newTop = Math.min(Math.max(newTop, padding), maxY);
+
+        button.style.left = `${newLeft}px`;
+        button.style.top = `${newTop}px`;
         button.style.right = 'auto';
         button.style.bottom = 'auto';
 
         // Keep radial menu centered on the moving button
         if (this.radialMenuState.isExpanded && this.radialMenuState.menuElement) {
-          const centerX = newX + button.offsetWidth / 2;
-          const centerY = newY + button.offsetHeight / 2;
+          const centerX = newLeft + button.offsetWidth / 2;
+          const centerY = newTop + button.offsetHeight / 2;
           this.radialMenuState.menuElement.style.left = `${centerX}px`;
           this.radialMenuState.menuElement.style.top = `${centerY}px`;
         }
       };
 
       const onMouseUp = (e) => {
-        if (isDragging) {
-          const moved = Math.abs(e.clientX - startX) > DRAG_THRESHOLD || Math.abs(e.clientY - startY) > DRAG_THRESHOLD;
-          const rect = button.getBoundingClientRect();
+        if (!isDragging) return;
+
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+
+        // Restore cursor and selection
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+
+        const moved = Math.abs(e.clientX - startX) > CLICK_THRESHOLD || Math.abs(e.clientY - startY) > CLICK_THRESHOLD;
+        const rect = button.getBoundingClientRect();
+
+        // Only persist/adjust position when the user actually dragged; avoid micro-jumps on click
+        if (moved) {
           this.saveFloatingButtonPosition(rect.left, rect.top);
-          button.classList.remove('dragging');
-          document.removeEventListener('mousemove', onMouseMove);
-          document.removeEventListener('mouseup', onMouseUp);
-          isDragging = false;
-          if (!moved) {
-            // Treat as click
+          this.clampFloatingButtonToViewport();
+        }
+
+        button.classList.remove('dragging');
+        isDragging = false;
+
+        if (!moved) {
+          // Treat as click
+          if (this.bannerMode === 'floating') {
+            this.toggleFloatingBanner();
+          } else {
             this.toggleRadialMenu(e);
           }
         }
       };
 
-      button.addEventListener('mousedown', (e) => {
+      const onMouseDown = (e) => {
+        // Only start drag on direct interaction with the button
+        if (e.target !== button && !button.contains(e.target)) return;
+
         startX = e.clientX;
         startY = e.clientY;
         const rect = button.getBoundingClientRect();
-        originX = rect.left;
-        originY = rect.top;
+        initialLeft = rect.left;
+        initialTop = rect.top;
         isDragging = true;
         button.classList.add('dragging');
+
+        // Prevent text selection during drag
+        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'grabbing';
+
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
-      });
+      };
+
+      button.addEventListener('mousedown', onMouseDown);
 
       // Prevent context menu during drag
       button.addEventListener('contextmenu', (e) => {
@@ -2209,7 +2322,8 @@
           label: 'Add Note',
           action: () => {
             if (typeof StickyNotes !== 'undefined' && StickyNotes.createNote) {
-              StickyNotes.createNote();
+              const colorId = this.getActiveNoteColorId();
+              StickyNotes.createNote(colorId ? { colorId } : {});
             }
           }
         },
@@ -2361,6 +2475,261 @@
       this.radialMenuState.menuElement = null;
       this.radialMenuState.items = [];
       this.radialMenuState.isExpanded = false;
+    },
+
+    /**
+     * Create floating sidebar banner that expands from button
+     * @deprecated Use radial menu instead. Kept for sticky/floating mode transition.
+     */
+    showFloatingBanner() {
+      // Don't create if already exists
+      if (this.floatingBannerElement) {
+        this.floatingBannerElement.style.display = 'flex';
+        return;
+      }
+
+      if (!this.floatingButtonElement) {
+        console.warn('[HighlighterController] Cannot show floating banner: button not found');
+        return;
+      }
+
+      // Get button position
+      const buttonRect = this.floatingButtonElement.getBoundingClientRect();
+      const buttonY = buttonRect.top;
+
+      // Create floating banner container
+      const floatingBanner = document.createElement('div');
+      floatingBanner.className = 'exl-hl-floating-banner';
+      floatingBanner.id = 'exl-hl-floating-banner';
+
+      // Create container with all banner sections
+      const container = document.createElement('div');
+      container.className = 'exl-banner-container';
+
+      // Section 1: Title
+      const titleSection = document.createElement('div');
+      titleSection.className = 'exl-banner-section';
+      
+      const titleLabel = document.createElement('div');
+      titleLabel.className = 'exl-banner-label';
+      titleLabel.textContent = 'Tool';
+      
+      const title = document.createElement('div');
+      title.className = 'exl-hl-banner-title';
+      title.textContent = '✨ Highlighter';
+      
+      titleSection.appendChild(titleLabel);
+      titleSection.appendChild(title);
+      container.appendChild(titleSection);
+
+      // Section 2: Highlight Action
+      const highlightSection = document.createElement('div');
+      highlightSection.className = 'exl-banner-section';
+      
+      const highlightBtn = document.createElement('button');
+      highlightBtn.className = 'exl-hl-btn';
+      highlightBtn.innerHTML = '🖍️ Highlight';
+      highlightBtn.title = 'Highlight selected text';
+      highlightBtn.addEventListener('click', () => {
+        if (typeof Highlighter !== 'undefined' && Highlighter.createHighlight) {
+          Highlighter.createHighlight();
+        }
+      });
+      
+      highlightSection.appendChild(highlightBtn);
+      container.appendChild(highlightSection);
+
+      // Section 3: Color Palette
+      const paletteSection = document.createElement('div');
+      paletteSection.className = 'exl-banner-section';
+      
+      const paletteLabel = document.createElement('div');
+      paletteLabel.className = 'exl-banner-label';
+      paletteLabel.textContent = 'Colors';
+      
+      const palette = this.createColorPalette();
+      paletteSection.appendChild(paletteLabel);
+      paletteSection.appendChild(palette);
+      container.appendChild(paletteSection);
+
+      // Section 4: Layers
+      const layerSection = document.createElement('div');
+      layerSection.className = 'exl-banner-section';
+      
+      const layerBtn = this.createLayerDropdown();
+      layerSection.appendChild(layerBtn);
+      container.appendChild(layerSection);
+
+      // Section 5: Actions (Notes, Collections, Bookmark)
+      const actionsSection = document.createElement('div');
+      actionsSection.className = 'exl-banner-section exl-banner-actions';
+      
+      const noteBtn = document.createElement('button');
+      noteBtn.className = 'exl-hl-btn';
+      noteBtn.innerHTML = '📝 Add Note';
+      noteBtn.title = 'Create sticky note';
+      noteBtn.addEventListener('click', () => {
+        if (typeof StickyNotes !== 'undefined' && StickyNotes.createNote) {
+          StickyNotes.createNote();
+        }
+      });
+
+      const collectionsBtn = document.createElement('button');
+      collectionsBtn.className = 'exl-hl-btn';
+      collectionsBtn.innerHTML = '📚 Collections';
+      collectionsBtn.title = 'Open collections';
+      collectionsBtn.addEventListener('click', () => {
+        if (typeof BookmarkManager !== 'undefined' && BookmarkManager.openPanel) {
+          BookmarkManager.openPanel();
+        }
+      });
+
+      const bookmarkBtn = document.createElement('button');
+      bookmarkBtn.className = 'exl-hl-btn';
+      bookmarkBtn.innerHTML = '🔖 Bookmark';
+      bookmarkBtn.title = 'Bookmark this page';
+      bookmarkBtn.addEventListener('click', () => {
+        this.showBookmarkDialog();
+      });
+      
+      actionsSection.appendChild(noteBtn);
+      actionsSection.appendChild(collectionsBtn);
+      actionsSection.appendChild(bookmarkBtn);
+      container.appendChild(actionsSection);
+
+      floatingBanner.appendChild(container);
+
+      // Add collapse button (chevron pointing toward button)
+      const collapseBtn = document.createElement('button');
+      collapseBtn.className = 'exl-hl-floating-collapse-btn';
+      collapseBtn.innerHTML = '◀';
+      collapseBtn.title = 'Collapse to button';
+      collapseBtn.setAttribute('aria-label', 'Collapse banner');
+      collapseBtn.setAttribute('tabindex', '0');
+      collapseBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.hideFloatingBanner();
+      });
+      floatingBanner.appendChild(collapseBtn);
+
+      // Add pin button (pin inside window)
+      const pinBtn = document.createElement('button');
+      pinBtn.className = 'exl-hl-floating-pin-btn';
+      pinBtn.innerHTML = '📌';
+      pinBtn.title = 'Pin to top';
+      pinBtn.setAttribute('aria-label', 'Pin banner to top');
+      pinBtn.setAttribute('tabindex', '0');
+      pinBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.switchToStickyMode();
+      });
+      floatingBanner.appendChild(pinBtn);
+
+      // Position floating banner on left side, anchored to button Y position
+      floatingBanner.style.top = `${buttonY}px`;
+      floatingBanner.style.left = '0px';
+      floatingBanner.style.height = '48px';
+
+      document.body.appendChild(floatingBanner);
+      this.floatingBannerElement = floatingBanner;
+
+      // Hide floating button when banner is shown
+      if (this.floatingButtonElement) {
+        this.floatingButtonElement.style.display = 'none';
+      }
+
+      console.log('[HighlighterController] Floating banner shown');
+    },
+
+    /**
+     * Hide floating banner and show button
+     */
+    hideFloatingBanner() {
+      if (this.floatingBannerElement) {
+        this.floatingBannerElement.style.display = 'none';
+      }
+      
+      // Show floating button
+      if (this.floatingButtonElement) {
+        this.floatingButtonElement.style.display = 'block';
+      }
+      
+      console.log('[HighlighterController] Floating banner hidden');
+    },
+
+    /**
+     * Toggle between floating button and floating banner
+     */
+    toggleFloatingBanner() {
+      if (this.floatingBannerElement && this.floatingBannerElement.style.display !== 'none') {
+        this.hideFloatingBanner();
+      } else {
+        this.showFloatingBanner();
+      }
+    },
+
+    /**
+     * Switch from floating to sticky mode
+     */
+    async switchToStickyMode() {
+      // Hide floating banner and button
+      this.hideFloatingBanner();
+      if (this.floatingButtonElement) {
+        this.floatingButtonElement.style.display = 'none';
+      }
+
+      // Show sticky banner
+      if (!this.bannerElement) {
+        this.createBanner();
+        this.setupListeners();
+      }
+      
+      if (this.bannerElement) {
+        this.bannerElement.style.display = 'block';
+        this.bannerElement.classList.add('sticky-mode');
+        
+        // Mark body
+        if (document.body) {
+          document.body.removeAttribute('data-exl-hl-banner-hidden');
+        }
+
+        // Ensure no layout adjustments are applied (sticky mode overlays content)
+        this.adjustPageLayout(false);
+        this.removeFixedElementAdjustments();
+      }
+
+      // Save mode
+      await this.saveBannerMode('sticky');
+      
+      console.log('[HighlighterController] Switched to sticky mode');
+    },
+
+    /**
+     * Switch from sticky to floating mode
+     */
+    async switchToFloatingMode() {
+      // Hide sticky banner
+      if (this.bannerElement) {
+        this.bannerElement.style.display = 'none';
+        this.bannerElement.classList.remove('sticky-mode');
+        
+        // Mark body
+        if (document.body) {
+          document.body.setAttribute('data-exl-hl-banner-hidden', 'true');
+        }
+        
+        // Remove all layout adjustments
+        this.adjustPageLayout(false);
+        this.removeFixedElementAdjustments();
+      }
+
+      // Show floating button
+      await this.showFloatingButton();
+
+      // Save mode
+      await this.saveBannerMode('floating');
+      
+      console.log('[HighlighterController] Switched to floating mode');
     },
 
     /**
@@ -3513,6 +3882,11 @@
         const radialStyle = document.getElementById('exl-hl-radial-styles');
         if (radialStyle) {
           radialStyle.remove();
+        }
+
+        if (this.recordingStatusHandler) {
+          document.removeEventListener('exlRecordingStatus', this.recordingStatusHandler);
+          this.recordingStatusHandler = null;
         }
 
         if (this._proximityHandler) {

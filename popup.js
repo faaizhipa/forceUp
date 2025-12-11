@@ -1548,6 +1548,25 @@ async function clearBannerDismissals(domain, url) {
         localDbDriveStatus.style.color = isError ? '#d93025' : 'inherit';
       };
 
+      const localDbDriveAuthButton = document.getElementById('localDbDriveAuthButton');
+      if (localDbDriveAuthButton) {
+        localDbDriveAuthButton.addEventListener('click', async () => {
+          try {
+            setDriveStatus('Connecting to Google Drive...');
+            const token = await GoogleDrive.getAuthToken(true);
+            if (token) {
+              setDriveStatus('Connected to Google Drive.');
+            } else {
+              const err = GoogleDrive.lastAuthError?.message || 'Unable to sign in.';
+              setDriveStatus(`Sign-in failed: ${err}`, true);
+            }
+          } catch (error) {
+            console.error('Google Drive auth failed:', error);
+            setDriveStatus(`Sign-in failed: ${error.message}`, true);
+          }
+        });
+      }
+
       const localDbDriveBackupButton = document.getElementById('localDbDriveBackupButton');
       if (localDbDriveBackupButton) {
         localDbDriveBackupButton.addEventListener('click', async () => {
