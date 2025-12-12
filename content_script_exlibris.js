@@ -65,23 +65,26 @@
 
       // Determine session type using Navigation Timing API
 
-        const navEntry = performance.getEntriesByType("navigation")[0];
-        const isNewSession = !sessionStorage.getItem("session_active");
+      const navEntry = performance.getEntriesByType("navigation")[0];
+      const isNewSession = !sessionStorage.getItem("session_active");
 
-        if (isNewSession) {
-          console.log("[HOW THIS PAGE INIT]This is a completely new tab/window session.");
-          sessionStorage.setItem("session_active", "true");
-        } else if (navEntry.type === "reload") {
-          console.log("[HOW THIS PAGE INIT] This is a refresh within an existing tab session.");
-        } else if (
-          navEntry.type === "navigate" ||
-          navEntry.type === "back_forward"
-        ) {
-          console.log(
-            "[HOW THIS PAGE INIT]This is navigation within the same tab, but not a simple refresh."
-          );
-        };
-
+      if (isNewSession) {
+        console.log(
+          "[HOW THIS PAGE INIT]This is a completely new tab/window session."
+        );
+        sessionStorage.setItem("session_active", "true");
+      } else if (navEntry.type === "reload") {
+        console.log(
+          "[HOW THIS PAGE INIT] This is a refresh within an existing tab session."
+        );
+      } else if (
+        navEntry.type === "navigate" ||
+        navEntry.type === "back_forward"
+      ) {
+        console.log(
+          "[HOW THIS PAGE INIT]This is navigation within the same tab, but not a simple refresh."
+        );
+      }
 
       // NOTE: Legacy _pendingApiCaseData pattern removed
       // New data flow uses InterceptorCacheManager via EXLIBRIS_DATA_UPDATED event
@@ -991,10 +994,15 @@
 
       // Clear legacy API data on navigation (for backwards compatibility)
       // New data flow uses InterceptorCacheManager which handles its own cache
-      this.apiCaseData = null;
-      this.apiCaseDataTimestamp = null;
+      // Note: We do NOT clear apiCaseData on navigation
+      // ONLY ALLOW FOR REPLACEMENT - apiCaseData should only be replaced with new data, never deleted
+      // This prevents the primary metadata section from showing only subject with hyphens for other fields
+      // New data flow uses InterceptorCacheManager which handles its own cache and will replace data
+      // Deleting here causes metadata loss before new data arrives
+      // this.apiCaseData = null;  // REMOVED - causes metadata loss
+      // this.apiCaseDataTimestamp = null;  // REMOVED - causes metadata loss
       console.log(
-        "[ExLibris Extension] Cleared legacy API case data on navigation"
+        "[ExLibris Extension] Navigation detected - apiCaseData will be replaced with fresh data when available"
       );
 
       // Teardown existing features
