@@ -375,6 +375,56 @@ const CasePageDataExtractor = {
     }
   },
 
+  deriveServerFromEnvironment(affectedEnvironment) {
+    if (!affectedEnvironment || typeof affectedEnvironment !== 'string') {
+      return null;
+    }
+
+    const match = affectedEnvironment.match(/(NA\d{2}|EU\d{2}|AP\d{2}|CN\d{2}|CA\d{2})/i);
+    return match ? match[1].toLowerCase() : null;
+  },
+
+  applyCustomerLookups(data) {
+    const institutionCandidate = data.institutionCode || data.exLibrisAccountNumber || data.accountCode;
+    const accountName = data.accountName;
+    let customerInfo = null;
+
+    if (typeof CustomerDataManager !== 'undefined') {
+      customerInfo = CustomerDataManager.findByInstitutionCode(institutionCandidate, accountName);
+    }
+
+    if (!customerInfo && typeof CustomerMasterManager !== 'undefined') {
+      if (institutionCandidate) {
+        customerInfo = CustomerMasterManager.findByInstitutionCode(institutionCandidate, accountName);
+      } else if (accountName && typeof CustomerMasterManager.findByAccountName === 'function') {
+        customerInfo = CustomerMasterManager.findByAccountName(accountName);
+      }
+    }
+
+    if (customerInfo) {
+      if (!data.custID && customerInfo.custID) {
+        data.custID = customerInfo.custID;
+        data.customerid = customerInfo.custID;
+      }
+      if (!data.instID && customerInfo.instID) {
+        data.instID = customerInfo.instID;
+        data.institutionid = customerInfo.instID;
+      }
+      if (!data.customerName && customerInfo.name) {
+        data.customerName = customerInfo.name;
+      }
+      if (!data.server && customerInfo.server) {
+        data.server = customerInfo.server.toLowerCase();
+      } else if (data.server && customerInfo.server && data.server.toLowerCase() !== customerInfo.server.toLowerCase()) {
+        console.warn(
+          `[CasePageDataExtractor] Server mismatch: derived ${data.server} vs customer ${customerInfo.server}`
+        );
+      }
+    }
+
+    return data;
+  },
+
   /**
    * Normalize API data to match existing case data structure
    * Maps API field names to the structure expected by other modules
@@ -408,6 +458,8 @@ const CasePageDataExtractor = {
 
       // Customer data
       exLibrisAccountNumber: apiData.Ex_Libris_Account_Number__c || null,
+      accountCode: apiData.Ex_Libris_Account_Number__c || apiData.AccountCode__c || null,
+      institutionCode: apiData.Institution_Code__c || apiData.InstCode__c || null,
       analysisNote: apiData.Analysis_Note__c || null,
 
       // Additional fields from API
@@ -432,20 +484,12 @@ const CasePageDataExtractor = {
       dataSource: 'API' // Mark data source for debugging
     };
 
-    // Enrich with customer data from CustomerDataManager
-    if (typeof CustomerDataManager !== 'undefined' && data.exLibrisAccountNumber) {
-      const customerInfo = CustomerDataManager.findByInstitutionCode(
-        data.exLibrisAccountNumber,
-        data.accountName
-      );
-      
-      if (customerInfo) {
-        data.custID = customerInfo.custID;
-        data.instID = customerInfo.instID;
-        data.server = customerInfo.server;
-        console.log('[CasePageDataExtractor] API data enriched with customer info:', customerInfo.name);
-      }
+    const derivedServer = this.deriveServerFromEnvironment(data.affectedEnvironment);
+    if (derivedServer) {
+      data.server = derivedServer;
     }
+
+    this.applyCustomerLookups(data);
 
     console.log('[CasePageDataExtractor] Normalized API data:', {
       caseNumber: data.caseNumber,

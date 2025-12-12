@@ -55,6 +55,7 @@ const PersistentBanner = {
     // Message hover popup
     messageHoverPopup: null,
     messageHoverTimeout: null,
+    messageContentHandlers: null,
     
     // Message edit popup
     messageEditPopup: null,
@@ -85,6 +86,8 @@ const PersistentBanner = {
     imagePreviewOverlay: null,
     messageDropdown: null,
     currentDisplayedMessage: null,
+    lastPurgedMessage: null,
+    purgeNoticeElement: null,
 
     // Current page info
     currentPage: {
@@ -169,6 +172,9 @@ const PersistentBanner = {
 
     // Default banner gradient (for non-case pages)
     DEFAULT_GRADIENT: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+
+    // Message limits
+    MAX_CUSTOM_MESSAGES: 10,
 
     // =================================================================
     // UTILITY METHODS - Image Compression & Validation
@@ -431,6 +437,11 @@ const PersistentBanner = {
                     return;
                 }
 
+                // Ensure shape
+                messagesConfig.customMessages = messagesConfig.customMessages || [];
+                messagesConfig.defaultMessages = messagesConfig.defaultMessages || {};
+                messagesConfig.archivedMessages = messagesConfig.archivedMessages || [];
+
                 this.messageSettings = messagesConfig;
                 this.activeMessages = this.getActiveMessages(messagesConfig);
 
@@ -450,9 +461,20 @@ const PersistentBanner = {
      */
     async saveMessagesToLocal(messagesConfig) {
         return new Promise((resolve) => {
+            // Ensure shape
+            messagesConfig.customMessages = messagesConfig.customMessages || [];
+            messagesConfig.defaultMessages = messagesConfig.defaultMessages || {};
+            messagesConfig.archivedMessages = messagesConfig.archivedMessages || [];
+
+            // Enforce cap (custom only, pinned immune)
+            const { messagesConfig: cappedConfig, purged } = this.applyCustomMessageCap(messagesConfig);
+            if (purged) {
+                this.lastPurgedMessage = purged;
+            }
+
             // Add timestamp for conflict detection
             const configWithTimestamp = {
-                ...messagesConfig,
+                ...cappedConfig,
                 lastModified: Date.now()
             };
 
@@ -478,6 +500,41 @@ const PersistentBanner = {
                 });
             }
         });
+    },
+
+    /**
+     * Apply custom message cap with pinned immunity
+     * Removes oldest unpinned messages until limit is satisfied.
+     * @param {Object} messagesConfig
+     * @returns {{messagesConfig: Object, purged: Object|null}}
+     */
+    applyCustomMessageCap(messagesConfig) {
+        if (!messagesConfig || !Array.isArray(messagesConfig.customMessages)) {
+            return { messagesConfig, purged: null };
+        }
+
+        const pinned = messagesConfig.customMessages.filter(msg => msg && msg.pinnedCaseNumber);
+        const unpinned = messagesConfig.customMessages.filter(msg => !msg?.pinnedCaseNumber);
+        let purged = null;
+
+        // Only enforce cap on custom messages; pinned are immune
+        while (messagesConfig.customMessages.length > this.MAX_CUSTOM_MESSAGES && unpinned.length > 0) {
+            const oldestUnpinned = unpinned.shift();
+            purged = oldestUnpinned;
+
+            // Remove from main list
+            const removeIndex = messagesConfig.customMessages.findIndex(m => m?.id === oldestUnpinned?.id);
+            if (removeIndex !== -1) {
+                messagesConfig.customMessages.splice(removeIndex, 1);
+            }
+
+            // Archive purged message for potential restore
+            const archivedCopy = { ...oldestUnpinned, archivedAt: Date.now() };
+            messagesConfig.archivedMessages = messagesConfig.archivedMessages || [];
+            messagesConfig.archivedMessages.unshift(archivedCopy);
+        }
+
+        return { messagesConfig, purged };
     },
 
     // =================================================================
@@ -1624,6 +1681,71 @@ const PersistentBanner = {
             
             .exl-message-dropdown-item:hover {
                 background: #f0f0f0 !important;
+            }
+
+            /* Dark/glow hover card for message previews */
+            .exl-message-hover-popup {
+                position: fixed;
+                z-index: 999999;
+                max-width: 360px;
+                width: clamp(260px, 32vw, 360px);
+                padding: 12px 14px;
+                border-radius: 14px;
+                background: radial-gradient(circle at 20% 20%, rgba(120, 178, 255, 0.25), transparent 45%),
+                    radial-gradient(circle at 80% 0%, rgba(130, 255, 255, 0.2), transparent 35%),
+                    linear-gradient(135deg, #0e1323 0%, #0a0f1d 60%, #0a0f1d 100%);
+                color: #e6edff;
+                box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 28px rgba(104, 156, 255, 0.45);
+                border: 1px solid rgba(104, 156, 255, 0.35);
+                backdrop-filter: blur(10px);
+                opacity: 0;
+                transform: translateY(6px);
+                transition: opacity 120ms ease, transform 120ms ease, box-shadow 160ms ease;
+                pointer-events: none;
+            }
+
+            .exl-message-hover-popup.visible {
+                opacity: 1;
+                transform: translateY(0);
+                pointer-events: auto;
+                box-shadow: 0 20px 56px rgba(0, 0, 0, 0.6), 0 0 32px rgba(132, 196, 255, 0.6);
+            }
+
+            .exl-message-hover-popup::before {
+                content: '';
+                position: absolute;
+                inset: -1px;
+                border-radius: 14px;
+                background: linear-gradient(135deg, rgba(120, 178, 255, 0.45), rgba(90, 255, 255, 0.2));
+                opacity: 0.9;
+                filter: blur(10px);
+                z-index: -1;
+                pointer-events: none;
+            }
+
+            .exl-message-hover-popup .message-preview-title {
+                font-size: 14px;
+                font-weight: 700;
+                color: #f2f6ff;
+                margin-bottom: 6px;
+                letter-spacing: 0.01em;
+            }
+
+            .exl-message-hover-popup .message-preview-content {
+                font-size: 13px;
+                line-height: 1.5;
+                color: #c3d2ff;
+                margin-bottom: 8px;
+            }
+
+            .exl-message-hover-popup .message-preview-image {
+                display: block;
+                width: 100%;
+                max-height: 200px;
+                object-fit: cover;
+                border-radius: 10px;
+                border: 1px solid rgba(104, 156, 255, 0.35);
+                box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 10px 28px rgba(0, 0, 0, 0.5);
             }
         `;
         document.head.appendChild(style);
@@ -4410,17 +4532,6 @@ const PersistentBanner = {
             });
         }
 
-        // Setup pause-on-hover for message content
-        if (this.elements.messageContent) {
-            this.registerListener(this.elements.messageContent, 'mouseenter', () => {
-                this.pauseMessageRotation();
-            });
-
-            this.registerListener(this.elements.messageContent, 'mouseleave', () => {
-                this.resumeMessageRotation();
-            });
-        }
-
         // Add dropdown button to message index
         if (this.elements.messageIndex) {
             this.elements.messageIndex.style.cursor = 'pointer';
@@ -5980,6 +6091,7 @@ const PersistentBanner = {
                         type: 'default',
                         hoverImage: msg.hoverImage || null,
                         description: msg.description || '',
+                        displayMode: msg.displayMode || 'banner',
                         pinnedCaseNumber: msg.pinnedCaseNumber || null,
                         pinnedCaseId: msg.pinnedCaseId || null,
                         pinnedCaseUrl: msg.pinnedCaseUrl || null
@@ -5998,6 +6110,7 @@ const PersistentBanner = {
                         type: 'custom',
                         hoverImage: msg.hoverImage || null,
                         description: msg.description || '',
+                        displayMode: msg.displayMode || 'banner',
                         pinnedCaseNumber: msg.pinnedCaseNumber || null,
                         pinnedCaseId: msg.pinnedCaseId || null,
                         pinnedCaseUrl: msg.pinnedCaseUrl || null
@@ -6120,6 +6233,55 @@ const PersistentBanner = {
     },
 
     /**
+     * Ensure message content listeners are attached once and reuse handler references
+     */
+    ensureMessageContentListeners() {
+        const contentEl = this.elements.messageContent;
+        if (!contentEl) return;
+
+        // Avoid re-registering listeners on every update
+        if (this.messageContentHandlers) {
+            return;
+        }
+
+        const handleContextMenu = (e) => {
+            if (this.currentDisplayedMessage?.id) {
+                this.showContextMenu(e, this.currentDisplayedMessage.id);
+            }
+        };
+
+        const handleMouseEnter = (e) => {
+            this.pauseMessageRotation();
+            if (this.currentDisplayedMessage) {
+                this.showMessageHoverPopup(this.currentDisplayedMessage, e);
+            }
+        };
+
+        const handleMouseLeave = () => {
+            this.hideMessageHoverPopup();
+            this.resumeMessageRotation();
+        };
+
+        const handleDoubleClick = () => {
+            if (this.currentDisplayedMessage?.id) {
+                this.showMessageEditPopup(this.currentDisplayedMessage.id);
+            }
+        };
+
+        this.messageContentHandlers = {
+            handleContextMenu,
+            handleMouseEnter,
+            handleMouseLeave,
+            handleDoubleClick
+        };
+
+        this.registerListener(contentEl, 'contextmenu', handleContextMenu);
+        this.registerListener(contentEl, 'mouseenter', handleMouseEnter);
+        this.registerListener(contentEl, 'mouseleave', handleMouseLeave);
+        this.registerListener(contentEl, 'dblclick', handleDoubleClick);
+    },
+
+    /**
      * Update message display with current message
      */
     updateMessageDisplay() {
@@ -6164,27 +6326,8 @@ const PersistentBanner = {
                 pinnedCaseUrl: currentMessage.pinnedCaseUrl
             };
 
-            // Attach context menu (right-click) handler
-            const handleContextMenu = (e) => {
-                this.showContextMenu(e, currentMessage.id);
-            };
-            this.registerListener(this.elements.messageContent, 'contextmenu', handleContextMenu);
-
-            // Attach hover handlers for message preview popup
-            const handleMouseEnter = (e) => {
-                this.showMessageHoverPopup(currentMessage, e);
-            };
-            const handleMouseLeave = () => {
-                this.hideMessageHoverPopup();
-            };
-            this.registerListener(this.elements.messageContent, 'mouseenter', handleMouseEnter);
-            this.registerListener(this.elements.messageContent, 'mouseleave', handleMouseLeave);
-
-            // Double-click to edit
-            const handleDoubleClick = () => {
-                this.showMessageEditPopup(currentMessage.id);
-            };
-            this.registerListener(this.elements.messageContent, 'dblclick', handleDoubleClick);
+            // Attach message content listeners once, using currentDisplayedMessage as source
+            this.ensureMessageContentListeners();
         }
 
         // Enable/disable navigation buttons
@@ -6259,6 +6402,9 @@ const PersistentBanner = {
 
         // Clean up all tracked resources (timers, listeners, observers)
         this.cleanupTrackedResources();
+
+        // Reset cached handler references so they can be reattached on next init
+        this.messageContentHandlers = null;
 
         // Remove storage change listener explicitly (in addition to tracked cleanup)
         if (this.storageChangeListener) {
@@ -7628,6 +7774,7 @@ const PersistentBanner = {
         this.messageEditPopup.className = 'exl-message-edit-popup';
         this.messageEditPopup.innerHTML = `
             <div class="exl-message-edit-container">
+                <div class="exl-message-edit-notice-slot"></div>
                 <!-- Left column - Message list -->
                 <div class="exl-message-edit-list">
                     <div class="settings-header">Messages</div>
@@ -7814,6 +7961,203 @@ const PersistentBanner = {
         this.updateRotatingStickyBar();
 
         console.log('[PersistentBanner] Message saved:', this.selectedEditMessageId);
+    },
+
+    /**
+     * Persist active custom messages back to storage with cap enforcement
+     * and refresh in-memory active messages
+     */
+    async saveMessages() {
+        // Load latest config to merge edits safely
+        const messagesConfig = await new Promise((resolve) => {
+            chrome.storage.local.get(['exl_bannerMessages'], (result) => {
+                const config = result.exl_bannerMessages || {};
+                config.customMessages = config.customMessages || [];
+                config.defaultMessages = config.defaultMessages || {};
+                config.archivedMessages = config.archivedMessages || [];
+                resolve(config);
+            });
+        });
+
+        // Map active custom edits back to stored config
+        const activeCustomById = new Map(
+            this.activeMessages
+                .filter(msg => msg.type === 'custom')
+                .map(msg => [msg.id, msg])
+        );
+
+        messagesConfig.customMessages = (messagesConfig.customMessages || []).map(existing => {
+            const updated = activeCustomById.get(existing.id);
+            if (!updated) return existing;
+            return {
+                ...existing,
+                text: updated.text || '',
+                description: updated.description || '',
+                hoverImage: updated.hoverImage || null,
+                displayMode: updated.displayMode || 'banner'
+            };
+        });
+
+        // Enforce cap and persist
+        const { messagesConfig: cappedConfig, purged } = this.applyCustomMessageCap(messagesConfig);
+        const saved = await this.saveMessagesToLocal(cappedConfig);
+
+        if (saved) {
+            this.messageSettings = cappedConfig;
+            this.activeMessages = this.getActiveMessages(cappedConfig);
+            this.prioritizePinnedMessage();
+            this.updateRotatingStickyBar();
+
+            if (purged) {
+                this.lastPurgedMessage = purged;
+                this.showInlinePurgeNotice(purged);
+            } else {
+                this.clearInlinePurgeNotice();
+            }
+        }
+
+        return saved;
+    },
+
+    /**
+     * Show inline purge notice with undo option (inline banner, Option A)
+     * @param {Object} purgedMessage
+     */
+    showInlinePurgeNotice(purgedMessage) {
+        // Prefer showing inside edit popup if open
+        const host = this.messageEditPopup?.querySelector('.exl-message-edit-notice-slot')
+            || this.messageEditPopup?.querySelector('.exl-message-edit-container')
+            || null;
+
+        const messageText = purgedMessage?.text || 'a message';
+        const notice = document.createElement('div');
+        notice.className = 'exl-purge-notice';
+        notice.style.cssText = `
+            background: linear-gradient(135deg, #1f2937 0%, #0f172a 100%);
+            color: #e5e7eb;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin: 0 0 12px 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+        `;
+
+        const text = document.createElement('div');
+        text.style.cssText = 'font-size: 12px; line-height: 1.4;';
+        text.textContent = `Oldest unpinned message was archived to keep the 10 custom limit: ${messageText}`;
+        notice.appendChild(text);
+
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display: flex; gap: 8px;';
+
+        const undoBtn = document.createElement('button');
+        undoBtn.textContent = 'Undo';
+        undoBtn.style.cssText = `
+            background: rgba(255,255,255,0.1);
+            color: #e5e7eb;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 4px;
+            padding: 6px 10px;
+            cursor: pointer;
+            font-size: 12px;
+        `;
+        undoBtn.addEventListener('click', () => this.restorePurgedMessage(purgedMessage?.id));
+        actions.appendChild(undoBtn);
+
+        const dismissBtn = document.createElement('button');
+        dismissBtn.textContent = 'Dismiss';
+        dismissBtn.style.cssText = `
+            background: transparent;
+            color: #9ca3af;
+            border: none;
+            padding: 6px 8px;
+            cursor: pointer;
+            font-size: 12px;
+        `;
+        dismissBtn.addEventListener('click', () => this.clearInlinePurgeNotice());
+        actions.appendChild(dismissBtn);
+
+        notice.appendChild(actions);
+
+        this.clearInlinePurgeNotice();
+        if (host) {
+            host.prepend(notice);
+            this.purgeNoticeElement = notice;
+        } else {
+            this.purgeNoticeElement = null;
+            this.showNotification('Oldest unpinned message was archived to keep the 10 custom limit.', 'warning');
+        }
+    },
+
+    /**
+     * Clear inline purge notice
+     */
+    clearInlinePurgeNotice() {
+        if (this.purgeNoticeElement) {
+            this.purgeNoticeElement.remove();
+            this.purgeNoticeElement = null;
+        }
+    },
+
+    /**
+     * Restore last purged message from archive (if available)
+     * @param {string} messageId
+     */
+    async restorePurgedMessage(messageId) {
+        // Load stored config
+        const messagesConfig = await new Promise((resolve) => {
+            chrome.storage.local.get(['exl_bannerMessages'], (result) => {
+                const config = result.exl_bannerMessages || {};
+                config.customMessages = config.customMessages || [];
+                config.archivedMessages = config.archivedMessages || [];
+                resolve(config);
+            });
+        });
+
+        if (!messagesConfig.archivedMessages || messagesConfig.archivedMessages.length === 0) {
+            this.showNotification('No archived message to restore.', 'info');
+            return;
+        }
+
+        const restoreIndex = messagesConfig.archivedMessages.findIndex(m => m.id === messageId) !== -1
+            ? messagesConfig.archivedMessages.findIndex(m => m.id === messageId)
+            : 0;
+        const restored = messagesConfig.archivedMessages.splice(restoreIndex, 1)[0];
+
+        if (!restored) {
+            this.showNotification('Archived message not found.', 'error');
+            return;
+        }
+
+        // Reinsert at front to preserve priority; keep pinned fields if any
+        messagesConfig.customMessages.unshift({
+            ...restored,
+            archivedAt: null
+        });
+
+        // Re-apply cap (may purge a different unpinned message)
+        const { messagesConfig: cappedConfig, purged } = this.applyCustomMessageCap(messagesConfig);
+        const saved = await this.saveMessagesToLocal(cappedConfig);
+
+        if (saved) {
+            this.activeMessages = this.getActiveMessages(cappedConfig);
+            this.prioritizePinnedMessage();
+            this.updateMessageDisplay();
+            this.updateRotatingStickyBar();
+
+            if (purged) {
+                this.lastPurgedMessage = purged;
+                this.showInlinePurgeNotice(purged);
+            } else {
+                this.clearInlinePurgeNotice();
+            }
+
+            this.showNotification('Archived message restored.', 'success');
+        }
     },
 
     /**

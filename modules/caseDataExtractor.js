@@ -9,7 +9,7 @@ const CaseDataExtractor = {
    * @returns {Object}
    */
   extractCaseData() {
-    return {
+    const data = {
       caseId: this.getCaseIdFromUrl(),
       caseNumber: this.getCaseNumber(),
       subject: this.getSubject(),
@@ -25,11 +25,12 @@ const CaseDataExtractor = {
       subStatus: this.getFieldValue(['Sub Status', 'Sub-Status']),
       analysisNote: this.getFieldValue(['Analysis Note']),
       exLibrisAccountNumber: this.getExLibrisAccountNumber(),
+      accountCode: this.getExLibrisAccountNumber(),
+      institutionCode: this.getInstitutionCode(),
       affectedEnvironment: this.getAffectedEnvironment(),
       jiraId: this.getJiraId(),
       lastModifiedDate: this.getLastModifiedDate(),
       // Derived fields (populated in processData)
-      institutionCode: null,
       customerCode: this.getExLibrisAccountNumber(),
       server: null,
       serverRegion: null,
@@ -46,6 +47,14 @@ const CaseDataExtractor = {
       customerOrgName: null,
       customerDbServers: []
     };
+
+    const derivedServer = this.getServerFromEnvironment(data.affectedEnvironment);
+    if (derivedServer && !data.server) {
+      data.server = derivedServer;
+    }
+
+    this.enrichCustomerIds(data);
+    return data;
   },
 
   /**
@@ -309,6 +318,14 @@ const CaseDataExtractor = {
   },
 
   /**
+   * Gets Institution Code if present as a dedicated field
+   * @returns {string|null}
+   */
+  getInstitutionCode() {
+    return this.getFieldValue(['Institution Code', 'Inst Code']);
+  },
+
+  /**
    * Gets Affected Environment
    * @returns {string|null}
    */
@@ -319,15 +336,24 @@ const CaseDataExtractor = {
       return null;
     }
 
-    // The field often contains a lookup with text like "Esploro EU00 - Production"
-    // Extract the server code (NA##, EU##, AP##, CN##, CA##) from the text
+    // Preserve legacy behavior: return server code if present, otherwise the raw value
     const serverMatch = fieldValue.match(/(NA\d{2}|EU\d{2}|AP\d{2}|CN\d{2}|CA\d{2})/i);
     if (serverMatch) {
       return serverMatch[1].toUpperCase();
     }
 
-    // Return the full value as fallback
     return fieldValue;
+  },
+
+  /**
+   * Derive server code from affected environment text
+   * @param {string|null} environmentValue
+   * @returns {string|null}
+   */
+  getServerFromEnvironment(environmentValue) {
+    if (!environmentValue) return null;
+    const serverMatch = environmentValue.match(/(NA\d{2}|EU\d{2}|AP\d{2}|CN\d{2}|CA\d{2})/i);
+    return serverMatch ? serverMatch[1].toUpperCase() : null;
   },
 
   /**
@@ -337,6 +363,42 @@ const CaseDataExtractor = {
   getProductServiceName() {
     const value = this.getFieldValue(['Product/Service Name', 'Product', 'Service Name']);
     return value ? value.toLowerCase() : null;
+  },
+
+  /**
+   * Populate cust/inst/server from master data when possible
+   * @param {Object} data
+   */
+  enrichCustomerIds(data) {
+    const identifiers = {
+      institutionCode: data.institutionCode,
+      accountCode: data.accountCode,
+      accountName: data.accountName
+    };
+
+    const record = typeof CustomerMasterManager !== 'undefined'
+      ? CustomerMasterManager.findByInstitutionCode(identifiers.institutionCode || identifiers.accountCode, identifiers.accountName)
+      : null;
+
+    const fallback = !record && typeof CustomerDataManager !== 'undefined'
+      ? CustomerDataManager.findByInstitutionCode(identifiers.institutionCode || identifiers.accountCode, identifiers.accountName)
+      : null;
+
+    const resolved = record || fallback;
+    if (resolved) {
+      data.custID = data.custID || data.custId || data.customerId || resolved.custID || resolved.customerId || null;
+      data.custId = data.custID;
+      data.customerId = data.custID;
+      data.instID = data.instID || data.instId || data.institutionId || resolved.instID || resolved.institutionId || null;
+      data.instId = data.instID;
+      data.institutionId = data.instID;
+      if (!data.server && resolved.server) {
+        data.server = resolved.server;
+      }
+      if (!data.institutionCode && resolved.institutionCode) {
+        data.institutionCode = resolved.institutionCode;
+      }
+    }
   },
 
   /**

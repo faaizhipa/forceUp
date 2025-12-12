@@ -87,6 +87,7 @@ const PersistentBanner = {
     imagePreviewOverlay: null,
     messageDropdown: null,
     currentDisplayedMessage: null,
+    messageContentHandlers: null,
     
     // Current page info
     currentPage: {
@@ -104,7 +105,12 @@ const PersistentBanner = {
         server: null,
         productServiceName: null,
         institutionCode: null,
-        timezone: null
+        accountCode: null,
+        timezone: null,
+        timezoneSource: null,
+        customerOrgCode: null,
+        customerOrgName: null,
+        customerDbServers: []
     },
 
     // Timezone sync state
@@ -1764,18 +1770,19 @@ const PersistentBanner = {
             }
 
             .exl-message-truncate {
-                max-width: 500px;
-                overflow: hidden;
                 position: relative;
             }
 
             .exl-message-truncate .message-line {
-                display: block;
+                max-width: 500px;
+                width: auto;
+                overflow: hidden;
+                display: inline-block;
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
-                -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent);
-                mask-image: linear-gradient(90deg, #000 85%, transparent);
+                -webkit-mask-image: linear-gradient(90deg, #000 25%, transparent);
+                mask-image: linear-gradient(90deg, #000 25%, transparent);
             }
         `;
 
@@ -2791,10 +2798,17 @@ const PersistentBanner = {
             this.customerMetadata.productServiceName = data.productServiceName || null;
             hasChanges = true;
         }
-        if (data.institutionCode !== undefined || data.exLibrisAccountNumber !== undefined) {
-            const newInstCode = data.institutionCode || data.exLibrisAccountNumber || null;
+        if (data.institutionCode !== undefined) {
+            const newInstCode = data.institutionCode || null;
             if (newInstCode !== this.customerMetadata.institutionCode) {
                 this.customerMetadata.institutionCode = newInstCode;
+                hasChanges = true;
+            }
+        }
+        if (data.accountCode !== undefined || data.exLibrisAccountNumber !== undefined) {
+            const newAccountCode = data.accountCode || data.exLibrisAccountNumber || null;
+            if (newAccountCode !== this.customerMetadata.accountCode) {
+                this.customerMetadata.accountCode = newAccountCode;
                 hasChanges = true;
             }
         }
@@ -3380,7 +3394,8 @@ const PersistentBanner = {
                 institutionId: data.instID || data.instId || data.institutionId || null,  // 4-digit institution ID
                 server: data.server || null,  // Server code (ap02, na05, etc.)
                 productServiceName: data.platformService || null,  // Platform/Service with fallback
-                institutionCode: data.exLibrisAccountNumber || null,  // Institution code (61USC_INST, etc.)
+                institutionCode: data.institutionCode || null,  // Institution code (61USC_INST, etc.)
+                accountCode: data.accountCode || data.exLibrisAccountNumber || null, // Account code (legacy Ex Libris account)
                 timezone: data.customerTimezone || this.customerMetadata.timezone || null,
                 timezoneSource: data.customerTimezoneSource || this.customerMetadata.timezoneSource || null,
                 customerOrgCode: data.customerOrgCode || null,
@@ -3893,7 +3908,12 @@ const PersistentBanner = {
             server: null,
             productServiceName: null,
             institutionCode: null,
-            timezone: null
+            accountCode: null,
+            timezone: null,
+            timezoneSource: null,
+            customerOrgCode: null,
+            customerOrgName: null,
+            customerDbServers: []
         };
 
         // Reset displayed page metadata
@@ -4512,6 +4532,8 @@ const PersistentBanner = {
         
         // Setup pause-on-hover for message content
         if (this.elements.messageContent) {
+            this.elements.messageIndex.style.cursor = 'pointer';
+            this.elements.messageContent.title = this.elements.messageContent.querySelector('div').textContent || '';
             this.registerListener(this.elements.messageContent, 'mouseenter', () => {
                 this.pauseMessageRotation();
             });
@@ -4527,6 +4549,7 @@ const PersistentBanner = {
             this.elements.messageIndex.title = 'Click to see all messages';
             this.registerListener(this.elements.messageIndex, 'click', (e) => {
                 e.stopPropagation();
+                this.pauseMessageRotation();
                 this.showMessageDropdown();
             });
         }
@@ -4745,7 +4768,8 @@ const PersistentBanner = {
                         institutionId: caseData.instID || caseData.institutionId || caseData.instId || null,
                         server: caseData.server || null,
                         productServiceName: caseData.productServiceName || null,
-                        institutionCode: caseData.exLibrisAccountNumber || caseData.instCode || null,
+                        institutionCode: caseData.institutionCode || null,
+                        accountCode: caseData.accountCode || caseData.exLibrisAccountNumber || null,
                         customerCode: caseData.exLibrisAccountNumber || null,
                         customerOrgCode: caseData.customerOrgCode || null,
                         customerOrgName: caseData.customerOrgName || null,
@@ -4786,7 +4810,8 @@ const PersistentBanner = {
                         institutionId: freshData.instID || null,
                         server: freshData.server || null,
                         productServiceName: freshData.productServiceName || null,
-                        institutionCode: freshData.instCode || freshData.exLibrisAccountNumber || null,
+                        institutionCode: freshData.institutionCode || null,
+                        accountCode: freshData.accountCode || freshData.exLibrisAccountNumber || null,
                         customerCode: freshData.exLibrisAccountNumber || null,
                         timezone: freshData.customerTimezone || null,
                         timezoneSource: freshData.customerTimezoneSource || null,
@@ -5270,7 +5295,7 @@ const PersistentBanner = {
         const extractionState = typeof this.isCaseDataExtractionComplete === 'function'
             ? this.isCaseDataExtractionComplete()
             : {};
-        const metadataComplete = this.fullCaseMetadata ? this.isMetadataComplete(this.fullCaseMetadata) : false;
+        const metadataComplete = this.fullCaseMetadata ? this.isMetadataComplete(this.fullCaseMetadata) : false; 
 
         return JSON.stringify({
             rawType: this.currentPage.type,
@@ -5447,7 +5472,33 @@ const PersistentBanner = {
             this.elements.product.textContent = this.customerMetadata.productServiceName || '—';
         }
         if (this.elements.instCode) {
-            this.elements.instCode.textContent = this.customerMetadata.institutionCode || '—';
+            const instCodeValue = this.customerMetadata.institutionCode || '';
+            const displayInstCode = instCodeValue || this.customerMetadata.accountCode || '';
+            this.elements.instCode.textContent = displayInstCode || '—';
+
+            const instCodeContainer = this.elements.instCode.closest('.exl-banner-meta-item');
+            let instBadge = instCodeContainer?.parentElement.querySelector('.exl-instcode-badge');
+
+            if (instCodeContainer && !instBadge) {
+                instBadge = document.createElement('span');
+                instBadge.className = 'exl-instcode-badge';
+                instBadge.style.cssText = 'margin-left:6px; padding:2px 6px; border-radius:4px; background:#b91c1c; color:#fff; font-size:10px; font-weight:600;';
+                instCodeContainer.after(instBadge);
+            }
+
+            if (instBadge) {
+                if (!instCodeValue) {
+                    instBadge.textContent = 'Missing InstCode';
+                    instBadge.style.display = 'inline-block';
+                    console.warn('[PersistentBanner] Institution code missing (expected 8+ chars)');
+                } else if (instCodeValue.length < 8) {
+                    instBadge.textContent = 'InstCode short';
+                    instBadge.style.display = 'inline-block';
+                    console.warn('[PersistentBanner] Institution code too short:', instCodeValue);
+                } else {
+                    instBadge.style.display = 'none';
+                }
+            }
         }
         if (this.elements.custId) {
             this.elements.custId.textContent = this.customerMetadata.custId || this.customerMetadata.customerId || '—';
@@ -6376,11 +6427,28 @@ const PersistentBanner = {
         }).join('');
     },
 
+    ensureMessageContentListeners() {
+        if (!this.elements.messageContent) return;
+        if (this.messageContentHandlers && this.messageContentHandlers.contextMenu) return;
+
+        const handleContextMenu = (event) => {
+            if (!this.currentDisplayedMessage || !this.currentDisplayedMessage.id) {
+                return;
+            }
+            this.showContextMenu(event, this.currentDisplayedMessage.id);
+        };
+
+        this.messageContentHandlers = { contextMenu: handleContextMenu };
+        this.registerListener(this.elements.messageContent, 'contextmenu', handleContextMenu);
+    },
+
     /**
      * Update message display with current message
      */
     updateMessageDisplay() {
         if (!this.elements.messageContent || !this.elements.messageIndex) return;
+
+        this.ensureMessageContentListeners();
         
         if (this.activeMessages.length === 0) {
             this.elements.messageContent.innerHTML = '<div class="message-line">No messages available</div>';
@@ -6420,12 +6488,6 @@ const PersistentBanner = {
                 pinnedCaseId: currentMessage.pinnedCaseId,
                 pinnedCaseUrl: currentMessage.pinnedCaseUrl
             };
-            
-            // Attach context menu (right-click) handler
-            const handleContextMenu = (e) => {
-                this.showContextMenu(e, currentMessage.id);
-            };
-            this.registerListener(this.elements.messageContent, 'contextmenu', handleContextMenu);
         }
         
         // Enable/disable navigation buttons
@@ -6499,6 +6561,7 @@ const PersistentBanner = {
         
         // Clean up all tracked resources (timers, listeners, observers)
         this.cleanupTrackedResources();
+        this.messageContentHandlers = null;
         
         // Remove storage change listener explicitly (in addition to tracked cleanup)
         if (this.storageChangeListener) {

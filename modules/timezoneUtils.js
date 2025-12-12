@@ -6,7 +6,7 @@
  */
 
 const TimezoneUtils = (() => {
-  'use strict';
+  "use strict";
 
   // ============================================================================
   // Constants
@@ -18,42 +18,42 @@ const TimezoneUtils = (() => {
   const DEFAULT_BUSINESS_END = 17;
 
   const STATUS_COLORS = {
-    business: '#22c55e', // Green
-    awake: '#eab308', // Yellow
-    sleep: '#6b7280' // Gray
+    business: "#22c55e", // Green
+    awake: "#eab308", // Yellow
+    sleep: "#6b7280", // Gray
   };
 
   const COPY_FORMATS = {
     simple: {
-      label: 'Simple',
-      pattern: 'h:mm a',
-      example: '9:00 AM'
+      label: "Simple",
+      pattern: "h:mm a",
+      example: "9:00 AM",
     },
     military: {
-      label: '24-Hour',
-      pattern: 'HH:mm',
-      example: '09:00'
+      label: "24-Hour",
+      pattern: "HH:mm",
+      example: "09:00",
     },
     iso: {
-      label: 'ISO',
+      label: "ISO",
       pattern: "yyyy-MM-dd'T'HH:mm:ssXXX",
-      example: '2024-01-15T09:00:00-05:00'
+      example: "2024-01-15T09:00:00-05:00",
     },
     full: {
-      label: 'Full',
-      pattern: 'EEEE, MMMM d, yyyy h:mm a',
-      example: 'Monday, January 15, 2024 9:00 AM'
+      label: "Full",
+      pattern: "EEEE, MMMM d, yyyy h:mm a",
+      example: "Monday, January 15, 2024 9:00 AM",
     },
     short: {
-      label: 'Short',
-      pattern: 'MMM d, h:mm a',
-      example: 'Jan 15, 9:00 AM'
+      label: "Short",
+      pattern: "MMM d, h:mm a",
+      example: "Jan 15, 9:00 AM",
     },
     dateOnly: {
-      label: 'Date Only',
-      pattern: 'MMM d, yyyy',
-      example: 'Jan 15, 2024'
-    }
+      label: "Date Only",
+      pattern: "MMM d, yyyy",
+      example: "Jan 15, 2024",
+    },
   };
 
   // ============================================================================
@@ -67,7 +67,7 @@ const TimezoneUtils = (() => {
    * @returns {string} Padded number string
    */
   function _padZero(num, size = 2) {
-    return num.toString().padStart(size, '0');
+    return num.toString().padStart(size, "0");
   }
 
   /**
@@ -77,8 +77,16 @@ const TimezoneUtils = (() => {
    * @returns {string} Day name
    */
   function _getDayName(dayIndex, short = false) {
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const shortDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const days = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ];
+    const shortDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     return short ? shortDays[dayIndex] : days[dayIndex];
   }
 
@@ -89,8 +97,34 @@ const TimezoneUtils = (() => {
    * @returns {string} Month name
    */
   function _getMonthName(monthIndex, short = false) {
-    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+    ];
+    const shortMonths = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     return short ? shortMonths[monthIndex] : months[monthIndex];
   }
 
@@ -104,9 +138,9 @@ const TimezoneUtils = (() => {
    */
   function getAllTimezones() {
     try {
-      return Intl.supportedValuesOf('timeZone');
+      return Intl.supportedValuesOf("timeZone");
     } catch (error) {
-      console.warn('[TimezoneUtils] Failed to get supported timezones:', error);
+      console.warn("[TimezoneUtils] Failed to get supported timezones:", error);
       return [];
     }
   }
@@ -119,8 +153,8 @@ const TimezoneUtils = (() => {
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone;
     } catch (error) {
-      console.error('[TimezoneUtils] Failed to get browser timezone:', error);
-      return 'UTC';
+      console.error("[TimezoneUtils] Failed to get browser timezone:", error);
+      return "UTC";
     }
   }
 
@@ -132,16 +166,19 @@ const TimezoneUtils = (() => {
    */
   function getTimezoneAbbreviation(date, timezone) {
     try {
-      const formatter = new Intl.DateTimeFormat('en-US', {
+      const formatter = new Intl.DateTimeFormat("en-US", {
         timeZone: timezone,
-        timeZoneName: 'short'
+        timeZoneName: "short",
       });
       const parts = formatter.formatToParts(date);
-      const tzPart = parts.find((p) => p.type === 'timeZoneName');
-      return tzPart?.value || '';
+      const tzPart = parts.find((p) => p.type === "timeZoneName");
+      return tzPart?.value || "";
     } catch (error) {
-      console.warn('[TimezoneUtils] Failed to get timezone abbreviation:', error);
-      return '';
+      console.warn(
+        "[TimezoneUtils] Failed to get timezone abbreviation:",
+        error
+      );
+      return "";
     }
   }
 
@@ -153,16 +190,16 @@ const TimezoneUtils = (() => {
    */
   function getTimezoneOffset(date, timezone) {
     try {
-      const formatter = new Intl.DateTimeFormat('en-US', {
+      const formatter = new Intl.DateTimeFormat("en-US", {
         timeZone: timezone,
-        timeZoneName: 'longOffset'
+        timeZoneName: "longOffset",
       });
       const parts = formatter.formatToParts(date);
-      const tzPart = parts.find((p) => p.type === 'timeZoneName');
-      return tzPart?.value?.replace('GMT', 'UTC') || 'UTC';
+      const tzPart = parts.find((p) => p.type === "timeZoneName");
+      return tzPart?.value?.replace("GMT", "UTC") || "UTC";
     } catch (error) {
-      console.warn('[TimezoneUtils] Failed to get timezone offset:', error);
-      return 'UTC';
+      console.warn("[TimezoneUtils] Failed to get timezone offset:", error);
+      return "UTC";
     }
   }
 
@@ -176,7 +213,12 @@ const TimezoneUtils = (() => {
     const abbr = getTimezoneAbbreviation(date, timezone);
     const offset = getTimezoneOffset(date, timezone);
 
-    if (abbr && abbr !== offset && !abbr.startsWith('GMT') && !abbr.startsWith('UTC')) {
+    if (
+      abbr &&
+      abbr !== offset &&
+      !abbr.startsWith("GMT") &&
+      !abbr.startsWith("UTC")
+    ) {
       return `${abbr} (${offset})`;
     }
     return offset;
@@ -190,15 +232,15 @@ const TimezoneUtils = (() => {
    */
   function getHourInTimezone(date, timezone) {
     try {
-      const formatter = new Intl.DateTimeFormat('en-US', {
+      const formatter = new Intl.DateTimeFormat("en-US", {
         timeZone: timezone,
-        hour: 'numeric',
-        hour12: false
+        hour: "numeric",
+        hour12: false,
       });
       const hourStr = formatter.format(date);
       return parseInt(hourStr, 10) % 24; // Handle "24" edge case
     } catch (error) {
-      console.error('[TimezoneUtils] Failed to get hour in timezone:', error);
+      console.error("[TimezoneUtils] Failed to get hour in timezone:", error);
       return 0;
     }
   }
@@ -211,33 +253,43 @@ const TimezoneUtils = (() => {
    */
   function getTimeComponents(date, timezone) {
     try {
-      const formatter = new Intl.DateTimeFormat('en-US', {
+      const formatter = new Intl.DateTimeFormat("en-US", {
         timeZone: timezone,
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: 'numeric',
-        second: 'numeric',
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+        second: "numeric",
         hour12: false,
-        weekday: 'short'
+        weekday: "short",
       });
 
       const parts = formatter.formatToParts(date);
-      const get = (type) => parts.find((p) => p.type === type)?.value || '0';
+      const get = (type) => parts.find((p) => p.type === type)?.value || "0";
 
       return {
-        year: parseInt(get('year'), 10),
-        month: parseInt(get('month'), 10) - 1, // 0-indexed
-        day: parseInt(get('day'), 10),
-        hour: parseInt(get('hour'), 10) % 24,
-        minute: parseInt(get('minute'), 10),
-        second: parseInt(get('second'), 10),
-        dayOfWeek: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(get('weekday'))
+        year: parseInt(get("year"), 10),
+        month: parseInt(get("month"), 10) - 1, // 0-indexed
+        day: parseInt(get("day"), 10),
+        hour: parseInt(get("hour"), 10) % 24,
+        minute: parseInt(get("minute"), 10),
+        second: parseInt(get("second"), 10),
+        dayOfWeek: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(
+          get("weekday")
+        ),
       };
     } catch (error) {
-      console.error('[TimezoneUtils] Failed to get time components:', error);
-      return { year: 0, month: 0, day: 0, hour: 0, minute: 0, second: 0, dayOfWeek: 0 };
+      console.error("[TimezoneUtils] Failed to get time components:", error);
+      return {
+        year: 0,
+        month: 0,
+        day: 0,
+        hour: 0,
+        minute: 0,
+        second: 0,
+        dayOfWeek: 0,
+      };
     }
   }
 
@@ -248,7 +300,7 @@ const TimezoneUtils = (() => {
    * @param {string} formatStr - Format pattern (simple subset)
    * @returns {string} Formatted date string
    */
-  function formatInTimeZone(date, timezone, formatStr = 'HH:mm') {
+  function formatInTimeZone(date, timezone, formatStr = "HH:mm") {
     try {
       const c = getTimeComponents(date, timezone);
       const dayNameLong = _getDayName(c.dayOfWeek, false);
@@ -259,33 +311,43 @@ const TimezoneUtils = (() => {
 
       // Replace numeric/time tokens first, then textual names to avoid single-letter collisions (e.g., "h" in "Thu").
       const replacements = [
-        { t: 'yyyy', v: c.year.toString() },
-        { t: 'yy',   v: (c.year % 100).toString().padStart(2, '0') },
-        { t: 'MM',   v: _padZero(c.month + 1) },
-        { t: 'M',    v: (c.month + 1).toString() },
-        { t: 'dd',   v: _padZero(c.day) },
-        { t: 'd',    v: c.day.toString() },
-        { t: 'HH',   v: _padZero(c.hour) },
-        { t: 'H',    v: c.hour.toString() },
-        { t: 'hh',   v: _padZero(hour12) },
-        { t: 'h',    v: hour12.toString() },
-        { t: 'mm',   v: _padZero(c.minute) },
-        { t: 'ss',   v: _padZero(c.second) },
-        { t: 'a',    v: c.hour < 12 ? 'AM' : 'PM' },
-        { t: 'EEEE', v: dayNameLong },
-        { t: 'EEE',  v: dayNameShort },
-        { t: 'MMMM', v: monthNameLong },
-        { t: 'MMM',  v: monthNameShort }
+        { t: "yyyy", v: c.year.toString() },
+        { t: "yy", v: (c.year % 100).toString().padStart(2, "0") },
+        { t: "MM", v: _padZero(c.month + 1) },
+        { t: "M", v: (c.month + 1).toString() },
+        { t: "dd", v: _padZero(c.day) },
+        { t: "d", v: c.day.toString() },
+        { t: "HH", v: _padZero(c.hour) },
+        { t: "H", v: c.hour.toString() },
+        { t: "hh", v: _padZero(hour12) },
+        { t: "h", v: hour12.toString() },
+        { t: "mm", v: _padZero(c.minute) },
+        { t: "ss", v: _padZero(c.second) },
+        { t: "a", v: c.hour < 12 ? "AM" : "PM" },
+        { t: "EEEE", v: dayNameLong },
+        { t: "EEE", v: dayNameShort },
+        { t: "MMMM", v: monthNameLong },
+        { t: "MMM", v: monthNameShort },
       ];
 
-      let result = formatStr;
+      // Build a map for quick lookup and a regex to match any token
+      const replacementsMap = Object.create(null);
       for (const { t, v } of replacements) {
-        result = result.replace(new RegExp(t, 'g'), v);
+        replacementsMap[t] = v;
       }
+      // Sort tokens by length descending to avoid partial matches (e.g., "yyyy" before "yy")
+      const tokenRegex = new RegExp(
+        Object.keys(replacementsMap)
+          .sort((a, b) => b.length - a.length)
+          .map(token => token.replace(/([.*+?^=!:${}()|[\]/\\])/g, "\\$1"))
+          .join("|"),
+        "g"
+      );
+      const result = formatStr.replace(tokenRegex, match => replacementsMap[match]);
       return result;
     } catch (error) {
-      console.error('[TimezoneUtils] Failed to format date:', error);
-      return '';
+      console.error("[TimezoneUtils] Failed to format date:", error);
+      return "";
     }
   }
 
@@ -296,7 +358,7 @@ const TimezoneUtils = (() => {
    * @returns {string} Formatted time
    */
   function formatTimeForDisplay(date, timezone) {
-    return formatInTimeZone(date, timezone, 'HH:mm');
+    return formatInTimeZone(date, timezone, "HH:mm");
   }
 
   /**
@@ -306,7 +368,7 @@ const TimezoneUtils = (() => {
    * @returns {string} Formatted date
    */
   function formatDateForDisplay(date, timezone) {
-    return formatInTimeZone(date, timezone, 'EEE, MMM d');
+    return formatInTimeZone(date, timezone, "EEE, MMM d, yyyy");
   }
 
   /**
@@ -318,14 +380,23 @@ const TimezoneUtils = (() => {
    * @param {number} businessEnd - Business end hour
    * @returns {'business'|'awake'|'sleep'} Status type
    */
-  function getTimeStatus(hour, awakeStart = DEFAULT_AWAKE_START, awakeEnd = DEFAULT_AWAKE_END, businessStart = DEFAULT_BUSINESS_START, businessEnd = DEFAULT_BUSINESS_END) {
+  function getTimeStatus(
+    hour,
+    awakeStart = DEFAULT_AWAKE_START,
+    awakeEnd = DEFAULT_AWAKE_END,
+    businessStart = DEFAULT_BUSINESS_START,
+    businessEnd = DEFAULT_BUSINESS_END
+  ) {
     if (hour >= businessStart && hour < businessEnd) {
-      return 'business';
+      return "business";
     }
-    if ((hour >= awakeStart && hour < businessStart) || (hour >= businessEnd && hour <= awakeEnd)) {
-      return 'awake';
+    if (
+      (hour >= awakeStart && hour < businessStart) ||
+      (hour >= businessEnd && hour <= awakeEnd)
+    ) {
+      return "awake";
     }
-    return 'sleep';
+    return "sleep";
   }
 
   /**
@@ -346,14 +417,20 @@ const TimezoneUtils = (() => {
    */
   function convertTime(sourceDate, targetTimezone, config = {}) {
     const hour = getHourInTimezone(sourceDate, targetTimezone);
-    const status = getTimeStatus(hour, config.awakeStart, config.awakeEnd, config.businessStart, config.businessEnd);
+    const status = getTimeStatus(
+      hour,
+      config.awakeStart,
+      config.awakeEnd,
+      config.businessStart,
+      config.businessEnd
+    );
 
     return {
       timezone: targetTimezone,
       date: sourceDate,
       formatted: formatTimeForDisplay(sourceDate, targetTimezone),
       hour,
-      status
+      status,
     };
   }
 
@@ -369,13 +446,13 @@ const TimezoneUtils = (() => {
       return result.status;
     });
 
-    if (statuses.every((s) => s === 'business')) {
-      return 'business';
+    if (statuses.every((s) => s === "business")) {
+      return "business";
     }
-    if (statuses.some((s) => s === 'sleep')) {
-      return 'sleep';
+    if (statuses.some((s) => s === "sleep")) {
+      return "sleep";
     }
-    return 'awake';
+    return "awake";
   }
 
   /**
@@ -398,13 +475,13 @@ const TimezoneUtils = (() => {
             date: futureDate,
             fromOffset: currentOffset,
             toOffset: futureOffset,
-            daysUntil: i
+            daysUntil: i,
           };
         }
       }
       return null;
     } catch (error) {
-      console.warn('[TimezoneUtils] Failed to check DST:', error);
+      console.warn("[TimezoneUtils] Failed to check DST:", error);
       return null;
     }
   }
@@ -419,21 +496,40 @@ const TimezoneUtils = (() => {
    * @param {number} minute - Minute
    * @returns {Date} UTC Date object
    */
-  function createDateInTimezone(timezone, year, month, day, hour = 0, minute = 0) {
+  function createDateInTimezone(
+    timezone,
+    year,
+    month,
+    day,
+    hour = 0,
+    minute = 0
+  ) {
     try {
-      const dateStr = `${year}-${_padZero(month + 1)}-${_padZero(day)}T${_padZero(hour)}:${_padZero(minute)}:00`;
+      const dateStr = `${year}-${_padZero(month + 1)}-${_padZero(
+        day
+      )}T${_padZero(hour)}:${_padZero(minute)}:00`;
 
       const tempDate = new Date(`${dateStr}Z`);
       const localParts = getTimeComponents(tempDate, timezone);
 
       const utcMs = tempDate.getTime();
-      const localMs = Date.UTC(localParts.year, localParts.month, localParts.day, localParts.hour, localParts.minute, localParts.second);
+      const localMs = Date.UTC(
+        localParts.year,
+        localParts.month,
+        localParts.day,
+        localParts.hour,
+        localParts.minute,
+        localParts.second
+      );
       const offsetMs = localMs - utcMs;
 
       const targetLocal = Date.UTC(year, month, day, hour, minute, 0);
       return new Date(targetLocal - offsetMs);
     } catch (error) {
-      console.error('[TimezoneUtils] Failed to create date in timezone:', error);
+      console.error(
+        "[TimezoneUtils] Failed to create date in timezone:",
+        error
+      );
       return new Date();
     }
   }
@@ -477,10 +573,10 @@ const TimezoneUtils = (() => {
     calculateOverlapStatus,
     checkUpcomingDST,
     createDateInTimezone,
-    snapToInterval
+    snapToInterval,
   };
 })();
 
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = TimezoneUtils;
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = TimezoneUtils;
 }
