@@ -305,30 +305,63 @@ const PersistentBanner = {
      * @returns {Promise<string>} Base64 string
      */
     async imageUrlToBase64(imageUrl) {
-        return new Promise((resolve, reject) => {
-            try {
-                const img = new Image();
-                img.crossOrigin = 'Anonymous'; // Attempt to handle CORS
-                
-                img.onload = () => {
+        const normalizedUrl = (imageUrl || '').trim();
+        if (!normalizedUrl) {
+            throw new Error('Image URL is empty');
+        }
+
+        // Prefer fetch+blob because it avoids canvas taint when the server sends proper CORS headers
+        const fetchToBase64 = async () => {
+            const response = await fetch(normalizedUrl, {
+                mode: 'cors',
+                credentials: 'omit',
+                cache: 'no-cache'
+            });
+
+            if (!response.ok) {
+                throw new Error(`Image request failed (${response.status} ${response.statusText})`);
+            }
+
+            const blob = await response.blob();
+            return await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = () => reject(new Error('Failed to read image response'));
+                reader.readAsDataURL(blob);
+            });
+        };
+
+        // Fallback to Image element for environments where fetch is blocked by CSP
+        const imageElementToBase64 = () => new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'Anonymous';
+
+            img.onload = () => {
+                try {
                     const canvas = document.createElement('canvas');
                     canvas.width = img.width;
                     canvas.height = img.height;
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0);
                     resolve(canvas.toDataURL('image/jpeg', 0.9));
-                };
-                
-                img.onerror = () => {
-                    reject(new Error('Failed to load image from URL. Check CORS or URL validity.'));
-                };
-                
-                img.src = imageUrl;
-                
-            } catch (error) {
-                reject(error);
-            }
+                } catch (error) {
+                    reject(new Error('Browser blocked image due to CORS; host must allow cross-origin access.'));
+                }
+            };
+
+            img.onerror = () => {
+                reject(new Error('Failed to load image from URL. Check CORS or URL validity.'));
+            };
+
+            img.src = normalizedUrl;
         });
+
+        try {
+            return await fetchToBase64();
+        } catch (fetchError) {
+            console.warn('[PersistentBanner] Fetch failed for hover image, falling back to img element:', fetchError?.message || fetchError);
+            return await imageElementToBase64();
+        }
     },
 
     /**
@@ -4533,7 +4566,7 @@ const PersistentBanner = {
         // Setup pause-on-hover for message content
         if (this.elements.messageContent) {
             this.elements.messageIndex.style.cursor = 'pointer';
-            this.elements.messageContent.title = this.elements.messageContent.querySelector('div').textContent || '';
+            this.elements.messageContent.title = this.elements.messageContent.querySelector('.message-line')?.textContent || '';
             this.registerListener(this.elements.messageContent, 'mouseenter', () => {
                 this.pauseMessageRotation();
             });

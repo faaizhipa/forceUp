@@ -35,6 +35,23 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2025-12-12] - Documentation - Condensed guide refresh and Copilot pre-reads
+
+**Description**: Expanded the condensed developer guide with architecture snapshots, guardrails, and AI guidance to serve as the minimal single reference, and updated Copilot instructions to require it as part of the mandatory pre-read set.
+
+**Files Changed**:
+
+- `docs/condensed-dev-guide.md`
+- `.github/copilot-instructions.md`
+- `CHANGES.md`
+
+**Lessons Learned**:
+
+- Keeping a single, explicitly referenced quick guide reduces drift between human and AI contributors and speeds onboarding.
+- Copilot instructions should point to the same minimal doc set the team uses; pre-read lists must stay current when documentation consolidates.
+
+**Related Issues/PRs**: n/a
+
 ### [2025-12-11] - Documentation - Condensed dev guide and Copilot refresh
 
 **Description**: Added a single condensed developer guide capturing surfaces, flows, storage boundaries, and safety checklists, and refreshed Copilot instructions with CaseDataStore ownership, cleanup/idempotency expectations, timezone pipeline usage, and documentation/testing reminders.

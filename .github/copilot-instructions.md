@@ -1,6 +1,6 @@
 # Salesforce Chrome Extension - Copilot Instructions
 
-**IMPORTANT:** Before making any changes, review **[PROJECT_RULES.md](../PROJECT_RULES.md)**, the condensed knowledge base in **[explaination.md](../explaination.md)**, _and_ the short **[minimal-knowledge-base.md](../docs/minimal-knowledge-base.md)** so new work aligns with current architecture and lessons learned.
+**IMPORTANT:** Before making any changes, review **[PROJECT_RULES.md](../PROJECT_RULES.md)**, the condensed knowledge base in **[explaination.md](../explaination.md)**, the short **[minimal-knowledge-base.md](../docs/minimal-knowledge-base.md)**, _and_ the single-stop **[condensed-dev-guide.md](../docs/condensed-dev-guide.md)** so new work aligns with current architecture and lessons learned.
 
 ## Project Overview
 This is a **Manifest V3 Chrome Extension** for Salesforce (Lightning/Console/Visualforce), specifically targeting ProQuest/Ex Libris case management workflows. The extension provides dynamic menus, field highlighting, URL generation, comment memory, text formatting, and workspace tooling (highlighter/notes/bookmarks).

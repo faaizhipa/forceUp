@@ -81,7 +81,7 @@ html {
   color: #ffffff;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   font-family: 'Salesforce Sans', Arial, sans-serif;
-  font-size: 11px;
+  font-size: 12px;
   border-bottom: 1px solid #0070d2;
   z-index: 999999;
   overflow: hidden;
@@ -110,6 +110,25 @@ html {
   flex-wrap: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
+  font-size: 12px;
+}
+
+/* Scrollbar styling to match persistent banner */
+.exl-hl-banner .exl-banner-container::-webkit-scrollbar {
+  height: 4px;
+}
+
+.exl-hl-banner .exl-banner-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.exl-hl-banner .exl-banner-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+}
+
+.exl-hl-banner .exl-banner-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
 }
 
 /* Banner sections - matches persistent banner pattern */
