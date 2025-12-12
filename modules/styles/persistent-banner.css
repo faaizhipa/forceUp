@@ -296,7 +296,7 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 }
 
 .exl-banner-history-list {
-    display: flex;
+    display: flex !important;
     flex-direction: row;
     gap: 4px;
     max-height: none;

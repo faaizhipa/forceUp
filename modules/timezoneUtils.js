@@ -250,48 +250,38 @@ const TimezoneUtils = (() => {
    */
   function formatInTimeZone(date, timezone, formatStr = 'HH:mm') {
     try {
-      const components = getTimeComponents(date, timezone);
-      const { year, month, day, hour, minute, second, dayOfWeek } = components;
+      const c = getTimeComponents(date, timezone);
+      const dayNameLong = _getDayName(c.dayOfWeek, false);
+      const dayNameShort = _getDayName(c.dayOfWeek, true);
+      const monthNameLong = _getMonthName(c.month, false);
+      const monthNameShort = _getMonthName(c.month, true);
+      const hour12 = c.hour === 0 ? 12 : c.hour > 12 ? c.hour - 12 : c.hour;
 
-      // Simple format token replacements
+      // Replace numeric/time tokens first, then textual names to avoid single-letter collisions (e.g., "h" in "Thu").
+      const replacements = [
+        { t: 'yyyy', v: c.year.toString() },
+        { t: 'yy',   v: (c.year % 100).toString().padStart(2, '0') },
+        { t: 'MM',   v: _padZero(c.month + 1) },
+        { t: 'M',    v: (c.month + 1).toString() },
+        { t: 'dd',   v: _padZero(c.day) },
+        { t: 'd',    v: c.day.toString() },
+        { t: 'HH',   v: _padZero(c.hour) },
+        { t: 'H',    v: c.hour.toString() },
+        { t: 'hh',   v: _padZero(hour12) },
+        { t: 'h',    v: hour12.toString() },
+        { t: 'mm',   v: _padZero(c.minute) },
+        { t: 'ss',   v: _padZero(c.second) },
+        { t: 'a',    v: c.hour < 12 ? 'AM' : 'PM' },
+        { t: 'EEEE', v: dayNameLong },
+        { t: 'EEE',  v: dayNameShort },
+        { t: 'MMMM', v: monthNameLong },
+        { t: 'MMM',  v: monthNameShort }
+      ];
+
       let result = formatStr;
-
-      // Year
-      result = result.replace('yyyy', year.toString());
-      result = result.replace('yy', (year % 100).toString().padStart(2, '0'));
-
-      // Month
-      result = result.replace('MMMM', _getMonthName(month));
-      result = result.replace('MMM', _getMonthName(month, true));
-      result = result.replace('MM', _padZero(month + 1));
-      result = result.replace(/(?<!M)M(?!M)/, (month + 1).toString());
-
-      // Day
-      result = result.replace('dd', _padZero(day));
-      result = result.replace(/(?<!d)d(?!d)/, day.toString());
-
-      // Day of week
-      result = result.replace('EEEE', _getDayName(dayOfWeek));
-      result = result.replace('EEE', _getDayName(dayOfWeek, true));
-
-      // Hour (24-hour)
-      result = result.replace('HH', _padZero(hour));
-      result = result.replace(/(?<!H)H(?!H)/, hour.toString());
-
-      // Hour (12-hour)
-      const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-      result = result.replace('hh', _padZero(hour12));
-      result = result.replace(/(?<!h)h(?!h)/, hour12.toString());
-
-      // AM/PM
-      result = result.replace('a', hour < 12 ? 'AM' : 'PM');
-
-      // Minutes
-      result = result.replace('mm', _padZero(minute));
-
-      // Seconds
-      result = result.replace('ss', _padZero(second));
-
+      for (const { t, v } of replacements) {
+        result = result.replace(new RegExp(t, 'g'), v);
+      }
       return result;
     } catch (error) {
       console.error('[TimezoneUtils] Failed to format date:', error);

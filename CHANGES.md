@@ -35,6 +35,23 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2025-12-11] - Documentation - Condensed dev guide and Copilot refresh
+
+**Description**: Added a single condensed developer guide capturing surfaces, flows, storage boundaries, and safety checklists, and refreshed Copilot instructions with CaseDataStore ownership, cleanup/idempotency expectations, timezone pipeline usage, and documentation/testing reminders.
+
+**Files Changed**:
+
+- `docs/condensed-dev-guide.md`
+- `.github/copilot-instructions.md`
+- `CHANGES.md`
+
+**Lessons Learned**:
+
+- Keeping a concise reference aligned with the detailed knowledge base reduces drift and onboarding time for both humans and AI.
+- Copilot guidance must enforce CaseContextWatcher/PageContextValidator gates and CaseDataStore single-source-of-truth rules to avoid stale UI or storage misuse.
+
+**Related Issues/PRs**: n/a
+
 ### [2025-12-10] - Features - Floating comment formatter toolbar
 
 **Description**: Added a floating formatter that appears when text is selected in the case comment textarea, providing bold/italic/mono/plain swaps plus bullet/indent/outdent helpers with style swapping that normalizes styled characters before reapplying formatting.

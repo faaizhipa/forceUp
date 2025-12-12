@@ -138,6 +138,10 @@ new MutationObserver(() => {
 4. **Use Check-Then-Observe pattern** for any new DOM queries; debounce noisy observers (~250 ms) and clean up listeners/observers on navigation.
 5. **Test in ProQuest Salesforce** (`proquestllc.lightning.force.com`) across SPA navigation (back/forward, tab switches).
 6. **Refresh the snapshot in `explaination.md` and `docs/minimal-knowledge-base.md`** when architecture, data flow, or best practices change, and log the update in `CHANGES.md` (Date, Category, Description, Files, Lessons Learned, Related Issues).
+7. **Keep `CaseDataStore` the single source of truth for active case data**; never write case payloads to `chrome.storage` and clear UI immediately on context mismatch.
+8. **Make injections idempotent and self-cleaning**: tag injected DOM with `data-exl-*`, use `DebounceUtils` for noisy observers, and disconnect observers/timers on navigation.
+9. **Align with current timezone pipeline**: prefer `CustomerTimezoneLookup` + `CustomerDataManager` for timezones; avoid legacy timezone modules.
+10. **Document and test**: update `CHANGES.md` for any doc/code change, sync condensed guides, and re-run SPA navigation checks (case page/list/comments) to verify teardown and re-init.
 
 ### When Adding New Modules
 1. Create in `modules/` directory with single responsibility

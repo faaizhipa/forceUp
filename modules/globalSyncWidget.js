@@ -274,6 +274,11 @@ const GlobalSyncWidget = (() => {
       padding: 6px 8px;
       font-size: 11px;
       flex: 1;
+      color-scheme: dark; /* ensure calendar control adopts dark palette */
+    }
+
+    .gsw-time-edit input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+      filter: invert(1); /* make calendar icon white on dark backgrounds */
     }
 
     .gsw-time-edit button {
@@ -514,6 +519,8 @@ const GlobalSyncWidget = (() => {
       const input = document.createElement('input');
       input.type = 'datetime-local';
       input.value = _formatDateTimeLocal(time, zone.timezone);
+      input.addEventListener('focus', () => _stopInterval());
+      input.addEventListener('blur', () => _startInterval());
       input.addEventListener('change', (event) => {
         _handleTimeEdit(zone.timezone, event.target.value);
       });
@@ -888,6 +895,19 @@ const GlobalSyncWidget = (() => {
     }
   }
 
+  function _stopInterval() {
+    if (_state.intervalId) {
+      clearInterval(_state.intervalId);
+      _state.intervalId = null;
+    }
+  }
+
+  function _startInterval() {
+    if (!_state.intervalId) {
+      _state.intervalId = setInterval(_updateTime, UPDATE_INTERVAL_MS);
+    }
+  }
+
   // ============================================================================
   // Public API
   // ============================================================================
@@ -950,10 +970,8 @@ const GlobalSyncWidget = (() => {
     _render();
 
     // Start time updates
-    if (_state.intervalId) {
-      clearInterval(_state.intervalId);
-    }
-    _state.intervalId = setInterval(_updateTime, UPDATE_INTERVAL_MS);
+    _stopInterval();
+    _startInterval();
 
     _state.isInitialized = true;
     console.log('[GlobalSyncWidget] Initialized successfully');

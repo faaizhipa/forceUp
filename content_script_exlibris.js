@@ -64,7 +64,7 @@
       }
 
       // Determine session type using Navigation Timing API
-      window.addEventListener("load", () => {
+
         const navEntry = performance.getEntriesByType("navigation")[0];
         const isNewSession = !sessionStorage.getItem("session_active");
 
@@ -80,8 +80,8 @@
           console.log(
             "[HOW THIS PAGE INIT]This is navigation within the same tab, but not a simple refresh."
           );
-        }
-      });
+        };
+
 
       // NOTE: Legacy _pendingApiCaseData pattern removed
       // New data flow uses InterceptorCacheManager via EXLIBRIS_DATA_UPDATED event

@@ -102,6 +102,27 @@ function safeSyncSet(items) {
   });
 }
 
+function setDriveActionsEnabled(enabled) {
+  ['btn-backup-now', 'btn-restore', 'btn-share-drive'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.disabled = !enabled;
+    }
+  });
+}
+
+function showDriveUnsupported(message) {
+  const statusEl = document.getElementById('auth-status');
+  statusEl.innerText = message;
+  statusEl.className = 'status-offline';
+  const authBtn = document.getElementById('btn-auth');
+  if (authBtn) {
+    authBtn.style.display = 'inline-block';
+    authBtn.disabled = true;
+  }
+  setDriveActionsEnabled(false);
+}
+
 function setupTabs() {
   const tabs = {
     'tab-current': 'content-current',
@@ -244,8 +265,14 @@ function setupEventListeners() {
     if (token) {
       statusEl.innerText = 'Connected to Google Drive';
       statusEl.className = 'status-online';
+      setDriveActionsEnabled(true);
     } else {
       const errMsg = GoogleDrive.lastAuthError?.message || 'Unable to sign in. Please try again.';
+      const identityUnsupported = errMsg.toLowerCase().includes('not available in this browser') || errMsg.toLowerCase().includes('not supported');
+      if (identityUnsupported) {
+        showDriveUnsupported(errMsg);
+        return;
+      }
       statusEl.innerText = `Sign-in failed: ${errMsg}`;
       statusEl.className = 'status-offline';
     }
@@ -388,15 +415,26 @@ function setupEventListeners() {
 
 async function checkAuthStatus() {
   const statusEl = document.getElementById('auth-status');
+  const supportError = GoogleDrive.getIdentitySupportError();
+  if (supportError) {
+    showDriveUnsupported(supportError.message);
+    return;
+  }
+  const lastErrorMsg = GoogleDrive.lastAuthError?.message || '';
+  const identityUnsupported = lastErrorMsg.toLowerCase().includes('not available in this browser') || lastErrorMsg.toLowerCase().includes('not supported');
   const token = await GoogleDrive.getAuthToken(false);
   if (token) {
     statusEl.innerText = 'Connected to Google Drive';
     statusEl.className = 'status-online';
     document.getElementById('btn-auth').style.display = 'none';
+    setDriveActionsEnabled(true);
+  } else if (identityUnsupported) {
+    showDriveUnsupported(lastErrorMsg);
   } else {
     statusEl.innerText = 'Not Connected';
     statusEl.className = 'status-offline';
     document.getElementById('btn-auth').style.display = 'inline-block';
+    setDriveActionsEnabled(true);
   }
 }
 

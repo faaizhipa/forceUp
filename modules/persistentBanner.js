@@ -7,6 +7,21 @@
  * - Action buttons
  */
 
+// Temporary log silencer: enable by setting window.EXL_ENABLE_LOGS = true
+(() => {
+    if (typeof window === 'undefined' || window.__exlLogPatched) {
+        return;
+    }
+    const originalLog = console.log ? console.log.bind(console) : () => {};
+    window.__exlLogPatched = true;
+    window.__exlOriginalLog = originalLog;
+    console.log = (...args) => {
+        if (window.EXL_ENABLE_LOGS) {
+            originalLog(...args);
+        }
+    };
+})();
+
 const PersistentBanner = {
     isInitialized: false,
     bannerId: 'exl-persistent-banner',
@@ -386,12 +401,12 @@ const PersistentBanner = {
             defaultMessages: {
                 enabled: true,
                 items: [
-                    { id: 'default_1', text: 'Field Highlighting', enabled: true },
-                    { id: 'default_2', text: 'Context Menu Formatting', enabled: true },
-                    { id: 'default_3', text: 'Multi-Tab Warning', enabled: true },
-                    { id: 'default_4', text: 'Auto-Save Comments', enabled: true },
+                    { id: 'default_1', text: 'I am customizable. Right click on me to edit', enabled: true },
+                    { id: 'default_2', text: 'Wanted to bold/italic/underline your comments? Highlight the texts and right click > Case Comment Formatter', enabled: true },
+                    { id: 'default_3', text: 'Now you can set the colors of the statuses. Check out in "Tools" button', enabled: true },
+                    { id: 'default_4', text: 'You can now backup/restore using your Google Account. Check in the extension popup > "About"', enabled: true },
                     { id: 'default_5', text: 'Character Counter', enabled: true },
-                    { id: 'default_6', text: 'Dynamic Buttons', enabled: true },
+                    { id: 'default_6', text: 'Quota is disabled. Storage for your notes now depends on your disk\'s free space', enabled: true },
                     { id: 'default_7', text: 'Persistent Banner', enabled: true },
                     { id: 'default_8', text: 'Text Highlighter & Sticky Notes', enabled: true }
                 ]
@@ -461,19 +476,38 @@ const PersistentBanner = {
      */
     async loadMessagesFromLocal() {
         return new Promise((resolve) => {
-            chrome.storage.local.get(['exl_bannerMessages'], (result) => {
-                // Provide a stable fallback structure so downstream callers always receive an object
-                const messagesConfig = result.exl_bannerMessages || this.getDefaultMessagesConfig();
+            try {
+                chrome.storage.local.get(['exl_bannerMessages'], (result) => {
+                    if (chrome.runtime?.lastError) {
+                        console.warn('[PersistentBanner] Failed to load messages from storage:', chrome.runtime.lastError);
+                        const fallback = this.getDefaultMessagesConfig();
+                        this.messageSettings = fallback;
+                        this.activeMessages = this.getActiveMessages(fallback);
+                        this.prioritizePinnedMessage();
+                        resolve(fallback);
+                        return;
+                    }
 
-                this.messageSettings = messagesConfig;
-                this.activeMessages = this.getActiveMessages(messagesConfig);
+                    // Provide a stable fallback structure so downstream callers always receive an object
+                    const messagesConfig = result.exl_bannerMessages || this.getDefaultMessagesConfig();
 
-                // Check for pinned message matching current case
+                    this.messageSettings = messagesConfig;
+                    this.activeMessages = this.getActiveMessages(messagesConfig);
+
+                    // Check for pinned message matching current case
+                    this.prioritizePinnedMessage();
+
+                    console.log(`[PersistentBanner] Loaded ${this.activeMessages.length} active messages from local storage`);
+                    resolve(messagesConfig);
+                });
+            } catch (error) {
+                console.warn('[PersistentBanner] Storage access threw unexpectedly, using fallback messages', error);
+                const fallback = this.getDefaultMessagesConfig();
+                this.messageSettings = fallback;
+                this.activeMessages = this.getActiveMessages(fallback);
                 this.prioritizePinnedMessage();
-
-                console.log(`[PersistentBanner] Loaded ${this.activeMessages.length} active messages from local storage`);
-                resolve(messagesConfig);
-            });
+                resolve(fallback);
+            }
         });
     },
 
@@ -490,6 +524,23 @@ const PersistentBanner = {
                 lastModified: Date.now()
             };
             
+            const doSave = () => {
+                try {
+                    chrome.storage.local.set({ exl_bannerMessages: configWithTimestamp }, () => {
+                        if (chrome.runtime?.lastError) {
+                            console.warn('[PersistentBanner] Failed to save messages to storage:', chrome.runtime.lastError);
+                            resolve(false);
+                            return;
+                        }
+                        console.log('[PersistentBanner] Messages saved to local storage with timestamp:', configWithTimestamp.lastModified);
+                        resolve(true);
+                    });
+                } catch (error) {
+                    console.warn('[PersistentBanner] Storage set threw unexpectedly while saving messages', error);
+                    resolve(false);
+                }
+            };
+
             // Check quota before saving
             if (typeof StorageQuotaManager !== 'undefined') {
                 StorageQuotaManager.canStoreBannerMessage(configWithTimestamp).then((canStore) => {
@@ -498,18 +549,11 @@ const PersistentBanner = {
                         resolve(false);
                         return;
                     }
-                    
-                    chrome.storage.local.set({ exl_bannerMessages: configWithTimestamp }, () => {
-                        console.log('[PersistentBanner] Messages saved to local storage with timestamp:', configWithTimestamp.lastModified);
-                        resolve(true);
-                    });
+                    doSave();
                 });
             } else {
                 // Fallback if StorageQuotaManager not available
-                chrome.storage.local.set({ exl_bannerMessages: configWithTimestamp }, () => {
-                    console.log('[PersistentBanner] Messages saved to local storage (quota check skipped) with timestamp:', configWithTimestamp.lastModified);
-                    resolve(true);
-                });
+                doSave();
             }
         });
     },
@@ -772,7 +816,8 @@ const PersistentBanner = {
         // Build menu items
         const menuItems = [];
 
-        // Edit Message
+        // Create + Edit
+        menuItems.push({ label: 'Create Message', action: 'create', icon: '➕' });
         menuItems.push({ label: 'Edit Message', action: 'edit', icon: '✏️' });
 
         // Image options
@@ -889,6 +934,9 @@ const PersistentBanner = {
             case 'edit':
                 this.showEditModal(messageId);
                 break;
+            case 'create':
+                await this.createMessageFromContext();
+                break;
             case 'addImage':
                 this.showAddImageModal(messageId);
                 break;
@@ -945,6 +993,37 @@ const PersistentBanner = {
             this.showNotification('Message removed', 'success');
             // Reload messages to update display
             await this.loadAndDisplayMessages();
+        }
+    },
+
+    /**
+     * Create a new custom message and open the edit modal
+     */
+    async createMessageFromContext() {
+        const messagesConfig = await this.loadMessagesFromLocal();
+
+        const newMessage = {
+            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            text: '',
+            description: '',
+            hoverImage: null,
+            pinnedCaseNumber: null,
+            pinnedCaseId: null,
+            pinnedCaseUrl: null,
+            enabled: true
+        };
+
+        if (!Array.isArray(messagesConfig.customMessages)) {
+            messagesConfig.customMessages = [];
+        }
+
+        messagesConfig.customMessages.push(newMessage);
+
+        const saved = await this.saveMessagesToLocal(messagesConfig);
+        if (saved) {
+            this.showNotification('New message created. Edit to add content.', 'success');
+            await this.loadAndDisplayMessages();
+            await this.showEditModal(newMessage.id);
         }
     },
 
@@ -1664,6 +1743,46 @@ const PersistentBanner = {
     },
 
     /**
+     * Inject truncation/fade styles for subject and message content
+     */
+    injectTruncationStyles() {
+        if (document.getElementById('exl-banner-truncation-styles')) {
+            return;
+        }
+
+        const style = document.createElement('style');
+        style.id = 'exl-banner-truncation-styles';
+        style.textContent = `
+            .exl-text-truncate-subject {
+                display: inline-block;
+                max-width: 110px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                -webkit-mask-image: linear-gradient(90deg, #000 75%, transparent);
+                mask-image: linear-gradient(90deg, #000 75%, transparent);
+            }
+
+            .exl-message-truncate {
+                max-width: 500px;
+                overflow: hidden;
+                position: relative;
+            }
+
+            .exl-message-truncate .message-line {
+                display: block;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent);
+                mask-image: linear-gradient(90deg, #000 85%, transparent);
+            }
+        `;
+
+        document.head.appendChild(style);
+    },
+
+    /**
      * Pause message rotation (stores current state for resume)
      */
     pauseMessageRotation() {
@@ -1864,6 +1983,7 @@ const PersistentBanner = {
         
         // Inject CSS animations for modals
         this.injectModalStyles();
+        this.injectTruncationStyles();
         
         // Load navigation history from sessionStorage
         this.loadNavigationHistory();
@@ -2576,8 +2696,11 @@ const PersistentBanner = {
             console.error('[PersistentBanner] Error resolving timezone in applyDataUpdate:', error);
         });
 
-        // Only update fields that are explicitly present in the new data (no fallback to stale values)
-        let hasChanges = false;
+           // Track whether any field changed so we know when to re-render
+           let hasChanges = false;
+
+           if (this.currentPage.caseNumber && data.caseNumber && this.currentPage.caseNumber !== data.caseNumber) {
+               // Only update fields that are explicitly present in the new data (no fallback to stale values)
 
         if (data.caseId) {
             this.displayedCaseId = data.caseId;
@@ -2614,7 +2737,7 @@ const PersistentBanner = {
         } else if (caseNumberChanged) {
             // Case number changed but no subject in data - ensure it's cleared
             if (this.currentPage.subject) {
-                this.currentPage.subject = null;
+                this.currentPage.subject = data.subject;
                 hasChanges = true;
             }
         }
@@ -2627,7 +2750,7 @@ const PersistentBanner = {
         } else if (caseNumberChanged || caseIdChanged) {
             // Clear status when case changes
             if (this.currentPage.status) {
-                this.currentPage.status = null;
+                this.currentPage.status = data.status;
                 hasChanges = true;
             }
         }
@@ -2640,7 +2763,7 @@ const PersistentBanner = {
         } else if (caseNumberChanged || caseIdChanged) {
             // Clear subStatus when case changes
             if (this.currentPage.subStatus) {
-                this.currentPage.subStatus = null;
+                this.currentPage.subStatus = data.subStatus;
                 hasChanges = true;
             }
         }
@@ -2675,6 +2798,9 @@ const PersistentBanner = {
                 hasChanges = true;
             }
         }
+        }
+
+       
 
         // Enrich customer metadata from UserCustomerDataManager or CustomerDataManager if missing
         if (this.customerMetadata.institutionCode && 
@@ -2691,7 +2817,7 @@ const PersistentBanner = {
 
         // Always update UI to show new data progressively (even if primary fields unchanged)
         // This ensures partial data appears immediately as it's extracted during polling
-        const shouldUpdateUI = hasChanges || source === 'polling';
+        const shouldUpdateUI = hasChanges; // source === 'polling';
         
         if (shouldUpdateUI) {
             // Update UI immediately to show progressive loading
@@ -3580,8 +3706,8 @@ const PersistentBanner = {
         }
 
         // Step 2: Verify case ID matches current page
-        if (data.caseId && this.currentCaseId && data.caseId !== this.currentCaseId) {
-            console.warn('[PersistentBanner] Ignoring store data for different case', data.caseId, this.currentCaseId);
+        if (this.caseId && this.currentCaseId && this.caseId !== this.currentCaseId) {
+            console.warn('[PersistentBanner] Ignoring store data for different case', this.caseId, this.currentCaseId);
             
             // Check for case navigation in action-focused mode
             if (this.actionFocusedMode.active) {
@@ -4282,6 +4408,14 @@ const PersistentBanner = {
         this.elements.wikiPopup = banner.querySelector('#exl-wiki-popup');
         this.elements.wikiPopupContent = banner.querySelector('#exl-wiki-popup-content');
         this.elements.timezoneSyncBtn = banner.querySelector('.exl-timezone-sync-btn');
+
+        if (this.elements.subject) {
+            this.elements.subject.classList.add('exl-text-truncate-subject');
+        }
+
+        if (this.elements.messageContent) {
+            this.elements.messageContent.classList.add('exl-message-truncate');
+        }
     },
 
     /**
@@ -4604,16 +4738,26 @@ const PersistentBanner = {
                         subStatus: caseData.subStatus
                     });
                     
-                    if (caseData.custID || caseData.instID || caseData.server) {
-                        this.customerMetadata = {
-                            customerId: caseData.custID || null,
-                            institutionId: caseData.instID || null,
-                            server: caseData.server || null,
-                            productServiceName: caseData.productServiceName || null,
-                            institutionCode: caseData.exLibrisAccountNumber || null
-                        };
+                    this.customerMetadata = {
+                        custId: caseData.custID || caseData.customerId || caseData.custId || null,
+                        customerId: caseData.custID || caseData.customerId || caseData.custId || null,
+                        instId: caseData.instID || caseData.institutionId || caseData.instId || null,
+                        institutionId: caseData.instID || caseData.institutionId || caseData.instId || null,
+                        server: caseData.server || null,
+                        productServiceName: caseData.productServiceName || null,
+                        institutionCode: caseData.exLibrisAccountNumber || caseData.instCode || null,
+                        customerCode: caseData.exLibrisAccountNumber || null,
+                        customerOrgCode: caseData.customerOrgCode || null,
+                        customerOrgName: caseData.customerOrgName || null,
+                        timezone: caseData.customerTimezone || this.customerMetadata.timezone || null,
+                        timezoneSource: caseData.customerTimezoneSource || this.customerMetadata.timezoneSource || null
+                    };
+
+                    // If we still lack core IDs/servers but have institution code/account context, try enrichment
+                    if (!this.customerMetadata.customerId || !this.customerMetadata.institutionId || !this.customerMetadata.server) {
+                        this.enrichCustomerMetadataFromManagers(caseData.accountName);
                     }
-                    
+
                     this.updateBannerUI();
                     // Restore scroll position
                     window.scrollTo({ top: originalScrollTop, behavior: 'auto' });
@@ -4637,19 +4781,23 @@ const PersistentBanner = {
                         subStatus: freshData.subStatus
                     });
                     
-                    if (freshData.custID || freshData.instID || freshData.server) {
-                        this.customerMetadata = {
-                            customerId: freshData.custID || null,
-                            institutionId: freshData.instID || null,
-                            server: freshData.server || null,
-                            productServiceName: freshData.productServiceName || null,
-                            institutionCode: freshData.instCode || null,
-                            customerCode: freshData.exLibrisAccountNumber || null,
-                            timezone: freshData.customerTimezone || null
+                    this.customerMetadata = {
+                        customerId: freshData.custID || null,
+                        institutionId: freshData.instID || null,
+                        server: freshData.server || null,
+                        productServiceName: freshData.productServiceName || null,
+                        institutionCode: freshData.instCode || freshData.exLibrisAccountNumber || null,
+                        customerCode: freshData.exLibrisAccountNumber || null,
+                        timezone: freshData.customerTimezone || null,
+                        timezoneSource: freshData.customerTimezoneSource || null,
+                        customerOrgCode: freshData.customerOrgCode || null,
+                        customerOrgName: freshData.customerOrgName || null
+                    };
 
-                        };
+                    if (!this.customerMetadata.customerId || !this.customerMetadata.institutionId || !this.customerMetadata.server) {
+                        this.enrichCustomerMetadataFromManagers(freshData.accountName);
                     }
-                    
+
                     this.updateBannerUI();
                     // Restore scroll position
                     window.scrollTo({ top: originalScrollTop, behavior: 'auto' });
@@ -4758,27 +4906,27 @@ const PersistentBanner = {
         }
 
         // Force refresh of cached case data to ensure we're using current page data
-        console.log('[PersistentBanner] Forcing refresh of case data before comment extraction');
-        if (typeof window.ExLibrisExtension !== 'undefined' && 
-            typeof CaseDataExtractor !== 'undefined') {
-            try {
-                // Clear cached data
-                if (window.ExLibrisExtension.caseToolkit) {
-                    window.ExLibrisExtension.caseToolkit.caseData = null;
-                }
+        // console.log('[PersistentBanner] Forcing refresh of case data before comment extraction');
+        // if (typeof window.ExLibrisExtension !== 'undefined' && 
+        //     typeof CaseDataExtractor !== 'undefined') {
+        //     try {
+        //         // Clear cached data
+        //         if (window.ExLibrisExtension.caseToolkit) {
+        //             window.ExLibrisExtension.caseToolkit.caseData = null;
+        //         }
                 
-                // Extract fresh data from current page
-                const freshCaseData = await CaseDataExtractor.getData();
+        //         // Extract fresh data from current page
+        //         const freshCaseData = await CaseDataExtractor.getData();
                 
-                // Update toolkit cache
-                if (window.ExLibrisExtension.caseToolkit && freshCaseData) {
-                    window.ExLibrisExtension.caseToolkit.caseData = freshCaseData;
-                    console.log('[PersistentBanner] Refreshed case data:', freshCaseData.caseNumber);
-                }
-            } catch (error) {
-                console.warn('[PersistentBanner] Error refreshing case data:', error);
-            }
-        }
+        //         // Update toolkit cache
+        //         if (window.ExLibrisExtension.caseToolkit && freshCaseData) {
+        //             window.ExLibrisExtension.caseToolkit.caseData = freshCaseData;
+        //             console.log('[PersistentBanner] Refreshed case data:', freshCaseData.caseNumber);
+        //         }
+        //     } catch (error) {
+        //         console.warn('[PersistentBanner] Error refreshing case data:', error);
+        //     }
+        // }
 
         try {
             // Get fresh comments data from current page
@@ -5185,6 +5333,10 @@ const PersistentBanner = {
         const isCaseComments = rawType === 'case_comments';
         const metadataSection = this.elements.metadataSection;
         const messagesSection = this.elements.messagesSection;
+        const hideMetadataForClarivate = this.isClarivateDomain();
+        if (hideMetadataForClarivate && metadataSection) {
+            metadataSection.style.display = 'none';
+        }
         
         if (isCasePage || isCaseComments) {
             // Case page or case comments - show metadata and optionally messages
@@ -5194,26 +5346,26 @@ const PersistentBanner = {
                 
                 if (extractionState.complete && extractionState.hasData) {
                     // Extraction complete - show case data
-                    if (metadataSection) {
+                    if (metadataSection && !hideMetadataForClarivate) {
                         metadataSection.style.display = 'flex';
                     }
                     console.log('[PersistentBanner] Case data extraction complete - showing case data');
                 } else if (extractionState.isExtracting) {
                     // Extraction in progress - show loading state (hide metadata only)
-                    if (metadataSection) {
+                    if (metadataSection && !hideMetadataForClarivate) {
                         metadataSection.style.display = 'none';
                     }
                     console.log('[PersistentBanner] Case data extraction in progress - showing loading state');
                 } else {
                     // No extraction started or no data yet - show empty state
-                    if (metadataSection) {
+                    if (metadataSection && !hideMetadataForClarivate) {
                         metadataSection.style.display = 'flex'; // Show metadata section but with empty data
                     }
                     console.log('[PersistentBanner] Case data extraction not started or no data yet');
                 }
             } else {
                 // Case comments - show metadata section
-                if (metadataSection) {
+                if (metadataSection && !hideMetadataForClarivate) {
                     metadataSection.style.display = 'flex';
                 }
             }
@@ -5243,7 +5395,7 @@ const PersistentBanner = {
             
         } else {
             // NOT a case page or case comments - show messages if enabled
-            if (metadataSection) {
+            if (metadataSection && !hideMetadataForClarivate) {
                 metadataSection.style.display = 'none';
             }
             
@@ -5279,7 +5431,9 @@ const PersistentBanner = {
     updateMetadataFields() {
         // Update case metadata
         if (this.elements.subject) {
-            this.elements.subject.textContent = this.currentPage.subject || '—';
+            const subjectText = this.currentPage.subject || '—';
+            this.elements.subject.textContent = subjectText;
+            this.elements.subject.title = subjectText;
         }
         if (this.elements.status) {
             this.elements.status.textContent = this.currentPage.status || '—';
@@ -5295,7 +5449,6 @@ const PersistentBanner = {
         if (this.elements.instCode) {
             this.elements.instCode.textContent = this.customerMetadata.institutionCode || '—';
         }
-        debugger;
         if (this.elements.custId) {
             this.elements.custId.textContent = this.customerMetadata.custId || this.customerMetadata.customerId || '—';
         }
@@ -5619,6 +5772,15 @@ const PersistentBanner = {
             this.updateAccentColors(null);
         }
     },
+
+    /**
+     * Clarivate orgs render their own metadata; hide our metadata section there
+     * @returns {boolean}
+     */
+    isClarivateDomain() {
+        const host = window.location.hostname;
+        return host === 'clarivateanalytics.lightning.force.com' || host === 'clarivateanalytics--preprod.sandbox.lightning.force.com';
+    },
     
     /**
      * Update accent colors (borders, buttons) to match status color
@@ -5701,30 +5863,27 @@ const PersistentBanner = {
             return;
         }
 
-        // Build history items (reverse order - newest first)
-        const historyHTML = [...caseHistory].reverse().map((item, index) => {
+        // Build history items (reverse order - newest first) using DOM to avoid unescaped content issues
+        this.elements.historyList.innerHTML = '';
+        [...caseHistory].reverse().forEach((item, index) => {
             const relativeIndex = caseHistory.length - index;
             const institutionCode = item.institutionCode || '';
             const subject = item.subject || '';
-            
+
             // Get status color for this history item
             let statusColor = null;
             let statusCategory = null;
             let backgroundColor = 'rgba(255, 255, 255, 0.05)'; // Default transparency
-            
+
             if (item.status && this.STATUS_COLORS[item.status]) {
                 const statusConfig = this.STATUS_COLORS[item.status];
                 statusColor = statusConfig.base;
                 statusCategory = statusConfig.category;
-                
+
                 // For red and orange statuses, use less transparent background
-                if (statusCategory === 'red' || statusCategory === 'orange') {
-                    backgroundColor = this.rgbToRgba(statusColor, 0.15);
-                } else {
-                    backgroundColor = this.rgbToRgba(statusColor, 0.05);
-                }
+                backgroundColor = this.rgbToRgba(statusColor, statusCategory === 'red' || statusCategory === 'orange' ? 0.15 : 0.05);
             }
-            
+
             // Build tooltip with case details
             const tooltipParts = [];
             if (item.caseNumber) tooltipParts.push(`Case: ${item.caseNumber}`);
@@ -5735,23 +5894,42 @@ const PersistentBanner = {
             if (item.instID) tooltipParts.push(`InstID: ${item.instID}`);
             if (item.server) tooltipParts.push(`Server: ${item.server}`);
             if (item.status) tooltipParts.push(`Status: ${item.status}`);
-            const tooltip = tooltipParts.join('\n');
-            
-            // Build style string for history item
-            const itemStyle = `background-color: ${backgroundColor};${statusColor ? ` border-left-color: ${statusColor};` : ''}`;
-            
-            return `
-                <div class="exl-banner-history-item" data-history-url="${item.url}" title="${tooltip || 'No details available'}" style="${itemStyle}">
-                    <span class="exl-history-number">${relativeIndex}</span>
-                    <div style="display: flex; flex-direction: column;">
-                        <span class="exl-history-type">${institutionCode || 'N/A'}</span>
-                        <span class="exl-history-details">${subject ? this.truncate(subject, 40) : 'No subject'}</span>
-                    </div>
-                </div>
-            `;
-        }).join('');
+            const tooltip = tooltipParts.join('\n') || 'No details available';
 
-        this.elements.historyList.innerHTML = historyHTML;
+            // Build history item DOM
+            const historyItem = document.createElement('div');
+            historyItem.className = 'exl-banner-history-item';
+            historyItem.dataset.historyUrl = item.url || '';
+            historyItem.title = tooltip;
+            historyItem.style.backgroundColor = backgroundColor;
+            if (statusColor) {
+                historyItem.style.borderLeftColor = statusColor;
+            }
+
+            const number = document.createElement('span');
+            number.className = 'exl-history-number';
+            number.textContent = `${relativeIndex}`;
+
+            const detailsWrapper = document.createElement('div');
+            detailsWrapper.style.display = 'flex';
+            detailsWrapper.style.flexDirection = 'column';
+
+            const instEl = document.createElement('span');
+            instEl.className = 'exl-history-type';
+            instEl.textContent = institutionCode || 'N/A';
+
+            const subjectEl = document.createElement('span');
+            subjectEl.className = 'exl-history-details';
+            subjectEl.textContent = subject ? this.truncate(subject, 40) : 'No subject';
+
+            detailsWrapper.appendChild(instEl);
+            detailsWrapper.appendChild(subjectEl);
+
+            historyItem.appendChild(number);
+            historyItem.appendChild(detailsWrapper);
+
+            this.elements.historyList.appendChild(historyItem);
+        });
     },
 
     /**
@@ -6675,7 +6853,7 @@ const PersistentBanner = {
      * Handle tool button click
      * @param {string} toolName - Name of the tool
      */
-    handleToolClick(toolName) {
+    async handleToolClick(toolName) {
         console.log('[PersistentBanner] Tool clicked:', toolName);
 
         // Tools that use action-focused mode
@@ -6722,7 +6900,7 @@ const PersistentBanner = {
      * @param {string} toolName - Name of the tool
      * @param {Object} caseData - Case data to use
      */
-    enterActionFocusedMode(toolName, caseData) {
+    async enterActionFocusedMode(toolName, caseData) {
         if (!this.elements.banner) return;
 
         // Store original case data
@@ -6750,34 +6928,29 @@ const PersistentBanner = {
     exitActionFocusedMode() {
         if (!this.elements.banner) return;
 
-        // Remove action-focused class
+        // If future callers invoke this, just ensure banner class is cleared
         this.elements.banner.classList.remove('action-focused');
         this.elements.banner.classList.remove('exl-banner-stale-warning');
 
-        // Clear state
         this.actionFocusedMode.active = false;
         this.actionFocusedMode.currentTool = null;
         this.actionFocusedMode.originalCaseId = null;
         this.actionFocusedMode.originalCaseNumber = null;
         this.actionFocusedMode.originalCaseData = null;
 
-        // Remove click-outside handler
         if (this.toolViewClickOutsideHandler) {
             document.removeEventListener('click', this.toolViewClickOutsideHandler, true);
             this.toolViewClickOutsideHandler = null;
         }
 
-        // Hide tool views (search in body, not just banner)
         const toolViews = document.querySelectorAll('.exl-tool-view');
         toolViews.forEach(view => {
             view.style.display = 'none';
-            // Remove from DOM if it's a modal overlay (appended to body)
             if (view.parentElement === document.body) {
                 view.remove();
             }
         });
 
-        // Show normal sections
         this.showNormalSections();
 
         console.log('[PersistentBanner] Exited action-focused mode');
@@ -6835,7 +7008,7 @@ const PersistentBanner = {
      * Render action-focused view for a tool
      * @param {string} toolName - Name of the tool
      */
-    renderActionFocusedView(toolName) {
+    async renderActionFocusedView(toolName) {
         if (!this.elements.banner) return;
 
         // Hide all tool views first (search in body, not just banner)
@@ -6850,13 +7023,16 @@ const PersistentBanner = {
             if (toolName === 'customer-data') {
                 toolView = this.createCustomerDataEditorView();
             } else if (toolName === 'color-handler-settings') {
-                toolView = this.createColorHandlerSettingsView();
+                toolView = await this.createColorHandlerSettingsView();
             } else {
                 toolView = this.createToolViewPlaceholder(toolName);
             }
             // Append to document body instead of banner to avoid height constraints
             document.body.appendChild(toolView);
         }
+
+        // Ensure an explicit exit button exists
+        this.ensureActionFocusExitButton(toolView);
 
         // Show the tool view
         toolView.style.display = 'block';
@@ -6873,6 +7049,45 @@ const PersistentBanner = {
         setTimeout(() => {
             document.addEventListener('click', this.toolViewClickOutsideHandler, true);
         }, 0);
+    },
+
+    ensureActionFocusExitButton(toolView) {
+        if (!toolView) return;
+
+        // Try to find an existing header action area or create one
+        let header = toolView.querySelector('.exl-tool-header');
+        if (!header) {
+            header = document.createElement('div');
+            header.className = 'exl-tool-header';
+            toolView.prepend(header);
+        }
+
+        let actions = header.querySelector('.exl-tool-header-actions');
+        if (!actions) {
+            actions = document.createElement('div');
+            actions.className = 'exl-tool-header-actions';
+            header.appendChild(actions);
+        }
+
+        // If an exit/Back button already exists, just ensure it is wired
+        let exitBtn = actions.querySelector('[data-action="exit-tool"]');
+        if (!exitBtn) {
+            exitBtn = document.createElement('button');
+            exitBtn.className = 'exl-back-btn';
+            exitBtn.setAttribute('data-action', 'exit-tool');
+            exitBtn.textContent = '← Back to banner';
+            actions.prepend(exitBtn);
+        }
+
+        const handleExit = () => {
+            this.exitActionFocusedMode();
+            this.updateBannerUI(true);
+        };
+
+        // Remove previous listener by cloning if needed to avoid stacking
+        const newExitBtn = exitBtn.cloneNode(true);
+        newExitBtn.addEventListener('click', handleExit, { once: true });
+        actions.replaceChild(newExitBtn, exitBtn);
     },
 
     /**
@@ -7497,7 +7712,7 @@ const PersistentBanner = {
                         if (toolView) {
                             toolView.remove();
                         }
-                        this.renderActionFocusedView(toolName);
+                        await this.renderActionFocusedView(toolName);
                     }
                 }
             });
@@ -7506,34 +7721,42 @@ const PersistentBanner = {
         // Status group color edit buttons
         toolView.querySelectorAll('[data-edit-group-bg], [data-edit-group-text]').forEach(btn => {
             btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
                 const isBg = btn.hasAttribute('data-edit-group-bg');
                 const group = isBg ? btn.dataset.editGroupBg : btn.dataset.editGroupText;
-                const currentColor = config.handleStatus.groupColors[group] || {};
+                const currentColor = (config.handleStatus?.groupColors?.[group]) || {};
                 const colorType = isBg ? 'bg' : 'text';
                 const currentColorValue = currentColor[colorType] || (isBg ? 'rgb(128, 128, 128)' : 'rgb(255, 255, 255)');
-                
+
                 const selectedColor = await this.showColorPickerModal({ currentColor: currentColorValue });
-                if (selectedColor) {
-                    if (typeof ColorHandlerConfig !== 'undefined') {
-                        const updatedConfig = await ColorHandlerConfig.loadConfig();
-                        if (!updatedConfig.handleStatus.groupColors[group]) {
-                            updatedConfig.handleStatus.groupColors[group] = {};
-                        }
-                        updatedConfig.handleStatus.groupColors[group][colorType] = selectedColor;
-                        await ColorHandlerConfig.saveConfig(updatedConfig);
-                        this.showNotification('Color updated', 'success');
-                        // Update preview
-                        const preview = toolView.querySelector(`[data-preview-group="${group}"]`);
-                        if (preview) {
-                            if (colorType === 'bg') {
-                                preview.style.backgroundColor = selectedColor;
-                            } else {
-                                preview.style.color = selectedColor;
-                            }
-                        }
-                        // Trigger re-highlighting if on case list page
-                        this.triggerColorRefresh();
+                if (!selectedColor) return;
+
+                if (typeof ColorHandlerConfig !== 'undefined') {
+                    const updatedConfig = await ColorHandlerConfig.loadConfig();
+                    if (!updatedConfig.handleStatus.groupColors[group]) {
+                        updatedConfig.handleStatus.groupColors[group] = {};
                     }
+                    updatedConfig.handleStatus.groupColors[group][colorType] = selectedColor;
+                    await ColorHandlerConfig.saveConfig(updatedConfig);
+
+                    // Keep local config in sync so subsequent edits use fresh values without reopening the tool.
+                    if (!config.handleStatus.groupColors[group]) {
+                        config.handleStatus.groupColors[group] = {};
+                    }
+                    config.handleStatus.groupColors[group][colorType] = selectedColor;
+
+                    this.showNotification('Color updated', 'success');
+                    // Update preview
+                    const preview = toolView.querySelector(`[data-preview-group="${group}"]`);
+                    if (preview) {
+                        if (colorType === 'bg') {
+                            preview.style.backgroundColor = selectedColor;
+                        } else {
+                            preview.style.color = selectedColor;
+                        }
+                    }
+                    // Trigger re-highlighting if on case list page
+                    this.triggerColorRefresh();
                 }
             });
         });
@@ -7541,28 +7764,34 @@ const PersistentBanner = {
         // Anchor color edit buttons
         toolView.querySelectorAll('[data-edit-anchor-bg], [data-edit-anchor-text]').forEach(btn => {
             btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
                 const isBg = btn.hasAttribute('data-edit-anchor-bg');
                 const anchorType = isBg ? btn.dataset.editAnchorBg : btn.dataset.editAnchorText;
                 const colorType = isBg ? 'bg' : 'text';
-                const currentColor = config.handleAnchor[anchorType] || {};
+                const currentColor = (config.handleAnchor?.[anchorType]) || {};
                 const currentColorValue = currentColor[colorType] || (isBg ? '#ffffff' : 'rgb(0, 0, 0)');
-                
+
                 const selectedColor = await this.showColorPickerModal({ currentColor: currentColorValue });
-                if (selectedColor) {
-                    if (typeof ColorHandlerConfig !== 'undefined') {
-                        const updatedConfig = await ColorHandlerConfig.loadConfig();
-                        updatedConfig.handleAnchor[anchorType] = updatedConfig.handleAnchor[anchorType] || {};
-                        updatedConfig.handleAnchor[anchorType][colorType] = selectedColor;
-                        await ColorHandlerConfig.saveConfig(updatedConfig);
-                        this.showNotification('Color updated', 'success');
-                        // Update preview
-                        const preview = toolView.querySelector(`[data-preview-anchor="${anchorType}-bg"]`);
-                        if (preview && colorType === 'bg') {
-                            preview.style.backgroundColor = selectedColor;
-                        }
-                        // Trigger re-highlighting
-                        this.triggerColorRefresh();
+                if (!selectedColor) return;
+
+                if (typeof ColorHandlerConfig !== 'undefined') {
+                    const updatedConfig = await ColorHandlerConfig.loadConfig();
+                    updatedConfig.handleAnchor[anchorType] = updatedConfig.handleAnchor[anchorType] || {};
+                    updatedConfig.handleAnchor[anchorType][colorType] = selectedColor;
+                    await ColorHandlerConfig.saveConfig(updatedConfig);
+
+                    // Keep local config in sync for immediate follow-up edits.
+                    config.handleAnchor[anchorType] = config.handleAnchor[anchorType] || {};
+                    config.handleAnchor[anchorType][colorType] = selectedColor;
+
+                    this.showNotification('Color updated', 'success');
+                    // Update preview
+                    const preview = toolView.querySelector(`[data-preview-anchor="${anchorType}-bg"]`);
+                    if (preview && colorType === 'bg') {
+                        preview.style.backgroundColor = selectedColor;
                     }
+                    // Trigger re-highlighting
+                    this.triggerColorRefresh();
                 }
             });
         });
@@ -7570,26 +7799,31 @@ const PersistentBanner = {
         // Case threshold color edit buttons
         toolView.querySelectorAll('[data-edit-threshold]').forEach(btn => {
             btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
                 const thresholdIndex = parseInt(btn.dataset.editThreshold);
                 const thresholds = config.handleCase.thresholds || [];
                 const threshold = thresholds[thresholdIndex];
                 if (!threshold) return;
-                
+
                 const selectedColor = await this.showColorPickerModal({ currentColor: threshold.color });
-                if (selectedColor) {
-                    if (typeof ColorHandlerConfig !== 'undefined') {
-                        const updatedConfig = await ColorHandlerConfig.loadConfig();
-                        updatedConfig.handleCase.thresholds[thresholdIndex].color = selectedColor;
-                        await ColorHandlerConfig.saveConfig(updatedConfig);
-                        this.showNotification('Color updated', 'success');
-                        // Update preview
-                        const preview = toolView.querySelector(`[data-preview-threshold="${thresholdIndex}"]`);
-                        if (preview) {
-                            preview.style.backgroundColor = selectedColor;
-                        }
-                        // Trigger re-highlighting if on case list page
-                        this.triggerColorRefresh();
+                if (!selectedColor) return;
+
+                if (typeof ColorHandlerConfig !== 'undefined') {
+                    const updatedConfig = await ColorHandlerConfig.loadConfig();
+                    updatedConfig.handleCase.thresholds[thresholdIndex].color = selectedColor;
+                    await ColorHandlerConfig.saveConfig(updatedConfig);
+
+                    // Keep local config in sync for immediate reuse.
+                    config.handleCase.thresholds[thresholdIndex].color = selectedColor;
+
+                    this.showNotification('Color updated', 'success');
+                    // Update preview
+                    const preview = toolView.querySelector(`[data-preview-threshold="${thresholdIndex}"]`);
+                    if (preview) {
+                        preview.style.backgroundColor = selectedColor;
                     }
+                    // Trigger re-highlighting if on case list page
+                    this.triggerColorRefresh();
                 }
             });
         });
@@ -7626,31 +7860,13 @@ const PersistentBanner = {
             overlay.appendChild(modal);
             document.body.appendChild(overlay);
 
-            // Initialize color picker
-            let selectedColor = currentColor;
-            if (typeof ColorPicker3D !== 'undefined') {
-                const containerId = 'exl-color-picker-content';
-                modal.querySelector('#exl-color-picker-content').id = 'exl-color-picker-container';
-                ColorPicker3D.create('exl-color-picker-container', {
-                    currentColor: currentColor,
-                    onColorChange: (color) => {
-                        selectedColor = color;
-                    },
-                    onApply: () => {
-                        overlay.remove();
-                        resolve(selectedColor);
-                    },
-                    onCancel: () => {
-                        overlay.remove();
-                        resolve(null);
-                    }
-                });
-            } else {
-                // Fallback simple color input
+            // Ensure we always render a picker, even if the 3D picker fails.
+            const renderFallbackPicker = () => {
                 const colorInput = document.createElement('input');
                 colorInput.type = 'color';
-                colorInput.value = this.rgbToHex(currentColor);
+                colorInput.value = this.normalizeColorToHex(currentColor);
                 modal.querySelector('#exl-color-picker-content').appendChild(colorInput);
+
                 const applyBtn = document.createElement('button');
                 applyBtn.textContent = 'Apply';
                 applyBtn.className = 'exl-btn-apply';
@@ -7659,6 +7875,7 @@ const PersistentBanner = {
                     resolve(this.hexToRgb(colorInput.value));
                 });
                 modal.querySelector('#exl-color-picker-content').appendChild(applyBtn);
+
                 const cancelBtn = document.createElement('button');
                 cancelBtn.textContent = 'Cancel';
                 cancelBtn.className = 'exl-btn-cancel';
@@ -7667,6 +7884,33 @@ const PersistentBanner = {
                     resolve(null);
                 });
                 modal.querySelector('#exl-color-picker-content').appendChild(cancelBtn);
+            };
+
+            let selectedColor = currentColor;
+            const canUse3DPicker = typeof ColorPicker3D !== 'undefined';
+            if (canUse3DPicker) {
+                try {
+                    modal.querySelector('#exl-color-picker-content').id = 'exl-color-picker-container';
+                    ColorPicker3D.create('exl-color-picker-container', {
+                        currentColor: this.normalizeColorToHex(currentColor),
+                        onColorChange: (color) => {
+                            selectedColor = color;
+                        },
+                        onApply: () => {
+                            overlay.remove();
+                            resolve(selectedColor);
+                        },
+                        onCancel: () => {
+                            overlay.remove();
+                            resolve(null);
+                        }
+                    });
+                } catch (error) {
+                    console.warn('[PersistentBanner] ColorPicker3D failed, falling back to native color input', error);
+                    renderFallbackPicker();
+                }
+            } else {
+                renderFallbackPicker();
             }
 
             // Close button
@@ -7683,6 +7927,12 @@ const PersistentBanner = {
                 }
             });
         });
+    },
+
+    normalizeColorToHex(color) {
+        if (!color) return '#000000';
+        if (color.startsWith('#')) return color;
+        return this.rgbToHex(color);
     },
 
     /**

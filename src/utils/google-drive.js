@@ -5,7 +5,26 @@ const GoogleDrive = {
   backupFileId: null,
   lastAuthError: null,
 
+  getIdentitySupportError() {
+    const identitySupported = typeof chrome !== 'undefined' && chrome.identity && typeof chrome.identity.getAuthToken === 'function';
+    if (!identitySupported) {
+      const isEdge = typeof navigator !== 'undefined' && /Edg\//.test(navigator.userAgent || '');
+      const message = isEdge
+        ? 'Google Drive sign-in is not available in Microsoft Edge (chrome.identity not supported). Please sign in from Chrome to run backups.'
+        : 'Google Drive sign-in is not available in this browser (chrome.identity not supported). Please use Chrome to run backups.';
+      return { message };
+    }
+    return null;
+  },
+
   async getAuthToken(interactive = true, attempt = 0) {
+    const supportError = this.getIdentitySupportError();
+    if (supportError) {
+      this.lastAuthError = supportError;
+      console.warn('[GoogleDrive] identity.getAuthToken unavailable', { ...supportError, userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown' });
+      return null;
+    }
+
     const { token, error } = await new Promise((resolve) => {
       chrome.identity.getAuthToken({ interactive }, (result) => {
         if (chrome.runtime.lastError || !result) {
@@ -21,7 +40,7 @@ const GoogleDrive = {
       return token;
     }
 
-    this.lastAuthError = error;
+    this.lastAuthError = error || { message: 'Unknown authentication error' };
 
     // If interactive and first failure, clear cached token and retry once
     if (interactive && attempt === 0) {
@@ -34,6 +53,12 @@ const GoogleDrive = {
   },
 
   async clearCachedToken() {
+    const supportError = this.getIdentitySupportError();
+    if (supportError) {
+      this.lastAuthError = supportError;
+      return Promise.resolve();
+    }
+
     return new Promise((resolve) => {
       chrome.identity.getAuthToken({ interactive: false }, (token) => {
         if (token) {

@@ -29,7 +29,7 @@
   }
 
   // Determine session type using Navigation Timing API
-  window.addEventListener('load', () => {
+
     const navEntry = performance.getEntriesByType("navigation")[0];
     const isNewSession = !sessionStorage.getItem('session_active');
 
@@ -40,8 +40,7 @@
         console.log("This is a refresh within an existing tab session.");
     } else if (navEntry.type === 'navigate' || navEntry.type === 'back_forward') {
         console.log("This is navigation within the same tab, but not a simple refresh.");
-    }
-});
+    };
   
   // Check if current site is a default banner domain
   // Only apply early layout adjustment if it's a default domain (optimistic)
@@ -1180,6 +1179,7 @@
       captureBtn.className = 'exl-hl-btn';
       captureBtn.innerHTML = '📸 Capture';
       captureBtn.title = 'Capture a screenshot of this page';
+      captureBtn.disabled = true;
       captureBtn.addEventListener('click', () => {
         if (typeof ScreenshotManager !== 'undefined' && typeof ScreenshotManager.startCapture === 'function') {
           ScreenshotManager.startCapture();
@@ -1192,6 +1192,7 @@
 
       const recordBtn = document.createElement('button');
       recordBtn.className = 'exl-hl-btn';
+      recordBtn.disabled = true;
       const setRecordLabel = (isRecording) => {
         recordBtn.innerHTML = isRecording ? '⏹ Stop Rec' : '🎥 Record';
         recordBtn.title = isRecording ? 'Stop recording and save' : 'Start tab recording (150MB cap)';
@@ -1261,7 +1262,8 @@
       actionsSection.appendChild(captureBtn);
       const recordingsPanelBtn = document.createElement('button');
       recordingsPanelBtn.className = 'exl-hl-btn';
-      recordingsPanelBtn.innerHTML = '📷 Gallery';
+      recordingsPanelBtn.innerHTML = '🖼️ Gallery';
+      recordingsPanelBtn.disabled = true;
       recordingsPanelBtn.title = 'Open captures (shots + recordings)';
       recordingsPanelBtn.addEventListener('click', () => {
         if (typeof CapturePanel !== 'undefined' && typeof CapturePanel.open === 'function') {

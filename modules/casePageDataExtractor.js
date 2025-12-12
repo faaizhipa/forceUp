@@ -411,8 +411,8 @@ const CasePageDataExtractor = {
       analysisNote: apiData.Analysis_Note__c || null,
 
       // Additional fields from API
-      asset: apiData.Asset_Line_Item__c || null,
-      affectedEnvironment: apiData.bl_Affected_Environment__c || null,
+      asset: apiData.Asset_Line_Item__r || null,
+      affectedEnvironment: apiData.bl_Affected_Environment__r || null,
       caseOwner: apiData['Owner.Name'] || null,
       parentCase: apiData['Parent.CaseNumber'] || null,
       parentCaseOwner: apiData.Parent_Case_Owner__c || null,

@@ -83,11 +83,18 @@ if (!window.ExLibrisExtension) {
       Subject: fields.Subject?.value,
       Description: fields.Description?.value,
       Status: fields.Status?.value,
+      Substatus: fields.Sub_Status__c?.value,
       Priority: fields.Priority?.value,
       AccountName: fields.Account?.displayValue,
       ContactName: fields.Contact?.displayValue,
       OwnerName: fields.Owner?.displayValue,
       CreatedDate: fields.CreatedDate?.value,
+      Asset: fields.Asset_Line_Item__r?.displayValue,
+      Category: fields.Category__c?.value,
+      SupportTeam: fields.Current_Support_Team__c?.displayValue,
+      Environment: fields.bl_Affected_Environment__r?.displayValue,
+      ContactEmail: fields.SuppliedEmail?.value,
+      AccountCode: fields.Ex_Libris_Account_Number__c?.value,
 
       // --- Added based on your specific log data ---
       Asset: fields.Asset_Line_Item__r?.displayValue, // "University of the Sunshine Coast-Esploro Advanced"
