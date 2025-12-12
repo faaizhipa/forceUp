@@ -1388,13 +1388,19 @@ const CasePageDataExtractor = {
       CaseDataStore.clear(`casepage-cleanup:${reason}`);
     }
     
-    // Clear cached data in window.ExLibrisExtension to prevent stale data
+    // Note: We do NOT clear window.ExLibrisExtension.apiCaseData here
+    // ONLY ALLOW FOR REPLACEMENT - apiCaseData should only be replaced with new data, never deleted
+    // This prevents the primary metadata section from showing only subject with hyphens for other fields
+    // The refresh action will replace data, but deletion causes incomplete metadata display
+    
+    // Only clear toolkit caseData for case switches
     if (window.ExLibrisExtension) {
-      if (window.ExLibrisExtension.caseToolkit) {
+      if (window.ExLibrisExtension.caseToolkit && (reason === 'case-switch' || reason === 'context-switch')) {
         window.ExLibrisExtension.caseToolkit.caseData = null;
       }
-      window.ExLibrisExtension.apiCaseData = null;
-      window.ExLibrisExtension.apiCaseDataTimestamp = null;
+      // DO NOT delete apiCaseData - it should only be replaced with fresh data
+      // window.ExLibrisExtension.apiCaseData = null;  // REMOVED - causes metadata loss
+      // window.ExLibrisExtension.apiCaseDataTimestamp = null;  // REMOVED - causes metadata loss
       if (reason === 'case-switch' || reason === 'context-switch') {
         window.ExLibrisExtension.currentCaseId = null;
       }
