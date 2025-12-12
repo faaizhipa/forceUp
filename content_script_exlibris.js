@@ -826,11 +826,14 @@
     async handleNavigationChange(url) {
       Logger?.info('Handling navigation to:', url);
       
-      // Clear legacy API data on navigation (for backwards compatibility)
-      // New data flow uses InterceptorCacheManager which handles its own cache
-      this.apiCaseData = null;
-      this.apiCaseDataTimestamp = null;
-      console.log('[ExLibris Extension] Cleared legacy API case data on navigation');
+      // Note: We do NOT clear apiCaseData on navigation
+      // ONLY ALLOW FOR REPLACEMENT - apiCaseData should only be replaced with new data, never deleted
+      // This prevents the primary metadata section from showing only subject with hyphens for other fields
+      // New data flow uses InterceptorCacheManager which handles its own cache and will replace data
+      // Deleting here causes metadata loss before new data arrives
+      // this.apiCaseData = null;  // REMOVED - causes metadata loss
+      // this.apiCaseDataTimestamp = null;  // REMOVED - causes metadata loss
+      console.log('[ExLibris Extension] Navigation detected - apiCaseData will be replaced with fresh data when available');
       
       // Teardown existing features
       this.cleanup();
