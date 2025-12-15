@@ -13,6 +13,20 @@ const CasePageDataExtractor = {
   retryTimeoutId: null, // Track retry timeout for cleanup
   currentExtractionToken: null,
 
+   API_DEBOUNCE_MS: 350,
+
+  async waitForApiDataReady() {
+    if (!window.ExLibrisExtension?.apiCaseData) return null;
+    // small debounce to allow interceptor to replace payload
+    await new Promise((r) => setTimeout(r, this.API_DEBOUNCE_MS));
+    return window.ExLibrisExtension.apiCaseData
+      ? {
+          data: window.ExLibrisExtension.apiCaseData,
+          ts: window.ExLibrisExtension.apiCaseDataTimestamp || 0,
+        }
+      : null;
+  },
+
   /**
    * Initialize the module and start monitoring page changes
    */
@@ -574,6 +588,7 @@ const CasePageDataExtractor = {
       caseNumber: apiData.CaseNumber || null,
       subject: apiData.Subject || null,
       description: apiData.Description || null,
+      priority: apiData.Priority || null,
 
       // Contact and Account (from nested lookups)
       accountName: apiData["Account.Name"] || null,
@@ -645,43 +660,39 @@ const CasePageDataExtractor = {
    * @param {Object} contextSnapshot - Optional context snapshot
    * @returns {Object} - Extracted case data
    */
-  async extractAllCaseData(contextSnapshot = null) {
-    const snapshot =
+   async extractAllCaseData(contextSnapshot = null) {
+   const snapshot =
       contextSnapshot ||
       (typeof CaseContextWatcher !== "undefined"
         ? CaseContextWatcher.getCurrentContext?.()
         : null);
-    const contextCaseId = snapshot?.caseId || this.currentCaseId;
+    const contextCaseId = snapshot?.caseId || this.currentCaseId || null;
     const contextCaseNumber = snapshot?.caseNumber || null;
 
-    // PRIORITY 1: Try API data first (from FetchInterceptor)
-    if (window.ExLibrisExtension?.apiCaseData) {
-      const apiData = window.ExLibrisExtension.apiCaseData;
-      const apiTimestamp = window.ExLibrisExtension.apiCaseDataTimestamp;
+    // PRIORITY 1: Use API data if fresh AND case number matches (after debounce)
+    const apiResult = await this.waitForApiDataReady();
+    if (apiResult?.data) {
+      const age = Date.now() - apiResult.ts;
+      const apiCaseNumber = apiResult.data.CaseNumber || null;
+      const hasMatch =
+        apiCaseNumber && contextCaseNumber && apiCaseNumber === contextCaseNumber;
 
-      // Check if data is fresh (within last 5 seconds)
-      const age = Date.now() - (apiTimestamp || 0);
-      if (age < 5000) {
-        // Verify API data matches current case
-        if (apiData.CaseNumber === contextCaseNumber || !contextCaseNumber) {
-          console.log(
-            "[CasePageDataExtractor] Using fresh API data (age: ${age}ms)"
-          );
-          return this.normalizeApiData(apiData, contextCaseId);
-        } else {
-          console.warn(
-            "[CasePageDataExtractor] API data case number mismatch, falling back to DOM",
-            {
-              apiCaseNumber: apiData.CaseNumber,
-              contextCaseNumber,
-            }
-          );
-        }
-      } else {
-        console.log(
-          "[CasePageDataExtractor] API data too old (age: ${age}ms), falling back to DOM"
-        );
+      if (age < 5000 && hasMatch) {
+        console.log("[CasePageDataExtractor] Using debounced API data (ms age:", age, ")");
+        return this.normalizeApiData(apiResult.data, contextCaseId);
       }
+
+      console.warn(
+        "[CasePageDataExtractor] API data skipped; age OK:",
+        age < 5000,
+        "caseMatch:",
+        hasMatch,
+        "apiCaseNumber:",
+        apiCaseNumber,
+        "contextCaseNumber:",
+        contextCaseNumber
+      );
+      // do not abort; continue to DOM
     }
 
     // PRIORITY 2: Fallback to DOM extraction
@@ -784,6 +795,7 @@ const CasePageDataExtractor = {
       caseNumber: contextCaseNumber,
       subject: headerData.subject || this.getSubject(), // Fallback to getSubject() if header extraction didn't find subject
       description: this.getDescription(),
+      priority: this.getPriorityValue(),
 
       // Contact and Account
       accountName: this.getRecordLayoutField("Account Name"),
@@ -1002,6 +1014,110 @@ const CasePageDataExtractor = {
     if (!header) return null;
     const parts = header.split(" - ");
     return parts.length > 1 ? parts.slice(1).join(" - ").trim() : null;
+  },
+
+  /**
+   * Get priority from panel
+   * @param {string} targetLabel - Label to search for (e.g., "Priority")
+   * @returns {string|null}
+   */
+  getHighlightsPanelElementByLabel(targetLabel) {
+    // 1. Helper to find all candidate components (piercing shadow boundaries)
+    function getAllComponents(root, tagName) {
+      let nodes = [];
+      root.querySelectorAll(tagName).forEach((el) => nodes.push(el));
+      root.querySelectorAll("*").forEach((el) => {
+        if (el.shadowRoot) {
+          nodes = nodes.concat(getAllComponents(el.shadowRoot, tagName));
+        }
+      });
+      return nodes;
+    }
+
+    // 2. Find all 'records-highlights-details-item' components
+    const items = getAllComponents(document.body, "records-highlights-details-item");
+
+    for (const item of items) {
+      if (item.offsetWidth === 0 && item.offsetHeight === 0) continue;
+      if (!item.shadowRoot) continue;
+
+      const labelEl = item.shadowRoot.querySelector(
+        `p[title="${targetLabel}"], p.slds-text-title`
+      );
+      const labelText = (labelEl?.textContent || "").trim();
+      if (!labelEl || labelText !== targetLabel) continue;
+
+      // Try value inside shadow root first, then light DOM
+      let valueEl = item.shadowRoot.querySelector("lightning-formatted-text");
+      if (!valueEl) {
+        valueEl = item.querySelector("lightning-formatted-text");
+      }
+
+      if (valueEl) {
+        const value = (valueEl.textContent || valueEl.innerText || "").trim();
+        if (value) {
+          return value;
+        }
+      }
+    }
+    return null;
+  },
+
+  /**
+   * Get priority value with fallbacks
+   * @returns {string|null}
+   */
+  getPriorityValue() {
+    const fromHighlights = this.getHighlightsPanelElementByLabel("Priority");
+    if (fromHighlights && fromHighlights.trim()) {
+      return fromHighlights.trim();
+    }
+
+    const fromTitleAttr = this.getHighlightsValueByTitle("Priority");
+    if (fromTitleAttr && fromTitleAttr.trim()) {
+      return fromTitleAttr.trim();
+    }
+
+    const fromRecordLayout = this.getRecordLayoutField("Priority");
+    if (fromRecordLayout && fromRecordLayout.trim()) {
+      return fromRecordLayout.trim();
+    }
+
+    return null;
+  },
+
+  /**
+   * Query highlights item by title attribute when shadow lookup misses
+   * @param {string} targetLabel
+   * @returns {string|null}
+   */
+  getHighlightsValueByTitle(targetLabel) {
+    const labelNodes = document.querySelectorAll(
+      'records-highlights-details-item p[title]'
+    );
+
+    for (const labelNode of labelNodes) {
+      const title = (labelNode.getAttribute("title") || "").trim();
+      if (title !== targetLabel) continue;
+
+      // Value can be in the same host's light DOM beneath the parent item.
+      const hostItem = labelNode.closest("records-highlights-details-item");
+      if (!hostItem) continue;
+
+      let valueEl = hostItem.querySelector("lightning-formatted-text");
+      if (!valueEl && hostItem.shadowRoot) {
+        valueEl = hostItem.shadowRoot.querySelector(
+          "lightning-formatted-text"
+        );
+      }
+
+      const value = (valueEl?.textContent || valueEl?.innerText || "").trim();
+      if (value) {
+        return value;
+      }
+    }
+
+    return null;
   },
 
   /**

@@ -30,6 +30,7 @@ const CaseDataExtractor = {
       affectedEnvironment: this.getAffectedEnvironment(),
       jiraId: this.getJiraId(),
       lastModifiedDate: this.getLastModifiedDate(),
+      priority: this.getPriorityValue(),
       // Derived fields (populated in processData)
       customerCode: this.getExLibrisAccountNumber(),
       server: null,
@@ -76,6 +77,108 @@ const CaseDataExtractor = {
       exLibrisAccountNumber: this.getExLibrisAccountNumber(),
       analysisNote: this.getFieldValue(['Analysis Note'])
     };
+  },
+
+  /**
+   * Get priority from panel
+   * @param {string} targetLabel - Label to search for (e.g., "Priority")
+   * @returns {string|null}
+   */
+  getHighlightsPanelElementByLabel(targetLabel) {
+    // 1. Helper to find all candidate components (piercing shadow boundaries)
+    function getAllComponents(root, tagName) {
+      let nodes = [];
+      root.querySelectorAll(tagName).forEach((el) => nodes.push(el));
+      root.querySelectorAll("*").forEach((el) => {
+        if (el.shadowRoot) {
+          nodes = nodes.concat(getAllComponents(el.shadowRoot, tagName));
+        }
+      });
+      return nodes;
+    }
+
+    // 2. Find all 'records-highlights-details-item' components
+    const items = getAllComponents(document.body, "records-highlights-details-item");
+
+    for (const item of items) {
+      if (item.offsetWidth === 0 && item.offsetHeight === 0) continue;
+      if (!item.shadowRoot) continue;
+
+      const labelEl = item.shadowRoot.querySelector(
+        `p[title="${targetLabel}"], p.slds-text-title`
+      );
+      const labelText = (labelEl?.textContent || "").trim();
+      if (!labelEl || labelText !== targetLabel) continue;
+
+      let valueEl = item.shadowRoot.querySelector("lightning-formatted-text");
+      if (!valueEl) {
+        valueEl = item.querySelector("lightning-formatted-text");
+      }
+
+      if (valueEl) {
+        const value = (valueEl.textContent || valueEl.innerText || "").trim();
+        if (value) {
+          return value;
+        }
+      }
+    }
+    return null;
+  },
+
+  /**
+   * Get priority value with fallbacks
+   * @returns {string|null}
+   */
+  getPriorityValue() {
+    const fromHighlights = this.getHighlightsPanelElementByLabel("Priority");
+    if (fromHighlights && fromHighlights.trim()) {
+      return fromHighlights.trim();
+    }
+
+    const fromTitleAttr = this.getHighlightsValueByTitle("Priority");
+    if (fromTitleAttr && fromTitleAttr.trim()) {
+      return fromTitleAttr.trim();
+    }
+
+    const fromRecordLayout = this.getFieldValue(["Priority"]);
+    if (fromRecordLayout && fromRecordLayout.trim()) {
+      return fromRecordLayout.trim();
+    }
+
+    return null;
+  },
+
+  /**
+   * Query highlights item by title attribute when shadow lookup misses
+   * @param {string} targetLabel
+   * @returns {string|null}
+   */
+  getHighlightsValueByTitle(targetLabel) {
+    const labelNodes = document.querySelectorAll(
+      'records-highlights-details-item p[title]'
+    );
+
+    for (const labelNode of labelNodes) {
+      const title = (labelNode.getAttribute("title") || "").trim();
+      if (title !== targetLabel) continue;
+
+      const hostItem = labelNode.closest("records-highlights-details-item");
+      if (!hostItem) continue;
+
+      let valueEl = hostItem.querySelector("lightning-formatted-text");
+      if (!valueEl && hostItem.shadowRoot) {
+        valueEl = hostItem.shadowRoot.querySelector(
+          "lightning-formatted-text"
+        );
+      }
+
+      const value = (valueEl?.textContent || valueEl?.innerText || "").trim();
+      if (value) {
+        return value;
+      }
+    }
+
+    return null;
   },
 
   /**

@@ -35,6 +35,39 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2025-12-13] - Refactoring - Persistent banner priority styling
+
+**Description**: Moved the priority overlay styling out of inline HTML and into the shared banner stylesheet, anchoring it relative to the page-info section while keeping the priority value wired through the existing data flow.
+
+**Files Changed**:
+
+- `modules/persistentBanner.js`
+- `modules/styles/persistent-banner.css`
+- `.reference/styles/persistent-banner.css`
+
+**Lessons Learned**:
+
+- Keeping overlay treatments in CSS makes future visual tweaks safer and keeps the markup lean.
+- Anchoring decorative elements to a positioned parent avoids layout drift when other banner content changes.
+
+**Related Issues/PRs**: n/a
+
+### [2025-12-13] - Bug Fixes - Restore priority extraction
+
+**Description**: Added a priority getter with highlight-to-record-layout fallbacks and trimming, and hardened the highlight scan to match labels by title or text and pull values from shadow-root content before light DOM so DOM extraction returns the case priority instead of null in both the primary and legacy extractors. Added a direct title-attribute fallback query for highlights items to capture values when shadow queries miss.
+
+**Files Changed**:
+
+- `modules/casePageDataExtractor.js`
+- `modules/caseDataExtractor.js`
+
+**Lessons Learned**:
+
+- Important fields should leverage layered selectors to survive Lightning markup shifts.
+- Centralizing field-specific logic prevents duplicate fixes across extractors.
+
+**Related Issues/PRs**: n/a
+
 ### [2025-12-12] - Documentation - Condensed guide refresh and Copilot pre-reads
 
 **Description**: Expanded the condensed developer guide with architecture snapshots, guardrails, and AI guidance to serve as the minimal single reference, and updated Copilot instructions to require it as part of the mandatory pre-read set.

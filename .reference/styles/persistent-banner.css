@@ -110,6 +110,7 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 .exl-banner-page-info {
     flex: 0 0 auto;
     min-width: auto;
+    position: relative;
 }
 
 .exl-banner-page-type {
@@ -161,6 +162,20 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 .exl-banner-page-type.exl-page-unknown {
     border-left-color: #706e6b;
     background-color: rgba(112, 110, 107, 0.2);
+}
+
+.exl-banner-priority {
+    position: absolute;
+    top: -8px;
+    left: -16px;
+    font-size: 60px;
+    color: #ffffff;
+    mix-blend-mode: soft-light;
+    opacity: 0.8;
+    line-height: 1;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
 }
 
 /* Metadata section */

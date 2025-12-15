@@ -38,6 +38,7 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     border-bottom: 1px solid #0070d2;
     height: 3rem;
     overflow: hidden;
+    overflow-y: auto;
     pointer-events: none; /* Allow clicks through to page content */
 }
 
@@ -108,6 +109,8 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 .exl-banner-page-info {
     flex: 0 0 auto;
     min-width: auto;
+    position: relative;
+    overflow: visible;
 }
 
 .exl-banner-page-type {
@@ -159,6 +162,23 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 .exl-banner-page-type.exl-page-unknown {
     border-left-color: #706e6b;
     background-color: rgba(112, 110, 107, 0.2);
+}
+
+.exl-banner-priority {
+    position: absolute;
+    top: -8px;
+    left: -16px;
+    z-index: 1;  
+    font-size: 60px;
+    color: #ffffff;
+    mix-blend-mode: soft-light;
+    opacity: 0.95;
+    line-height: 1;
+    font-weight: 700;
+    white-space: nowrap;
+    pointer-events: none;
+    text-transform: uppercase;
+    user-select: none;
 }
 
 /* Metadata section */
@@ -324,7 +344,7 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
     border-radius: 3px;
     cursor: pointer;
     transition: all 0.15s ease;
-    border-left: 2px solid transparent;
+    border-left: 5px solid transparent;
     flex-shrink: 0;
 }
 
@@ -383,16 +403,17 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 }
 
 .exl-banner-container::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.2);
+    background: linear-gradient(180deg, #9b51e0 0%, #3081ed 50%, #00cdac 100%);
+    border-radius: 8px;
 }
 
 .exl-banner-container::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 2px;
+    background: linear-gradient(180deg, #9b51e0 0%, #3081ed 50%, #00cdac 100%);
+    border-radius: 8px;
 }
 
 .exl-banner-container::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.5);
+     background: linear-gradient(180deg, #8a3ed9 0%, #2873d6 50%, #00b49a 100%);
 }
 
 /* Responsive adjustments */
@@ -1481,7 +1502,7 @@ div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolb
 
 .exl-context-menu-item {
     padding: 8px 16px;
-    color: #e0e0e0;
+    color: #333333;
     font-size: 12px;
     cursor: pointer;
     transition: background-color 0.15s ease;
