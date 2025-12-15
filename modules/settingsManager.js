@@ -54,6 +54,7 @@ const SettingsManager = (function() {
 
       // Persistent Banner settings
       persistentBanner: {
+        clarivateEnabled: false,  // Disable banner for Clarivate domains by default
         messages: {
           enabled: true,  // Enable/disable rotating messages (separate from feature toggle)
           defaultMessages: {

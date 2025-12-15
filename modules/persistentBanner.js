@@ -2222,7 +2222,8 @@ const PersistentBanner = {
     }
 
     // Check if banner should be shown (includes feature enabled + dismissal checks)
-    if (!this.shouldShowBanner()) {
+    const showBanner = await this.shouldShowBanner();
+    if (!showBanner) {
       console.log(
         "[PersistentBanner] Banner should not be shown (disabled or dismissed)"
       );
@@ -3641,8 +3642,30 @@ const PersistentBanner = {
    * Check if banner should be shown (not dismissed)
    * @returns {boolean} True if banner should be shown
    */
-  shouldShowBanner() {
-    // Banner is always enabled - only check if dismissed for current session
+  async shouldShowBanner() {
+    // Check if on Clarivate domain and if Clarivate banner is disabled
+    if (this.isClarivateDomain()) {
+      try {
+        const result = await new Promise((resolve) => {
+          chrome.storage.sync.get(["exlibris"], (data) => {
+            resolve(data);
+          });
+        });
+        const clarivateEnabled = result?.exlibris?.persistentBanner?.clarivateEnabled === true;
+        if (!clarivateEnabled) {
+          console.log(
+            "[PersistentBanner] Banner disabled for Clarivate domains (default)"
+          );
+          return false;
+        }
+      } catch (error) {
+        console.warn("[PersistentBanner] Error checking Clarivate setting:", error);
+        // Default to disabled for Clarivate if error
+        return false;
+      }
+    }
+
+    // Banner is always enabled for non-Clarivate - only check if dismissed for current session
     const domain = this.getCurrentDomain();
     const isDismissed =
       sessionStorage.getItem(`exl_banner_dismissed_${domain}`) === "true";
@@ -7151,6 +7174,9 @@ const PersistentBanner = {
       targetElement.appendChild(this.elements.banner);
     }
 
+    // Add body class to activate CSS spacing adjustments
+    document.body.classList.add("exl-banner-active");
+
     console.log("[PersistentBanner] Injected into:", targetElement);
 
     // Initial UI update
@@ -7173,6 +7199,8 @@ const PersistentBanner = {
     const banner = document.getElementById(this.bannerId);
     if (banner) {
       banner.remove();
+      // Remove body class to deactivate CSS spacing adjustments
+      document.body.classList.remove("exl-banner-active");
       console.log("[PersistentBanner] Removed from DOM");
     }
   },

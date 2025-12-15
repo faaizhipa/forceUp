@@ -223,6 +223,7 @@ function getDefaultSettings() {
         enabled: true
       },
       persistentBanner: {
+        clarivateEnabled: false,
         messages: {
           enabled: true,
           defaultMessages: {
@@ -379,6 +380,8 @@ function populateUI(settings) {
     document.getElementById('featureCharCounter').checked = settings.exlibris.features.characterCounter !== false;
     document.getElementById('featureDynamicMenu').checked = settings.exlibris.features.dynamicMenu !== false;
     document.getElementById('featurePersistentBanner').checked = settings.exlibris.features.persistentBanner !== false;
+    // Clarivate banner is disabled by default - use === true check
+    document.getElementById('featureClarivatesBanner').checked = settings.exlibris.persistentBanner?.clarivateEnabled === true;
     document.getElementById('featureHighlighter').checked = settings.exlibris.features.highlighterEnabled !== false;
     document.getElementById('featureBannerMessages').checked = settings.exlibris.features.bannerMessages !== false;
   }
@@ -1008,6 +1011,7 @@ function getSettingsFromUI() {
         enabled: document.getElementById('shortcutsEnabled').checked
       },
       persistentBanner: {
+        clarivateEnabled: document.getElementById('featureClarivatesBanner').checked,
         messages: getMessageSettingsFromUI()
       }
     },

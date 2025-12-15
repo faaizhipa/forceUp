@@ -35,6 +35,40 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2025-12-15] - Feature - Clarivate Domain Banner Toggle Setting
+
+**Description**: Added a popup setting to enable/disable the Persistent Banner for Clarivate domains (`clarivateanalytics.lightning.force.com` and `clarivateanalytics--preprod.sandbox.lightning.force.com`). By default, the banner is **disabled** for Clarivate domains.
+
+**Implementation**:
+1. Added `clarivateEnabled: false` to DEFAULT_SETTINGS in `settingsManager.js`
+2. Added new checkbox "└ Enable for Clarivate domains" in `popup.html` under the Persistent Banner feature
+3. Added checkbox initialization and save handling in `popup.js`
+4. Modified `shouldShowBanner()` in `persistentBanner.js` to check `clarivateEnabled` setting when on Clarivate domains
+5. Made `shouldShowBanner()` async to properly await settings from chrome.storage
+6. Made CSS spacing adjustments conditional on `body.exl-banner-active` class
+7. Added `exl-banner-active` class management in `injectBanner()` and `remove()` methods
+
+**Files Changed**:
+
+- `popup.html` - Added new checkbox for Clarivate banner toggle (styled as sub-item of Persistent Banner)
+- `popup.js` - Added `clarivateEnabled` to `getDefaultSettings()` and checkbox handlers for load/save
+- `modules/settingsManager.js` - Added `clarivateEnabled: false` to `DEFAULT_SETTINGS.exlibris.persistentBanner`
+- `modules/persistentBanner.js` - Modified `shouldShowBanner()` to check Clarivate setting, made it async; added body class management
+- `modules/styles/persistent-banner.css` - Made spacing CSS conditional on `body.exl-banner-active` class
+
+**Lessons Learned**:
+
+- The existing `isClarivateDomain()` method in persistentBanner.js was already in place and could be reused
+- Changed `shouldShowBanner()` to async required updating the caller in `init()` to use `await`
+- Default to `false` for Clarivate ensures banner is disabled unless explicitly enabled by user
+- Sub-item checkbox styling (margin-left + └ prefix) provides clear visual hierarchy
+- CSS spacing for the banner must be conditional to avoid leaving gaps when banner is disabled
+- Using a body class (`exl-banner-active`) is the cleanest way to toggle CSS spacing since the CSS file is loaded unconditionally via manifest.json
+
+**Related Issues/PRs**: None
+
+---
+
 ### [2025-12-15] - Bug Fix - Case Comment Extractor Not Finding Comments
 
 **Description**: Fixed the Case Comment Extractor showing "No comments found" even when on a valid case page. Two issues were identified and fixed:

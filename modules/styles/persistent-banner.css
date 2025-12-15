@@ -5,20 +5,21 @@
 
 /* Salesforce page adjustments for banner space */
 /* These styles load early to prevent layout shifts */
+/* IMPORTANT: All spacing adjustments are conditional on body.exl-banner-active */
 
 /* Push Salesforce global header down to make room for extension banner */
-#oneHeader > div.slds-global-header.slds-grid.slds-grid_align-spread {
+body.exl-banner-active #oneHeader > div.slds-global-header.slds-grid.slds-grid_align-spread {
     margin-top: 45px;
 }
 
 /* Push Salesforce tab bar down to accommodate both global header and extension banner */
-body > div.desktop.container.forceStyle.oneOne.navexDesktopLayoutContainer.lafAppLayoutHost.forceAccess > div.viewport > section > div.workspaceManager.navexWorkspaceManager > div > div.tabsetHeader.slds-context-bar.slds-context-bar--tabs.slds-no-print {
+body.exl-banner-active > div.desktop.container.forceStyle.oneOne.navexDesktopLayoutContainer.lafAppLayoutHost.forceAccess > div.viewport > section > div.workspaceManager.navexWorkspaceManager > div > div.tabsetHeader.slds-context-bar.slds-context-bar--tabs.slds-no-print {
     top: 95px;
 }
 
 /* Push Document view toolbar down to accommodate both global header and extension banner */
-div.toolbar.top.fadeOut.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar, 
-div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar {
+body.exl-banner-active div.toolbar.top.fadeOut.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar, 
+body.exl-banner-active div.toolbar.top.forceContentBasePreviewToolbar.forceContentPreviewPlayerTopToolbar {
     top: 45px;
 }
 
