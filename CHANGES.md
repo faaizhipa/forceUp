@@ -35,6 +35,38 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2025-12-15] - Feature - Cross-Browser Google Drive Authentication
+
+**Description**: Refactored `utils/google-drive.js` to implement a hybrid authentication strategy. Chrome users continue to enjoy the seamless `getAuthToken` experience, while Firefox and Edge users now have a fallback to `launchWebAuthFlow` (standard OAuth2 popup), enabling them to perform backups which were previously blocked.
+
+**Files Changed**:
+
+- `utils/google-drive.js`
+
+**Lessons Learned**:
+
+- `chrome.identity.getAuthToken` is exclusive to Chrome.
+- `launchWebAuthFlow` is the standard cross-browser solution for OAuth2 extensions, but requires a user-interactive popup in some contexts. The hybrid approach gives the best UX for everyone.
+
+**Related Issues/PRs**: Cross-Browser Support
+
+### [2025-12-15] - Documentation - Codebase Analysis and Insights
+
+**Description**: performed a deep architectural analysis of the codebase, creating `CODEBASE_INSIGHTS.md` to capture the current state, core patterns patterns (Check-Then-Observe, Idempotency), and architectural strengths. Validated alignment with `PROJECT_RULES.md` and `copilot-instructions.md`.
+
+**Files Changed**:
+
+- `CODEBASE_INSIGHTS.md` (new)
+- `CHANGES.md`
+
+**Lessons Learned**:
+
+- The "Check-Then-Observe" pattern is the backbone of reliability in this Salesforce extension.
+- Strict visibility checks (`isElementVisible`) prevent stale data extraction from background tabs.
+- `CaseDataStore` as a single, ephemeral source of truth is critical for avoiding cross-contamination of case data.
+
+**Related Issues/PRs**: Codebase Audit
+
 ### [2025-12-13] - Refactoring - Persistent banner priority styling
 
 **Description**: Moved the priority overlay styling out of inline HTML and into the shared banner stylesheet, anchoring it relative to the page-info section while keeping the priority value wired through the existing data flow.

@@ -5,56 +5,131 @@ const GoogleDrive = {
   lastAuthError: null,
 
   getIdentitySupportError() {
-    const identitySupported = typeof chrome !== 'undefined' && chrome.identity && typeof chrome.identity.getAuthToken === 'function';
-    if (!identitySupported) {
-      const isEdge = typeof navigator !== 'undefined' && /Edg\//.test(navigator.userAgent || '');
-      const message = isEdge
-        ? 'Google Drive sign-in is not available in Microsoft Edge (chrome.identity not supported). Please sign in from Chrome to run backups.'
-        : 'Google Drive sign-in is not available in this browser (chrome.identity not supported). Please use Chrome to run backups.';
-      return { message };
+    // Check for either native getAuthToken (Chrome) or launchWebAuthFlow (Firefox/Edge/others)
+    const nativeAuthAvailable = typeof chrome !== 'undefined' && chrome.identity && typeof chrome.identity.getAuthToken === 'function';
+    const webAuthAvailable = typeof chrome !== 'undefined' && chrome.identity && typeof chrome.identity.launchWebAuthFlow === 'function';
+
+    if (!nativeAuthAvailable && !webAuthAvailable) {
+      return { message: 'Google Drive sign-in is not available in this browser environment.' };
     }
     return null;
+  },
+
+  /**
+   * Performs authentication using the web flow (popup)
+   * Required for Firefox, Edge, and other browsers where getAuthToken is limited
+   */
+  async authenticateWithWebFlow(interactive) {
+    return new Promise((resolve) => {
+      try {
+        const manifest = chrome.runtime.getManifest();
+        const clientId = manifest.oauth2?.client_id;
+        const scopes = manifest.oauth2?.scopes || [];
+
+        if (!clientId) {
+          resolve({ token: null, error: { message: 'Missing OAuth2 Client ID in manifest' } });
+          return;
+        }
+
+        const redirectUri = chrome.identity.getRedirectURL();
+        // Construct standard Google OAuth2 URL
+        const authUrl = new URL('https://accounts.google.com/o/oauth2/auth');
+        authUrl.searchParams.set('client_id', clientId);
+        authUrl.searchParams.set('response_type', 'token');
+        authUrl.searchParams.set('redirect_uri', redirectUri);
+        authUrl.searchParams.set('scope', scopes.join(' '));
+        // Force approval prompt if interactive to ensure we get a token
+        if (interactive) {
+          authUrl.searchParams.set('prompt', 'consent');
+        }
+
+        chrome.identity.launchWebAuthFlow({
+          url: authUrl.toString(),
+          interactive: interactive
+        }, (redirectUrl) => {
+          if (chrome.runtime.lastError || !redirectUrl) {
+            resolve({ token: null, error: chrome.runtime.lastError });
+          } else {
+            // Extract token from redirect URL hash
+            const url = new URL(redirectUrl);
+            const params = new URLSearchParams(url.hash.substring(1)); // Remove #
+            const accessToken = params.get('access_token');
+
+            if (accessToken) {
+              resolve({ token: accessToken, error: null });
+            } else {
+              resolve({ token: null, error: { message: 'No access token found in redirect' } });
+            }
+          }
+        });
+      } catch (e) {
+        resolve({ token: null, error: e });
+      }
+    });
   },
 
   async getAuthToken(interactive = true, attempt = 0) {
     const supportError = this.getIdentitySupportError();
     if (supportError) {
       this.lastAuthError = supportError;
-      console.warn('[GoogleDrive] identity.getAuthToken unavailable', { ...supportError, userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown' });
+      console.warn('[GoogleDrive] Identity API unavailable', supportError);
       return null;
     }
 
-    const { token, error } = await new Promise((resolve) => {
-      chrome.identity.getAuthToken({ interactive }, (result) => {
-        if (chrome.runtime.lastError || !result) {
-          resolve({ token: null, error: chrome.runtime.lastError });
-        } else {
-          resolve({ token: result, error: null });
-        }
-      });
-    });
+    // Try Chrome-native flow first
+    let result = { token: null, error: null };
 
-    if (token) {
-      this.lastAuthError = null;
-      return token;
+    const isChromeNativeAvailable = typeof chrome.identity.getAuthToken === 'function';
+
+    if (isChromeNativeAvailable) {
+      result = await new Promise((resolve) => {
+        chrome.identity.getAuthToken({ interactive }, (token) => {
+          if (chrome.runtime.lastError || !token) {
+            resolve({ token: null, error: chrome.runtime.lastError });
+          } else {
+            resolve({ token, error: null });
+          }
+        });
+      });
     }
 
-    this.lastAuthError = error || { message: 'Unknown authentication error' };
+    // If native flow failed or unavailable, try web flow
+    // We strictly fall back if native is missing OR if native failed but might work with web flow
+    // (though usually if getAuthToken fails, we just return error. check logic below)
+
+    // Fallback condition: 
+    // 1. Native API missing (e.g. Firefox) -> Try Web Flow
+    // 2. Native API present but returned error AND we haven't tried web flow yet? 
+    //    Actually, getAuthToken usually handles everything in Chrome. 
+    //    So we only fallback if API is missing.
+
+    if (!result.token && !isChromeNativeAvailable) {
+      console.log('[GoogleDrive] getAuthToken unavailable, falling back to launchWebAuthFlow');
+      result = await this.authenticateWithWebFlow(interactive);
+    }
+
+    if (result.token) {
+      this.lastAuthError = null;
+      return result.token;
+    }
+
+    this.lastAuthError = result.error || { message: 'Authentication failed' };
 
     // If interactive and first failure, clear cached token and retry once
-    if (interactive && attempt === 0) {
+    // Note: Clearing cache only applies to getAuthToken. Web flow doesn't have the same cache clearing mech exposed easily
+    if (interactive && attempt === 0 && isChromeNativeAvailable) {
       await this.clearCachedToken();
       return this.getAuthToken(interactive, attempt + 1);
     }
 
-    console.error('Auth Error:', error);
+    console.error('[GoogleDrive] Auth Error:', this.lastAuthError);
     return null;
   },
 
   async clearCachedToken() {
-    const supportError = this.getIdentitySupportError();
-    if (supportError) {
-      this.lastAuthError = supportError;
+    const nativeAuthAvailable = typeof chrome !== 'undefined' && chrome.identity && typeof chrome.identity.getAuthToken === 'function';
+
+    if (!nativeAuthAvailable) {
       return Promise.resolve();
     }
 
@@ -73,7 +148,7 @@ const GoogleDrive = {
     // Just to check if we are signed in
     const token = await this.getAuthToken(false);
     if (!token) return null;
-    
+
     // We can fetch user info from Google API if needed, 
     // or just return true indicating we have a token.
     return { connected: true };
@@ -102,7 +177,7 @@ const GoogleDrive = {
     if (existingFileId) {
       const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=media`, {
         method: 'PATCH',
-        headers: { 
+        headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
@@ -213,9 +288,9 @@ const GoogleDrive = {
     const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
       headers: { Authorization: `Bearer ${token}` }
     });
-    
+
     if (!response.ok) throw new Error("Failed to download backup");
-    
+
     const data = await response.json();
     return data;
   },
@@ -231,7 +306,7 @@ const GoogleDrive = {
     // or we can just create a text file.
     // "create... notes... share" -> A Google Doc is nicer for editing/sharing.
     // Mime type: application/vnd.google-apps.document
-    
+
     const metadata = {
       name: title,
       mimeType: 'application/vnd.google-apps.document'
@@ -248,7 +323,7 @@ const GoogleDrive = {
       headers: { Authorization: `Bearer ${token}` },
       body: form
     });
-    
+
     const data = await response.json();
     return data.id; // Returns the Drive File ID
   },
@@ -265,20 +340,20 @@ const GoogleDrive = {
 
     const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
       method: 'POST',
-      headers: { 
+      headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(permission)
     });
-    
+
     return response.ok;
   },
-  
+
   async getWebViewLink(fileId) {
     const token = await this.getAuthToken(true);
     const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=webViewLink`, {
-       headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` }
     });
     const data = await response.json();
     return data.webViewLink;
