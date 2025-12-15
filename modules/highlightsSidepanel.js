@@ -30,6 +30,355 @@ const HighlightsSidepanel = (function() {
   // ========== INITIALIZATION ==========
 
   /**
+   * Ensure sidepanel styles are injected
+   */
+  function ensureStyles() {
+    const STYLE_ID = 'exl-hl-sidepanel-styles';
+    if (document.getElementById(STYLE_ID)) return;
+
+    const style = document.createElement('style');
+    style.id = STYLE_ID;
+    style.textContent = `
+      /* ========== SIDEPANEL CONTAINER ========== */
+      .exl-hl-sidepanel {
+        position: fixed;
+        top: 0;
+        right: -420px;
+        width: 400px;
+        height: 100vh;
+        background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+        border-left: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
+        z-index: 999999;
+        display: flex;
+        flex-direction: column;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 14px;
+        color: #e0e0e0;
+        transition: right 0.3s ease;
+      }
+      .exl-hl-sidepanel.open {
+        right: 0;
+      }
+
+      /* ========== HEADER ========== */
+      .exl-hl-sidepanel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 20px;
+        background: rgba(255, 255, 255, 0.05);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .exl-hl-sidepanel-title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .exl-hl-sidepanel-icon {
+        font-size: 20px;
+      }
+      .exl-hl-sidepanel-close {
+        background: transparent;
+        border: none;
+        color: #888;
+        font-size: 20px;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: all 0.2s ease;
+      }
+      .exl-hl-sidepanel-close:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+      }
+
+      /* ========== CONTROLS ========== */
+      .exl-hl-sidepanel-controls {
+        padding: 12px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .exl-hl-sidepanel-scope {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .exl-hl-sidepanel-scope label {
+        color: #888;
+        font-size: 13px;
+      }
+      .exl-hl-scope-select {
+        flex: 1;
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 6px;
+        color: #fff;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .exl-hl-scope-select:focus {
+        outline: none;
+        border-color: #4a9eff;
+      }
+      .exl-hl-sidepanel-search {
+        position: relative;
+      }
+      .exl-hl-search-input {
+        width: 100%;
+        padding: 10px 12px 10px 36px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 6px;
+        color: #fff;
+        font-size: 13px;
+        box-sizing: border-box;
+      }
+      .exl-hl-search-input::placeholder {
+        color: #666;
+      }
+      .exl-hl-search-input:focus {
+        outline: none;
+        border-color: #4a9eff;
+      }
+      .exl-hl-search-icon {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 14px;
+        pointer-events: none;
+      }
+
+      /* ========== TOOLBAR ========== */
+      .exl-hl-sidepanel-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 20px;
+        background: rgba(255, 255, 255, 0.03);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .exl-hl-select-all {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        font-size: 13px;
+        color: #888;
+      }
+      .exl-hl-select-all:hover {
+        color: #fff;
+      }
+      .exl-hl-toolbar-actions {
+        display: flex;
+        gap: 8px;
+      }
+      .exl-hl-toolbar-btn {
+        padding: 6px 12px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 4px;
+        color: #888;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      .exl-hl-toolbar-btn:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.15);
+        color: #fff;
+      }
+      .exl-hl-toolbar-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .exl-hl-btn-delete:hover:not(:disabled) {
+        background: rgba(255, 80, 80, 0.2);
+        border-color: rgba(255, 80, 80, 0.3);
+        color: #ff6b6b;
+      }
+
+      /* ========== CONTENT ========== */
+      .exl-hl-sidepanel-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px 0;
+      }
+      .exl-hl-section {
+        margin-bottom: 8px;
+      }
+      .exl-hl-section-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 20px;
+        cursor: pointer;
+        user-select: none;
+        transition: background 0.2s ease;
+      }
+      .exl-hl-section-header:hover {
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .exl-hl-section-toggle {
+        font-size: 12px;
+        color: #888;
+        width: 16px;
+      }
+      .exl-hl-section-title {
+        font-weight: 600;
+        color: #fff;
+      }
+      .exl-hl-section-count {
+        color: #666;
+        font-size: 13px;
+      }
+      .exl-hl-section-content {
+        max-height: 1000px;
+        overflow: hidden;
+        transition: max-height 0.3s ease;
+      }
+      .exl-hl-section.collapsed .exl-hl-section-content {
+        max-height: 0;
+      }
+
+      /* ========== ITEMS ========== */
+      .exl-hl-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 20px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        transition: background 0.2s ease;
+      }
+      .exl-hl-item:hover {
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .exl-hl-item.selected {
+        background: rgba(74, 158, 255, 0.1);
+      }
+      .exl-hl-item-checkbox {
+        margin-top: 4px;
+        cursor: pointer;
+      }
+      .exl-hl-item-color {
+        width: 16px;
+        height: 16px;
+        border-radius: 4px;
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+      .exl-hl-item-icon {
+        font-size: 16px;
+        flex-shrink: 0;
+      }
+      .exl-hl-item-content {
+        flex: 1;
+        min-width: 0;
+      }
+      .exl-hl-item-text {
+        color: #e0e0e0;
+        font-size: 13px;
+        line-height: 1.5;
+        word-wrap: break-word;
+        margin-bottom: 6px;
+      }
+      .exl-hl-item-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        font-size: 11px;
+        color: #666;
+      }
+      .exl-hl-item-url {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 200px;
+      }
+      .exl-hl-item-actions {
+        display: flex;
+        gap: 4px;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+      }
+      .exl-hl-item:hover .exl-hl-item-actions {
+        opacity: 1;
+      }
+      .exl-hl-item-btn {
+        background: transparent;
+        border: none;
+        padding: 4px 6px;
+        font-size: 14px;
+        cursor: pointer;
+        border-radius: 4px;
+        transition: background 0.2s ease;
+      }
+      .exl-hl-item-btn:hover {
+        background: rgba(255, 255, 255, 0.15);
+      }
+      .exl-hl-btn-delete-item:hover {
+        background: rgba(255, 80, 80, 0.2);
+      }
+
+      /* ========== STATES ========== */
+      .exl-hl-empty-state {
+        text-align: center;
+        padding: 24px 20px;
+        color: #666;
+        font-size: 13px;
+      }
+      .exl-hl-loading {
+        text-align: center;
+        padding: 24px 20px;
+        color: #888;
+        font-size: 13px;
+      }
+
+      /* ========== FOOTER ========== */
+      .exl-hl-sidepanel-footer {
+        padding: 12px 20px;
+        background: rgba(255, 255, 255, 0.03);
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        text-align: center;
+        font-size: 12px;
+        color: #666;
+      }
+
+      /* ========== TOAST ========== */
+      .exl-hl-sidepanel-toast {
+        position: fixed;
+        bottom: 80px;
+        right: 20px;
+        padding: 12px 20px;
+        background: #333;
+        color: #fff;
+        border-radius: 6px;
+        font-size: 13px;
+        z-index: 1000000;
+        animation: exl-hl-toast-in 0.3s ease;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      }
+      .exl-hl-sidepanel-toast.error {
+        background: #a33;
+      }
+      @keyframes exl-hl-toast-in {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+    `;
+
+    (document.head || document.documentElement).appendChild(style);
+    console.log('[HighlightsSidepanel] Styles injected');
+  }
+
+  /**
    * Initialize the sidepanel module
    */
   async function init() {
@@ -103,6 +452,9 @@ const HighlightsSidepanel = (function() {
       panelElement.focus();
       return;
     }
+
+    // Ensure styles are injected
+    ensureStyles();
 
     // Create panel
     panelElement = createPanelElement();

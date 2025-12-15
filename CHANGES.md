@@ -35,6 +35,53 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2025-12-15] - Feature - Add Highlights & Notes Panel Button to Highlighter Banner
+
+**Description**: Added the "Manage" button to the highlighter banner that opens the HighlightsSidepanel for managing all highlights and notes. This required three changes:
+1. Added `highlightsSidepanel.js` to the manifest.json content script bundle so the module loads on highlighter-enabled pages.
+2. Added a "📋 Manage" button to the banner's actionsSection in `content_script_highlighter.js` that calls `HighlightsSidepanel.openPanel()`.
+3. Added `ensureStyles()` function to `highlightsSidepanel.js` to inject required CSS dynamically when the panel opens, since no external CSS file existed for the sidepanel styles.
+
+**Files Changed**:
+
+- `manifest.json` - Added `modules/highlightsSidepanel.js` to highlighter content script bundle
+- `content_script_highlighter.js` - Added "Manage" button to banner actionsSection (after Gallery button)
+- `modules/highlightsSidepanel.js` - Added `ensureStyles()` function with complete sidepanel CSS and called it from `openPanel()`
+
+**Lessons Learned**:
+
+- **CSS injection pattern**: Modules that create complex UI should have an `ensureStyles()` function that injects CSS dynamically. Check for existing style tag by ID before injecting to ensure idempotency.
+- **Manifest matters**: Modules won't load unless they're in manifest.json. The radial menu integration worked because it's in `content_script_highlighter.js`, but the panel module itself wasn't loading.
+- **Check-then-create for UI**: Always check if module exists (`typeof HighlightsSidepanel !== 'undefined'`) before calling its methods from other modules.
+- **Style injection in openPanel vs init**: Injecting styles in `openPanel()` rather than `init()` is slightly more lazy but ensures styles only load when needed.
+
+**Related Issues/PRs**: User request to add notes and highlight panel action button to highlighter banner
+
+---
+
+### [2025-12-15] - Documentation - Comprehensive Codebase Analysis
+
+**Description**: Performed a systematic deep-dive analysis of the entire codebase structure, dependencies, architectural design, and module interactions. Reviewed all documentation including `copilot-instructions.md`, `PROJECT_RULES.md`, `BEST_PRACTICES.md`, `ARCHITECTURE.md`, `DEPENDENCIES.md`, `SELECTORS.md`, `FUNCTIONS.md`, and the condensed knowledge bases. Validated that documentation is aligned with the actual implementation.
+
+**Files Changed**:
+
+- `CHANGES.md` (this entry)
+
+**Lessons Learned**:
+
+- **Architecture is sound**: The three-layer architecture (Infra → State → Features) with clear module boundaries enables maintainability.
+- **CaseContextWatcher + CaseDataStore pattern**: This is the critical safety net against stale data in Salesforce SPA - always wait for `CaseContextWatcher` before DOM work.
+- **Check-Then-Observe is essential**: Salesforce Lightning's dynamic nature requires immediate query attempts followed by `MutationObserver` fallbacks with proper cleanup.
+- **Shadow DOM traversal is pervasive**: ~75+ modules interact with Salesforce's Shadow DOM; the `queryShadowDOM` pattern is critical infrastructure.
+- **Visibility checks prevent ghost data**: Always verify `offsetParent !== null` and tab `.active` states before extracting from Lightning.
+- **Debounce timing matters**: Navigation observers use 250ms; heavy DOM operations use 500ms+; these values are battle-tested for Salesforce.
+- **Service worker is ephemeral**: MV3 service workers lose state on termination - never rely on globals in `background.js`; use `chrome.storage` immediately.
+- **Documentation culture is strong**: The project maintains `CHANGES.md` with lessons learned, `BEST_PRACTICES.md` with patterns/anti-patterns, and multiple condensed guides for humans and AI agents.
+
+**Related Issues/PRs**: Codebase Analysis
+
+---
+
 ### [2025-12-15] - Feature - Cross-Browser Google Drive Authentication
 
 **Description**: Refactored `utils/google-drive.js` to implement a hybrid authentication strategy. Chrome users continue to enjoy the seamless `getAuthToken` experience, while Firefox and Edge users now have a fallback to `launchWebAuthFlow` (standard OAuth2 popup), enabling them to perform backups which were previously blocked.

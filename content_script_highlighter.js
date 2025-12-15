@@ -1277,6 +1277,21 @@
         }
       });
       actionsSection.appendChild(recordingsPanelBtn);
+
+      // Manage Highlights & Notes button
+      const managePanelBtn = document.createElement('button');
+      managePanelBtn.className = 'exl-hl-btn';
+      managePanelBtn.innerHTML = '📋 Manage';
+      managePanelBtn.title = 'Manage all highlights and notes';
+      managePanelBtn.addEventListener('click', () => {
+        if (typeof HighlightsSidepanel !== 'undefined' && typeof HighlightsSidepanel.openPanel === 'function') {
+          HighlightsSidepanel.openPanel();
+        } else {
+          console.warn('[HighlighterController] HighlightsSidepanel not available');
+        }
+      });
+      actionsSection.appendChild(managePanelBtn);
+
       container.appendChild(actionsSection);
 
       // Add close button (top-right corner)

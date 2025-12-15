@@ -103,6 +103,7 @@
             "modules/noteKeyboardBlocker.js",
             "modules/stickyNotes.js",
             "modules/bookmarkManager.js",
+            "modules/highlightsSidepanel.js",
             "content_script_highlighter.js"
          ],
          "matches": [
@@ -131,7 +132,7 @@
    "name": "Penang CoE Salesforce and Docs Extension",
    "permissions": [ "storage", "tabs", "activeTab", "contextMenus", "clipboardWrite", "sidePanel", "alarms", "identity", "tabCapture" ],
    "update_url": "https://clients2.google.com/service/update2/crx",
-   "version": "7.5.1",
+   "version": "7.5.4",
    "oauth2": {
       "client_id": "579244704820-qnr13ra9r013jgs22cmuk38jkn938dn7.apps.googleusercontent.com",
       "scopes": [ "https://www.googleapis.com/auth/drive.appdata",
