@@ -4952,6 +4952,7 @@ const PersistentBanner = {
                 <div class="exl-banner-section exl-banner-page-info">
                     <div class="exl-banner-label">Current<br>Page</div>
                     <div class="exl-banner-page-type" id="exl-banner-page-type">—</div>
+                    <div class="exl-banner-priority"></div>
                   <div class="exl-banner-priority-section" aria-hidden="true">
                   
                   </div>
@@ -5817,7 +5818,7 @@ const PersistentBanner = {
 
     try {
       // Get fresh comments data from current page
-      const data = CaseCommentExtractor.extractCaseComments();
+      const data = await CaseCommentExtractor.extractCaseComments();
 
       if (!data || !data.comments || data.comments.length === 0) {
         this.showNotification(

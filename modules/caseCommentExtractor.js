@@ -360,6 +360,8 @@ const CaseCommentExtractor = (() => {
      * @returns {Element|null} The comments table element or null
      */
     function findCommentsTable() {
+        console.log('[CaseCommentExtractor] Searching for comments table/container...');
+        
         // Try multiple selectors for the Comments tab/section
         const containerSelectors = [
             // Case Comments full view page - list view manager
@@ -372,6 +374,16 @@ const CaseCommentExtractor = (() => {
             'div[aria-label*="Case Comments"]',
             '#CaseComments_body',
             '.related_list_container[id*="CaseComments"]',
+            // Lightning related list containers
+            'lst-related-list-view-manager',
+            'lightning-datatable',
+            // Communications tab / Activity feed containers
+            'runtime_sales_activities-activity-timeline',
+            'records-lwc-detail-panel',
+            'force-aloha-page',
+            // Related list single container
+            'lst-related-list-single-container',
+            'article.slds-card',
             // Broader fallback - look for any container with Case Comments header
             'div.slds-card:has(h2:contains("Case Comments"))',
             'div.slds-card:has(span[title="Case Comments"])',
@@ -385,17 +397,17 @@ const CaseCommentExtractor = (() => {
                 // Use querySelectorAll and check title/text content for :has() compatibility
                 if (selector.includes(':has(') || selector.includes(':contains(')) {
                     // Manual check for "Case Comments" text
-                    const candidates = document.querySelectorAll('div.slds-card, div.forceListViewManager, lst-list-view-manager-header, lst-list-view-manager');
+                    const candidates = document.querySelectorAll('div.slds-card, div.forceListViewManager, lst-list-view-manager-header, lst-list-view-manager, article.slds-card, lst-related-list-view-manager');
                     for (const candidate of candidates) {
                         // Skip non-visible candidates
                         if (!isElementVisible(candidate)) {
-                            console.log('[CaseCommentExtractor] Skipping non-visible candidate container');
                             continue;
                         }
                         
                         const text = candidate.textContent || '';
                         const title = candidate.getAttribute('title') || '';
-                        if (text.includes('Case Comments') || title.includes('Case Comments')) {
+                        const ariaLabel = candidate.getAttribute('aria-label') || '';
+                        if (text.includes('Case Comments') || title.includes('Case Comments') || ariaLabel.includes('Case Comments')) {
                             commentsContainer = candidate;
                             console.log('[CaseCommentExtractor] Comments container found with text/title match (visible)');
                             break;
@@ -406,6 +418,14 @@ const CaseCommentExtractor = (() => {
                     const candidates = document.querySelectorAll(selector);
                     for (const candidate of candidates) {
                         if (isElementVisible(candidate)) {
+                            // Extra check: if it's a generic container, verify it has Case Comments content
+                            if (selector === 'article.slds-card' || selector === 'lst-related-list-single-container') {
+                                const text = candidate.textContent || '';
+                                const title = candidate.getAttribute('title') || '';
+                                if (!text.includes('Case Comments') && !title.includes('Case Comments')) {
+                                    continue;
+                                }
+                            }
                             commentsContainer = candidate;
                             console.log('[CaseCommentExtractor] Comments container found with selector (visible):', selector);
                             break;
@@ -422,23 +442,26 @@ const CaseCommentExtractor = (() => {
         }
         
         if (!commentsContainer) {
-            console.error('Case Comments container not found. Trying broader search...');
+            console.warn('[CaseCommentExtractor] Case Comments container not found. Trying broader search...');
             // Last resort: find any visible table with comment-related columns
-            const allTables = document.querySelectorAll('table[role="grid"], table.slds-table');
+            const allTables = document.querySelectorAll('table[role="grid"], table.slds-table, table');
             for (const table of allTables) {
                 // Only check visible tables
                 if (!isElementVisible(table)) {
-                    console.log('[CaseCommentExtractor] Skipping non-visible table');
                     continue;
                 }
                 
-                const headers = Array.from(table.querySelectorAll('thead th'));
+                const headers = Array.from(table.querySelectorAll('thead th, th'));
                 const headerTexts = headers.map(h => (h.textContent || '').trim().toLowerCase());
-                if (headerTexts.includes('comment') || (headerTexts.includes('user') && headerTexts.includes('public'))) {
-                    console.log('Found visible table with comment-related headers (fallback)');
+                console.log('[CaseCommentExtractor] Table headers found:', headerTexts);
+                if (headerTexts.includes('comment') || headerTexts.includes('comment body') || 
+                    (headerTexts.includes('user') && headerTexts.includes('public')) ||
+                    (headerTexts.includes('created by') && headerTexts.includes('public'))) {
+                    console.log('[CaseCommentExtractor] Found visible table with comment-related headers (fallback)');
                     return table;
                 }
             }
+            console.log('[CaseCommentExtractor] No comments table found');
             return null;
         }
         
@@ -448,7 +471,8 @@ const CaseCommentExtractor = (() => {
             'table.list',
             'table.forceRecordLayout',
             'table.uiVirtualDataTable',
-            'table[role="grid"]'
+            'table[role="grid"]',
+            'table'
         ];
         
         let commentsTable = null;
@@ -457,7 +481,7 @@ const CaseCommentExtractor = (() => {
             for (const table of tables) {
                 if (isElementVisible(table)) {
                     commentsTable = table;
-                    console.log('Comments table found with selector (visible):', selector);
+                    console.log('[CaseCommentExtractor] Comments table found with selector (visible):', selector);
                     break;
                 }
             }
@@ -465,8 +489,10 @@ const CaseCommentExtractor = (() => {
         }
         
         if (!commentsTable) {
-            console.warn('Case Comments table not found in container. Might be empty or using different structure.');
-            return null;
+            console.warn('[CaseCommentExtractor] Case Comments table not found in container. Might be empty or using different structure.');
+            // Return the container itself - maybe we can extract data from it directly
+            console.log('[CaseCommentExtractor] Returning container as fallback');
+            return commentsContainer;
         }
         
         console.log('Visible comments table found:', commentsTable);

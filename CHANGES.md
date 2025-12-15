@@ -35,6 +35,29 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2025-12-15] - Bug Fix - Case Comment Extractor Not Finding Comments
+
+**Description**: Fixed the Case Comment Extractor showing "No comments found" even when on a valid case page. Two issues were identified and fixed:
+
+1. **Missing `await` keyword**: In `persistentBanner.js`, the call to `CaseCommentExtractor.extractCaseComments()` was not awaited, causing it to always return a Promise object instead of the actual data.
+
+2. **Improved container detection**: Enhanced `findCommentsTable()` in `caseCommentExtractor.js` with additional selectors for modern Salesforce Lightning DOM structures including `lst-related-list-view-manager`, `lightning-datatable`, activity timeline containers, and better fallback logic.
+
+**Files Changed**:
+
+- `modules/persistentBanner.js` - Added `await` keyword to `CaseCommentExtractor.extractCaseComments()` call (line ~5821)
+- `modules/caseCommentExtractor.js` - Enhanced `findCommentsTable()` with additional selectors and improved logging
+
+**Lessons Learned**:
+
+- **Always await async functions**: When calling an `async` function, forgetting `await` returns a Promise object which is always truthy but doesn't contain the expected data.
+- **Log intermediate steps**: Adding detailed logging helps debug DOM detection issues in complex SPAs like Salesforce Lightning.
+- **Fallback to container**: If no table is found inside a comments container, returning the container itself allows the extraction logic to attempt alternative parsing.
+
+**Related Issues/PRs**: User report of "No comments found" error on case pages
+
+---
+
 ### [2025-12-15] - Feature - Add Highlights & Notes Panel Button to Highlighter Banner
 
 **Description**: Added the "Manage" button to the highlighter banner that opens the HighlightsSidepanel for managing all highlights and notes. This required three changes:
