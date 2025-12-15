@@ -6283,13 +6283,9 @@ const PersistentBanner = {
     const isCaseComments = rawType === "case_comments";
     const metadataSection = this.elements.metadataSection;
     const messagesSection = this.elements.messagesSection;
-    const prioritySection = this.elements.prioritySection;
     const hideMetadataForClarivate = this.isClarivateDomain();
     if (hideMetadataForClarivate && metadataSection) {
       metadataSection.style.display = "none";
-    }
-    if (this.hideMetadataForClarivate && !prioritySection) {
-      prioritySection.style.display = "block"; 
     }  
 
     if (isCasePage || isCaseComments) {
