@@ -4,10 +4,7 @@
 			"path": "."
 		},
 		{
-			"path": "../../../persistent-banner-messages"
-		},
-		{
-			"path": ".."
+			"path": "../../../timezonewidget/global-sync-utility"
 		}
 	]
 }

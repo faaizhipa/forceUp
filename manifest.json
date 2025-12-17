@@ -19,7 +19,8 @@
          "matches": [
             "https://proquestllc.lightning.force.com/*",
             "https://clarivateanalytics.lightning.force.com/*", 
-            "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*"
+            "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*",
+            "https://clarivate23-dev-ed.develop.lightning.force.com/*"
          ],
          "js": [
             "modules/interceptor.js",
@@ -78,7 +79,8 @@
          "matches": [
             "https://proquestllc.lightning.force.com/*",
             "https://clarivateanalytics.lightning.force.com/*", 
-            "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*"
+            "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*",
+            "https://clarivate23-dev-ed.develop.lightning.force.com/*"
          ],
          "run_at": "document_idle",
          "css": [ 
@@ -151,7 +153,8 @@
             "https://proquestllc.lightning.force.com/*",
             "https://clarivateanalytics.lightning.force.com/*",
             "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*",
-            "https://scholarone.my.salesforce.com/*"
+            "https://scholarone.my.salesforce.com/*",
+            "https://clarivate23-dev-ed.develop.lightning.force.com/*"
          ]
       }
    ]
