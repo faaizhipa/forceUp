@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy - Penang CoE Salesforce and Docs Extension</title>
+    <style>
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        line-height: 1.6;
+        color: #333;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      h1 {
+        color: #2c3e50;
+        border-bottom: 2px solid #eee;
+        padding-bottom: 10px;
+      }
+      h2 {
+        color: #2c3e50;
+        margin-top: 30px;
+      }
+      .section {
+        background: #f9f9f9;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+      ul {
+        padding-left: 20px;
+      }
+      li {
+        margin-bottom: 8px;
+      }
+      .privacy-highlight {
+        font-weight: bold;
+        color: #d35400;
+      }
+      .nav-links {
+        background: #3498db;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        text-align: center;
+      }
+      .nav-links a {
+        color: white;
+        text-decoration: none;
+        padding: 8px 15px;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        font-weight: 500;
+        transition: background 0.3s ease;
+      }
+      .nav-links a:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="nav-links">
+      <a href="index.html">← Back to Home</a>
+    </div>
+    
+    <h1>Privacy Policy</h1>
+    <p>Last updated: December 2025</p>
+
+    <div class="section">
+      <p>
+        The "Penang CoE Salesforce and Docs Extension" (the "Extension") is
+        designed to improve productivity for Clarivate and Ex Libris workflows.
+        We value your privacy and are committed to protecting it. This Privacy
+        Policy explains how we handle your data.
+      </p>
+    </div>
+
+    <h2>1. Data Collection and Usage</h2>
+    <p>
+      We do NOT sell, trade, or transfer your personal data to third parties.
+    </p>
+
+    <h3>Google Drive Integration</h3>
+    <p>
+      The Extension integrates with Google Drive to back up your preferences and
+      notes. This integration is optional and user-initiated.
+    </p>
+    <ul>
+      <li>
+        <strong>Scopes Used:</strong>
+        <ul>
+          <li>
+            <code>https://www.googleapis.com/auth/drive.appdata</code>: Used to
+            store configuration and backup files in a hidden application data
+            folder within your Google Drive. This data is not visible to other
+            apps.
+          </li>
+          <li>
+            <code>https://www.googleapis.com/auth/drive.file</code>: Used to
+            create or edit specific files (like exported notes or documents)
+            that you explicitly choose to save or share.
+          </li>
+        </ul>
+      </li>
+      <li>
+        <strong>Usage:</strong> Authorization tokens are used solely to
+        communicate with the Google Drive API for the purpose of saving/loading
+        your extension data.
+      </li>
+    </ul>
+
+    <h3>Local Storage</h3>
+    <p>
+      We use <code>chrome.storage.local</code> to store your settings, cached
+      data (such as timezone info), and user preferences directly on your
+      device. This data never leaves your browser unless you choose to use the
+      Cloud Backup (Google Drive) feature.
+    </p>
+
+    <h2>2. Permissions</h2>
+    <p>The Extension requests the following permissions to function:</p>
+    <ul>
+      <li>
+        <strong>tabs & activeTab:</strong> To interact with the current page
+        (Salesforce or Documentation sites) to perform productivity tasks like
+        text formatting or data extraction.
+      </li>
+      <li><strong>storage:</strong> To save your preferences locally.</li>
+      <li>
+        <strong>identity:</strong> To authenticate with Google Drive (if you use
+        backup features).
+      </li>
+      <li>
+        <strong>clipboardWrite:</strong> To allow you to copy formatted text or
+        links to your clipboard.
+      </li>
+      <li>
+        <strong>sidePanel:</strong> To display tools and notes alongside your
+        main content.
+      </li>
+      <li>
+        <strong>tabCapture:</strong> To support screenshot functionality within
+        the extension.
+      </li>
+    </ul>
+
+    <h2>3. Third-Party Services</h2>
+    <p>
+      The Extension operates primarily as a standalone client-side tool. It does
+      not send data to any proprietary servers. Google Drive API interaction
+      occurs directly between your browser and Google servers.
+    </p>
+
+    <h2>4. Data Retention</h2>
+    <p>
+      Data stored in <code>chrome.storage.local</code> remains on your machine
+      until you uninstall the extension or clear your browsing data. Data stored
+      in your Google Drive (App Data folder) is retained according to your
+      Google account policies.
+    </p>
+
+    <h2>5. Contact Us</h2>
+    <p>
+      If you have any questions about this Privacy Policy, please contact the
+      developer.
+    </p>
+  </body>
+</html>
