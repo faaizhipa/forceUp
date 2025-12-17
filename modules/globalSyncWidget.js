@@ -883,6 +883,33 @@ const GlobalSyncWidget = (() => {
 
     // Content
     _state.container.appendChild(_renderContent());
+
+    // START HYBRID INTEGRATION: Add WorldMap
+    // Check if PreactBridge is available (loaded via <script>)
+    if (typeof window.PreactBridge !== 'undefined') {
+      const mapContainer = document.createElement('div');
+      mapContainer.id = 'gsw-worldmap-container';
+      mapContainer.style.marginBottom = '12px';
+      
+      // Insert valid WorldMap container above the content
+      _state.container.insertBefore(mapContainer, header.nextSibling);
+      
+      const pins = _getZones().map(z => ({
+        timezone: z.timezone,
+        label: z.label,
+        lat: 0, 
+        lng: 0
+      }));
+
+      window.PreactBridge.mountWorldMap(mapContainer, {
+        currentTime: _state.simulationTime || _state.currentTime,
+        pins: pins
+      });
+      
+      // Store cleanup if needed, or rely on re-renders
+      _state.worldMapContainer = mapContainer;
+    }
+    // END HYBRID INTEGRATION
   }
 
   /**
@@ -892,6 +919,21 @@ const GlobalSyncWidget = (() => {
     _state.currentTime = new Date();
     if (!_state.simulationTime) {
       _render();
+    }
+    
+    // HYBRID INTEGRATION: Update WorldMap
+    if (_state.worldMapContainer && typeof window.PreactBridge !== 'undefined') {
+      const pins = _getZones().map(z => ({
+        timezone: z.timezone,
+        label: z.label,
+        lat: 0, 
+        lng: 0
+      }));
+      
+      window.PreactBridge.updateWorldMap(_state.worldMapContainer, {
+        currentTime: _state.simulationTime || _state.currentTime,
+        pins: pins
+      });
     }
   }
 

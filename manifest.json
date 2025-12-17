@@ -38,7 +38,7 @@
             "modules/customerDataManager.js",
             "modules/customerTimezoneLookup.js",
             "modules/userCustomerDataManager.js",
-            "modules/TimezoneUtils.js",
+            "modules/timezoneUtils.js",
             "modules/globalSyncWidget.js"
          ],
          "run_at": "document_start"
@@ -73,7 +73,6 @@
             "modules/timezonePopupWidget.js",
             "modules/persistentBanner.js",
             "modules/implementationStatus.js",
-            "modules/timezoneSyncWidget.js",
             "content_script_exlibris.js"
          ],
          "matches": [
@@ -129,11 +128,9 @@
       "16": "icons/ExtLogoV3.png",
       "48": "icons/ExtLogoV3.png"
    },
-   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwEtsrKbUbSe0JeeMtKca1Ka786YKcryHy5uKYPXm5Zm7QUnr/pn8YU/zGjs0ByOkO5309ro9sRsVKscYpYLfqiiQQGNvS5hnYSUh/z43QrS//ItbDHMmjlkJdryctqLO87pUVdbo97knNZ4fXAYkZNZFjjMG8UergCmOgkSt+9k6aQnSE+r1vmME+v3Tl44Wr8GOkM0TohvH1GdQODSh7tNcVpEtj3GnEmHR9NhABR95+cNLwIv9e3d/hWYpdPOm1gwf5bxWKlgbdtA93rFVALZiLcJ6HfBBElnWrXAl9vBMnqzFy+urtuF9ZJb3Qf64gdBa9IOnF0KVBDLI1DTm+wIDAQAB",
    "manifest_version": 3,
    "name": "Penang CoE Salesforce and Docs Extension",
    "permissions": [ "storage", "tabs", "activeTab", "contextMenus", "clipboardWrite", "sidePanel", "alarms", "identity", "tabCapture" ],
-   "update_url": "https://clients2.google.com/service/update2/crx",
    "version": "7.5.5",
    "oauth2": {
       "client_id": "579244704820-qnr13ra9r013jgs22cmuk38jkn938dn7.apps.googleusercontent.com",
@@ -147,7 +144,10 @@
             "icons/*.png",
             "timezones_index.json",
             "timezones_index.js",
-            "customerMasterList.json"
+            "timezones_index.js",
+            "customerMasterList.json",
+            "preact-modules/*.js",
+            "preact-modules/**/*.js"
          ],
          "matches": [
             "https://proquestllc.lightning.force.com/*",

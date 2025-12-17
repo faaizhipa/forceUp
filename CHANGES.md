@@ -35,11 +35,29 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2025-12-17] - Documentation - Privacy Policy Page
+
+**Description**: Created `privacy-policy.html` to meet Chrome Web Store and Edge Add-ons requirements. The policy details data usage for Google Drive integration (backup), local storage, and required permissions.
+
+**Files Changed**:
+
+- `privacy-policy.html` (new)
+
+**Lessons Learned**:
+
+- Store listings require a hosted privacy policy URL covering all used permissions (especially `identity` and `storage`).
+- The policy should explicitly state that data stays local unless the user opts into cloud features.
+
+**Related Issues/PRs**: Store Listing Compliance
+
+---
+
 ### [2025-12-15] - Feature - Clarivate Domain Banner Toggle Setting
 
 **Description**: Added a popup setting to enable/disable the Persistent Banner for Clarivate domains (`clarivateanalytics.lightning.force.com` and `clarivateanalytics--preprod.sandbox.lightning.force.com`). By default, the banner is **disabled** for Clarivate domains.
 
 **Implementation**:
+
 1. Added `clarivateEnabled: false` to DEFAULT_SETTINGS in `settingsManager.js`
 2. Added new checkbox "└ Enable for Clarivate domains" in `popup.html` under the Persistent Banner feature
 3. Added checkbox initialization and save handling in `popup.js`
@@ -95,6 +113,7 @@ Each entry follows this structure:
 ### [2025-12-15] - Feature - Add Highlights & Notes Panel Button to Highlighter Banner
 
 **Description**: Added the "Manage" button to the highlighter banner that opens the HighlightsSidepanel for managing all highlights and notes. This required three changes:
+
 1. Added `highlightsSidepanel.js` to the manifest.json content script bundle so the module loads on highlighter-enabled pages.
 2. Added a "📋 Manage" button to the banner's actionsSection in `content_script_highlighter.js` that calls `HighlightsSidepanel.openPanel()`.
 3. Added `ensureStyles()` function to `highlightsSidepanel.js` to inject required CSS dynamically when the panel opens, since no external CSS file existed for the sidepanel styles.
@@ -545,7 +564,7 @@ Copy this template when adding new entries:
 ```markdown
 ### [YYYY-MM-DD] - [Category] - [Brief Description]
 
-**Description**: 
+**Description**:
 
 **Files Changed**:
 
@@ -553,7 +572,7 @@ Copy this template when adding new entries:
 
 **Lessons Learned**:
 
-- 
+-
 
 **Related Issues/PRs**: #issue-number
 ```
@@ -586,4 +605,3 @@ Copy this template when adding new entries:
 - Include lessons learned to help future development
 - Link to related issues/PRs for context
 - Group related changes together
-
