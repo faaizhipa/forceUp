@@ -25,6 +25,7 @@
          "js": [
             "modules/interceptor.js",
             "modules/fetchInterceptor.js",
+            "modules/timezoneSyncWidget.js",
             "modules/debounceUtils.js",
             "modules/logger.js",
             "modules/navigationObserver.js",
@@ -38,11 +39,10 @@
             "modules/customerDataManager.js",
             "modules/customerTimezoneLookup.js",
             "modules/userCustomerDataManager.js",
-            "modules/timezoneUtils.js",
+            "modules/TimezoneUtils.js",
             "modules/globalSyncWidget.js"
          ],
          "run_at": "document_start"
-
       },
       {
          "js": [
@@ -143,7 +143,6 @@
             "modules/styles/injected-panel.css",
             "icons/*.png",
             "timezones_index.json",
-            "timezones_index.js",
             "timezones_index.js",
             "customerMasterList.json",
             "preact-modules/*.js",

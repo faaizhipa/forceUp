@@ -208,26 +208,27 @@ const ConfigurationWarningBanner = (function() {
           <div id="${BANNER_ID}-title">Configuration Required</div>
           <div id="${BANNER_ID}-message">Using defaults for shift, team, and IRT. Set your preferences to get accurate highlighting.</div>
           ${createDefaultsList(preferences)}
-          <div id="${BANNER_ID}-form">
-            <label class="${BANNER_ID}-field">
-              <span>Team</span>
-              <select id="${BANNER_ID}-team">
-                ${teamOptions.map(team => `<option value="${team}" ${team === selectedTeam ? 'selected' : ''}>${team}</option>`).join('')}
-              </select>
+        </div>
+        
+        <div id="${BANNER_ID}-form">
+          <label class="${BANNER_ID}-field">
+            <span>Team</span>
+            <select id="${BANNER_ID}-team">
+              ${teamOptions.map(team => `<option value="${team}" ${team === selectedTeam ? 'selected' : ''}>${team}</option>`).join('')}
+            </select>
+          </label>
+          <label class="${BANNER_ID}-field">
+            <span>Timezone</span>
+            <input id="${BANNER_ID}-timezone" type="text" value="${timezoneValue}" placeholder="e.g., Asia/Kuala_Lumpur" />
+          </label>
+          <label class="${BANNER_ID}-field">
+            <span>IRT (mins)</span>
+            <input id="${BANNER_ID}-irt" type="number" min="5" max="240" value="${useTeamDefaults ? '' : customIrt}" ${useTeamDefaults ? 'disabled' : ''} />
+            <label class="${BANNER_ID}-checkbox">
+              <input id="${BANNER_ID}-irt-defaults" type="checkbox" ${useTeamDefaults ? 'checked' : ''} />
+              Use team defaults
             </label>
-            <label class="${BANNER_ID}-field">
-              <span>Timezone</span>
-              <input id="${BANNER_ID}-timezone" type="text" value="${timezoneValue}" placeholder="e.g., Asia/Kuala_Lumpur" />
-            </label>
-            <label class="${BANNER_ID}-field">
-              <span>IRT (mins)</span>
-              <input id="${BANNER_ID}-irt" type="number" min="5" max="240" value="${useTeamDefaults ? '' : customIrt}" ${useTeamDefaults ? 'disabled' : ''} />
-              <label class="${BANNER_ID}-checkbox">
-                <input id="${BANNER_ID}-irt-defaults" type="checkbox" ${useTeamDefaults ? 'checked' : ''} />
-                Use team defaults
-              </label>
-            </label>
-          </div>
+          </label>
         </div>
         <div id="${BANNER_ID}-actions">
           <button id="${BANNER_ID}-btn-configure">Save preferences</button>
@@ -293,22 +294,39 @@ const ConfigurationWarningBanner = (function() {
       const customIrt = customIrtRaw ? parseInt(customIrtRaw, 10) : null;
 
       const prefs = await UserPreferences.get();
+      
+      // Update preferences based on form data
       prefs.irt.team = team;
       prefs.irt.useTeamDefaults = !!useTeamDefaults;
-      prefs.irt.customMinutes = useTeamDefaults ? null : (Number.isFinite(customIrt) ? customIrt : null);
+      
+      // Only set customMinutes if not using defaults
+      if (!useTeamDefaults && Number.isFinite(customIrt)) {
+        prefs.irt.customMinutes = customIrt;
+      } else if (useTeamDefaults) {
+        prefs.irt.customMinutes = null;
+      }
 
       if (timezone) {
         prefs.userTimezone.auto = false;
         prefs.userTimezone.manual = timezone;
+        
+        // Also update shift timezone to match unless user has configured it separately (simplification for banner)
         prefs.shift.timezone = timezone;
       }
 
+      // Mark setup as complete and dismiss warning permanently
       prefs.meta.isFirstRun = false;
       prefs.meta.setupCompleted = true;
       prefs.meta.warningDismissed = true;
 
       await UserPreferences.save(prefs);
+      
+      // Double check dismissal in case save() didn't persist some flags deeply
+      await UserPreferences.markWarningSeen();
+      
       hide();
+      
+      // Optionally notify user or refresh page logic if needed, but for now just hide.
     } catch (error) {
       console.error('[ConfigWarningBanner] Failed to save banner preferences:', error);
       alert('Unable to save preferences. Please open the extension popup and try again.');
