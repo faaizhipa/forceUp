@@ -8,10 +8,11 @@
 /* These styles ensure page content shifts down to accommodate banner */
 /* Applied early to prevent layout shifts */
 /* NOTE: Fixed header adjustments are handled via JavaScript for better compatibility */
+/* IMPORTANT: All rules are scoped to only apply when highlighter banner is present */
 
 /* Primary strategy: Add padding to body only (not margin to avoid double spacing) */
-/* Only apply when banner is visible - removed when banner is hidden */
-body:not([data-exl-hl-banner-hidden]) {
+/* Only apply when banner is visible (has .exl-hl-banner element) */
+body:has(.exl-hl-banner):not([data-exl-hl-banner-hidden]) {
   padding-top: 48px !important;
   margin-top: 0 !important;
 }
@@ -33,38 +34,48 @@ body[data-exl-hl-banner-hidden] ~ * {
   margin-top: 0 !important;
 }
 
-/* Ensure html element doesn't have conflicting margins */
-html {
+/* Ensure html element doesn't have conflicting margins - only when highlighter is active */
+html:has(body:has(.exl-hl-banner)),
+html:has(body[data-exl-hl-banner-hidden]) {
   margin-top: 0 !important;
   padding-top: 0 !important;
 }
 
 /* Additional fix: ensure no gaps when banner is hidden */
+/* Only apply when highlighter has been activated (data attribute present) */
 body[data-exl-hl-banner-hidden] > *:first-child {
   margin-top: 0 !important;
   padding-top: 0 !important;
 }
 
 /* Prevent white gaps - handle common first-child margin issues */
-body > *:first-child {
+/* Only apply when banner is visible (not hidden) - scoped to avoid affecting sites without banner */
+body:not([data-exl-hl-banner-hidden]):has(.exl-hl-banner) > *:first-child {
   margin-top: 0 !important;
 }
 
 /* Prevent white overlay by ensuring body background extends */
-body {
+/* Only apply when highlighter feature is active */
+body:has(.exl-hl-banner),
+body[data-exl-hl-banner-hidden] {
   background-attachment: fixed !important;
 }
 
-/* Ensure no double spacing from html margin */
-html, body {
+/* Ensure no double spacing from html margin - only when highlighter is active */
+/* Scoped to avoid affecting sites without the highlighter banner */
+html:has(body:has(.exl-hl-banner)),
+html:has(body[data-exl-hl-banner-hidden]) {
   margin: 0 !important;
   padding-left: 0 !important;
   padding-right: 0 !important;
+  padding-top: 0 !important;
 }
 
-/* Only apply top padding to body, not html */
-html {
-  padding-top: 0 !important;
+body:has(.exl-hl-banner),
+body[data-exl-hl-banner-hidden] {
+  margin: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
 }
 
 /* ========== STICKY BANNER ========== */

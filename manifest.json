@@ -133,7 +133,7 @@
    "manifest_version": 3,
    "name": "Penang CoE Salesforce and Docs Extension",
    "permissions": [ "storage", "tabs", "activeTab", "contextMenus", "clipboardWrite", "sidePanel", "alarms", "identity", "tabCapture" ],
-   "version": "7.5.7",
+   "version": "7.5.8",
    "oauth2": {
       "client_id": "579244704820-qnr13ra9r013jgs22cmuk38jkn938dn7.apps.googleusercontent.com",
       "scopes": [ "https://www.googleapis.com/auth/drive.appdata",
