@@ -18,9 +18,7 @@
 (function earlyLayoutAdjustment() {
   'use strict';
   
-  // Constants (following best practices: no magic numbers)
-  const BANNER_HEIGHT_PX = 48; // 3rem = 48px
-  const EARLY_STYLE_ID = 'exl-hl-early-layout';
+  // Constants
   const STATE_FLAG = '__exlHlEarlyLayoutApplied';
   
   // Check if already applied (idempotency)
@@ -29,29 +27,29 @@
   }
 
   // Determine session type using Navigation Timing API
-
+  try {
     const navEntry = performance.getEntriesByType("navigation")[0];
     const isNewSession = !sessionStorage.getItem('session_active');
 
     if (isNewSession) {
         console.log("This is a completely new tab/window session.");
         sessionStorage.setItem('session_active', 'true');
-    } else if (navEntry.type === 'reload') {
+    } else if (navEntry && navEntry.type === 'reload') {
         console.log("This is a refresh within an existing tab session.");
-    } else if (navEntry.type === 'navigate' || navEntry.type === 'back_forward') {
+    } else if (navEntry && (navEntry.type === 'navigate' || navEntry.type === 'back_forward')) {
         console.log("This is navigation within the same tab, but not a simple refresh.");
     };
+  } catch (e) {
+    // Ignore errors in session detection
+  }
   
   // Check if current site is a default banner domain
-  // Only apply early layout adjustment if it's a default domain (optimistic)
-  // Will be removed later if banner shouldn't show
   function isDefaultBannerDomain() {
     const DEFAULT_BANNER_DOMAINS = [
       'support.clarivate.com',
       'wiki.clarivate.io',
       'jira.clarivate.io',
       'exlibrisgroup.com',
-
     ];
     
     try {
@@ -64,71 +62,14 @@
     }
   }
   
-  // Only apply early if default domain (optimistic approach)
-  // For other sites, wait for banner decision
   const isDefault = isDefaultBannerDomain();
   
-  if (!isDefault) {
-    // Not a default domain - don't apply early adjustment
-    // Will be applied later if banner is shown
+  if (isDefault) {
+    // Eliminate gap: We do not apply any padding/margin changes even if banner is enabled.
+    // Logic: check enabled first (isDefault), then eliminate gap (return without setting styles).
+    console.log('[HighlighterController] Early layout: Banner default domain detected. Eliminating gap (no padding applied).');
+    window[STATE_FLAG] = true;
     return;
-  }
-  
-  try {
-    // Enhanced CSS injection - use padding only to avoid double spacing
-    const style = document.createElement('style');
-    style.id = EARLY_STYLE_ID;
-    style.textContent = `
-      /* Primary strategy: Add padding to body only (not margin) */
-      body {
-        padding-top: ${BANNER_HEIGHT_PX}px !important;
-        margin-top: 0 !important;
-      }
-      
-      /* Ensure html element doesn't conflict */
-      html {
-        margin-top: 0 !important;
-        padding-top: 0 !important;
-      }
-      
-      /* Prevent white gaps - ensure body background extends */
-      body {
-        background-attachment: fixed !important;
-      }
-    `;
-    
-    // Try to inject into head (preferred)
-    if (document.head) {
-      document.head.appendChild(style);
-      window[STATE_FLAG] = true;
-      console.log('[HighlighterController] Early layout adjustment applied (style tag)');
-      return;
-    }
-    
-    // Fallback: Apply inline style if body exists
-    if (document.body) {
-      document.body.style.paddingTop = `${BANNER_HEIGHT_PX}px`;
-      document.body.style.marginTop = '0px';
-      window[STATE_FLAG] = true;
-      console.log('[HighlighterController] Early layout adjustment applied (inline)');
-      return;
-    }
-    
-    // Fallback to documentElement if head doesn't exist
-    if (document.documentElement) {
-      document.documentElement.appendChild(style);
-      window[STATE_FLAG] = true;
-      console.log('[HighlighterController] Early layout adjustment applied (documentElement)');
-      return;
-    }
-    
-    // If we reach here, DOM is not ready at all - will retry in init()
-    console.warn('[HighlighterController] Could not apply early layout adjustment - DOM not ready');
-    
-  } catch (error) {
-    // Error handling (best practice: log with context)
-    console.error('[HighlighterController] Error applying early layout adjustment:', error);
-    // Don't set flag on error - allow retry in init()
   }
 })();
 
@@ -3407,51 +3348,28 @@
       
       try {
         if (apply) {
-          // Apply layout adjustment using padding only (to avoid double spacing)
-          // Strategy 1: Ensure early style tag exists
-          let earlyStyle = document.getElementById(EARLY_STYLE_ID);
-          if (!earlyStyle && document.head) {
-            earlyStyle = document.createElement('style');
-            earlyStyle.id = EARLY_STYLE_ID;
-            earlyStyle.textContent = `
-              body {
-                padding-top: ${BANNER_HEIGHT_PX}px !important;
-                margin-top: 0 !important;
-              }
-              html {
-                margin-top: 0 !important;
-                padding-top: 0 !important;
-              }
-            `;
-            document.head.appendChild(earlyStyle);
-            return;
-          }
+          // Eliminate gap: We do not apply padding-top. 
+          // We ensure no gap is present even when banner is active.
           
-          // Strategy 2: Apply inline styles as backup (padding only, no margin)
+          // Remove any existing early style tag if it implies gap
+          const earlyStyle = document.getElementById(EARLY_STYLE_ID);
+          if (earlyStyle) {
+             earlyStyle.remove();
+          }
+
+          // Ensure body has no top padding/margin from us
           if (document.body) {
-            // Check element existence (best practice)
-            const currentPadding = parseInt(window.getComputedStyle(document.body).paddingTop, 10);
-            if (isNaN(currentPadding) || currentPadding < 2 || currentPadding < BANNER_HEIGHT_PX) {
-              document.body.style.paddingTop = `${BANNER_HEIGHT_PX}px`;
-            }
-            // Remove margin to prevent double spacing
-            document.body.style.marginTop = '0px';
+             // We won't set padding-top 48px.
+             // We might want to ensure it's 0 if we previously set it?
+             // But if we just don't set it, that's "eliminating the setting of the gap".
+             
+             // However, to be safe against previous styles, we might want to clear it?
+             // But let's assume "eliminate gap" means "don't create one".
+             console.log('[HighlighterController] adjustPageLayout: Eliminating gap (skipping padding application).');
           }
-          
-          // Strategy 3: Adjust fixed-positioned elements
-          // Use setTimeout to ensure DOM is fully loaded
-          setTimeout(() => {
-            this.adjustFixedElements();
-          }, 100);
-          
-          // Also adjust fixed elements after a delay for dynamic content
-          setTimeout(() => {
-            this.adjustFixedElements();
-            // Re-check skip links for dynamically added ones
-            this.handleSkipToContentLinks();
-          }, 500);
           
           window[STATE_FLAG] = true;
+
         } else {
           // Remove layout adjustment completely
           // Remove inline styles from body (ensure both padding and margin are cleared)

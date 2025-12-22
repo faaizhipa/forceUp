@@ -21,12 +21,23 @@ import { GlobalSyncModal } from './components/GlobalSyncModal.js'
 import { TimeConverter } from './components/TimeConverter.js'
 import { CopyActions } from './components/CopyActions.js'
 
+/**
+ * Helper to ensure currentTime is a Date object
+ * Handles ISO strings passed through DOM-based command API
+ */
+function ensureDate(value) {
+  if (value instanceof Date) return value;
+  if (typeof value === 'string') return new Date(value);
+  if (typeof value === 'number') return new Date(value);
+  return new Date();
+}
+
 const PreactBridge = {
   /**
    * Mount WorldMap component into a DOM container
    * @param {HTMLElement} container - DOM element to render into
    * @param {Object} config - WorldMap configuration
-   * @param {Date} config.currentTime - Current time to display
+   * @param {Date|string} config.currentTime - Current time to display (Date or ISO string)
    * @param {Array} config.pins - Array of timezone pins
    * @param {string} config.className - Optional additional classes
    * @returns {Function} Cleanup function to unmount
@@ -41,7 +52,7 @@ const PreactBridge = {
 
     render(
       html`<${WorldMap}
-        currentTime=${currentTime}
+        currentTime=${ensureDate(currentTime)}
         pins=${pins}
         className=${className}
       />`,
@@ -66,7 +77,7 @@ const PreactBridge = {
 
     render(
       html`<${WorldMap}
-        currentTime=${currentTime}
+        currentTime=${ensureDate(currentTime)}
         pins=${pins}
         className=${className}
       />`,

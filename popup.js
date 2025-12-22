@@ -209,7 +209,8 @@ function getDefaultSettings() {
         dynamicMenu: true,
         persistentBanner: true,
         highlighterEnabled: true,
-        bannerMessages: true
+        bannerMessages: true,
+        storageQuotaEnforced: true
       },
       ui: {
         buttonLabelStyle: 'casual',
@@ -384,6 +385,7 @@ function populateUI(settings) {
     document.getElementById('featureClarivatesBanner').checked = settings.exlibris.persistentBanner?.clarivateEnabled === true;
     document.getElementById('featureHighlighter').checked = settings.exlibris.features.highlighterEnabled !== false;
     document.getElementById('featureBannerMessages').checked = settings.exlibris.features.bannerMessages !== false;
+    document.getElementById('featureStorageQuota').checked = settings.exlibris.features.storageQuotaEnforced !== false;
   }
   
   // Banner Messages settings
@@ -997,7 +999,8 @@ function getSettingsFromUI() {
         dynamicMenu: document.getElementById('featureDynamicMenu').checked,
         persistentBanner: document.getElementById('featurePersistentBanner').checked,
         highlighterEnabled: document.getElementById('featureHighlighter').checked,
-        bannerMessages: document.getElementById('featureBannerMessages').checked
+        bannerMessages: document.getElementById('featureBannerMessages').checked,
+        storageQuotaEnforced: document.getElementById('featureStorageQuota').checked
       },
       ui: {
         buttonLabelStyle: document.getElementById('labelStyleSelect').value,

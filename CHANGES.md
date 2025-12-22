@@ -35,6 +35,22 @@ Each entry follows this structure:
 
 ## Change History
 
+### [2025-12-18] - Bug Fixes - Preact bridge CSP fallback
+
+**Description**: Swapped the timezone widget bridge to a CSP-safe lightweight module (no CDN imports) to stop `Failed to fetch dynamically imported module` errors when loading the world map.
+
+**Files Changed**:
+
+- `preact-modules/preact-bridge-loader.js`
+- `preact-modules/preact-bridge-lite.js`
+
+**Lessons Learned**:
+
+- Salesforce CSP blocks CDN-hosted ESM; keep extension modules self-contained.
+- Use extension-hosted blobs for page-context scripts to avoid dynamic import failures.
+
+**Related Issues/PRs**: N/A
+
 ### [2025-12-17] - Documentation - Privacy Policy Page
 
 **Description**: Created `privacy-policy.html` to meet Chrome Web Store and Edge Add-ons requirements. The policy details data usage for Google Drive integration (backup), local storage, and required permissions.

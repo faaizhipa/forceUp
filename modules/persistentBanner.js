@@ -2020,8 +2020,6 @@ const PersistentBanner = {
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
-                -webkit-mask-image: linear-gradient(90deg, #000 25%, transparent);
-                mask-image: linear-gradient(90deg, #000 25%, transparent);
             }
         `;
 

@@ -69,7 +69,7 @@ const GlobalSyncWidget = (() => {
       padding: 16px;
       box-shadow: var(--gsw-shadow);
       min-width: 320px;
-      max-width: 640px;
+      max-width: 100%;
       border: 1px solid var(--gsw-border);
     }
 

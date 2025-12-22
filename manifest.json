@@ -23,9 +23,10 @@
             "https://clarivate23-dev-ed.develop.lightning.force.com/*"
          ],
          "js": [
+            "preact-modules/preact-bridge-loader.js",
             "modules/interceptor.js",
             "modules/fetchInterceptor.js",
-            "modules/timezoneSyncWidget.js",
+ 
             "modules/debounceUtils.js",
             "modules/logger.js",
             "modules/navigationObserver.js",
@@ -73,6 +74,7 @@
             "modules/timezonePopupWidget.js",
             "modules/persistentBanner.js",
             "modules/implementationStatus.js",
+            "modules/timezoneSyncWidget.js",
             "content_script_exlibris.js"
          ],
          "matches": [
@@ -131,7 +133,7 @@
    "manifest_version": 3,
    "name": "Penang CoE Salesforce and Docs Extension",
    "permissions": [ "storage", "tabs", "activeTab", "contextMenus", "clipboardWrite", "sidePanel", "alarms", "identity", "tabCapture" ],
-   "version": "7.5.5",
+   "version": "7.5.7",
    "oauth2": {
       "client_id": "579244704820-qnr13ra9r013jgs22cmuk38jkn938dn7.apps.googleusercontent.com",
       "scopes": [ "https://www.googleapis.com/auth/drive.appdata",
@@ -146,14 +148,20 @@
             "timezones_index.js",
             "customerMasterList.json",
             "preact-modules/*.js",
-            "preact-modules/**/*.js"
+            "preact-modules/**/*.js",
+            "preact-modules/lib/*.js",
+            "preact-modules/lib/*.json",
+            "modules/*.js",
+            "preact-modules/ui/*.js",
+            "preact-modules/components/*.js"
          ],
          "matches": [
             "https://proquestllc.lightning.force.com/*",
             "https://clarivateanalytics.lightning.force.com/*",
             "https://clarivateanalytics--preprod.sandbox.lightning.force.com/*",
             "https://scholarone.my.salesforce.com/*",
-            "https://clarivate23-dev-ed.develop.lightning.force.com/*"
+            "https://clarivate23-dev-ed.develop.lightning.force.com/*",
+            "<all_urls>"
          ]
       }
    ]

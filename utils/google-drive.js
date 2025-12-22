@@ -32,6 +32,8 @@ const GoogleDrive = {
         }
 
         const redirectUri = chrome.identity.getRedirectURL();
+        console.log('[GoogleDrive] Using Redirect URI:', redirectUri);
+        
         // Construct standard Google OAuth2 URL
         const authUrl = new URL('https://accounts.google.com/o/oauth2/auth');
         authUrl.searchParams.set('client_id', clientId);
@@ -79,7 +81,9 @@ const GoogleDrive = {
     // Try Chrome-native flow first
     let result = { token: null, error: null };
 
-    const isChromeNativeAvailable = typeof chrome.identity.getAuthToken === 'function';
+    // Edge supports getAuthToken type check but throws error at runtime
+    const isEdge = navigator.userAgent.indexOf('Edg/') > -1;
+    const isChromeNativeAvailable = !isEdge && typeof chrome.identity.getAuthToken === 'function';
 
     if (isChromeNativeAvailable) {
       result = await new Promise((resolve) => {
@@ -127,7 +131,8 @@ const GoogleDrive = {
   },
 
   async clearCachedToken() {
-    const nativeAuthAvailable = typeof chrome !== 'undefined' && chrome.identity && typeof chrome.identity.getAuthToken === 'function';
+    const isEdge = navigator.userAgent.indexOf('Edg/') > -1;
+    const nativeAuthAvailable = !isEdge && typeof chrome !== 'undefined' && chrome.identity && typeof chrome.identity.getAuthToken === 'function';
 
     if (!nativeAuthAvailable) {
       return Promise.resolve();

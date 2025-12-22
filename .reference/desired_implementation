@@ -1,0 +1,5 @@
+          // Remove any existing early style tag if it implies gap
+          const earlyStyle = document.getElementById(EARLY_STYLE_ID);
+          if (earlyStyle) {
+             earlyStyle.remove();
+          }

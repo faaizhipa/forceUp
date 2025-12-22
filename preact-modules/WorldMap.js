@@ -223,7 +223,22 @@ export function WorldMap({ currentTime, pins = [], className = '' }) {
   }, [pins])
 
   useEffect(() => {
-    d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
+    // Load world topology (local file)
+    // Use pre-resolved URL from content script context, fall back to chrome.runtime.getURL
+    let topologyUrl;
+    if (window.getExtensionResourceUrl) {
+      topologyUrl = window.getExtensionResourceUrl('preact-modules/lib/countries-110m.json');
+    }
+    if (!topologyUrl && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) {
+      topologyUrl = chrome.runtime.getURL('preact-modules/lib/countries-110m.json');
+    }
+    
+    if (!topologyUrl) {
+      console.error('Failed to get topology URL - extension context not available');
+      return;
+    }
+    
+    d3.json(topologyUrl)
       .then(data => {
         if (data) {
           setWorldData(data)
@@ -345,11 +360,11 @@ export function WorldMap({ currentTime, pins = [], className = '' }) {
   }, [currentTime, enrichedPins, worldData])
 
   return html`
-    <div className=${`relative rounded-lg overflow-hidden border border-border bg-card ${className}`} style=${{ height: '200px' }}>
+    <div className=${`relative rounded-lg overflow-hidden border border-border bg-card w-full h-full ${className}`}>
       <svg
         ref=${svgRef}
         width="100%"
-        height="200"
+        height="100%"
         viewBox="0 0 960 400"
         preserveAspectRatio="xMidYMid slice"
         className="block"
