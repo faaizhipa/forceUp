@@ -1,0 +1,26 @@
+{
+  "name": "forceup-chrome-extension",
+  "version": "7.5.8",
+  "description": "Productivity Tools for Clarivate and Ex Libris - Chrome Extension",
+  "scripts": {
+    "build": "bash build.sh",
+    "clean": "rm -rf dist/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/faaizhipa/forceUp"
+  },
+  "keywords": [
+    "chrome-extension",
+    "salesforce",
+    "productivity",
+    "clarivate",
+    "ex-libris"
+  ],
+  "author": "",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
