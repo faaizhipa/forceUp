@@ -44,10 +44,13 @@ After running the build:
 
 ### From Zip File
 
-1. Open Chrome and go to `chrome://extensions/`
-2. Enable "Developer mode"
-3. Drag and drop the `dist/forceUp-v{VERSION}.zip` file onto the page
+If you received the extension as a `.zip` file:
 
+1. Extract `dist/forceUp-v{VERSION}.zip` so that you have an unpacked directory (for example, `dist/forceUp-v{VERSION}/`).
+2. Open Chrome and go to `chrome://extensions/`
+3. Enable "Developer mode"
+4. Click "Load unpacked"
+5. Select the extracted extension directory from step 1
 ## For More Details
 
 See [BUILD.md](BUILD.md) for comprehensive build documentation.
