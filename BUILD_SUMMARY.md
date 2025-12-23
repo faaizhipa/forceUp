@@ -78,10 +78,12 @@ npm run clean
    - Click "Load unpacked"
    - Select `dist/forceUp-v7.5.8/`
 
-2. **From zip file:**
+2. **From zip file (recommended for distribution):**
+   - Locate `dist/forceUp-v7.5.8.zip` on your filesystem
+   - Extract/unzip it to create the `dist/forceUp-v7.5.8/` directory
    - Open `chrome://extensions/`
    - Enable "Developer mode"
-   - Drag and drop `dist/forceUp-v7.5.8.zip`
+   - Click "Load unpacked" and select the extracted `dist/forceUp-v7.5.8/` directory
 
 ## Validation
 
