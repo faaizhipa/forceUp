@@ -60,12 +60,21 @@ cp -r utils/ "${BUILD_DIR}/"
 cp -r preact-modules/ "${BUILD_DIR}/"
 cp -r modules/ "${BUILD_DIR}/"
 
-# Clean up backup and copy files from modules
+# Clean up backup and copy files from copied directories
+# Note:
+#   - Root-level backup files like "background_backup.js" in the source tree
+#     are not copied into ${BUILD_DIR} (we only copy specific top-level files),
+#     so this cleanup is only needed for recursively-copied directories.
+#   - We intentionally scope the search to known copied folders to avoid
+#     unnecessary work over the entire build tree while still removing
+#     any "*copy.js" / "*backup.js" development artifacts that may exist there.
 echo -e "${YELLOW}Cleaning up backup files...${NC}"
-find "${BUILD_DIR}/modules" -name "*copy.js" -type f -delete
-find "${BUILD_DIR}/modules" -name "*backup.js" -type f -delete
-find "${BUILD_DIR}" -name "*copy.js" -type f -delete
-find "${BUILD_DIR}" -name "*backup.js" -type f -delete
+for dir in "modules" "lib" "utils" "preact-modules"; do
+  if [ -d "${BUILD_DIR}/${dir}" ]; then
+    find "${BUILD_DIR}/${dir}" -name "*copy.js" -type f -delete
+    find "${BUILD_DIR}/${dir}" -name "*backup.js" -type f -delete
+  fi
+done
 
 # Remove development-only directories if they exist in copied folders
 rm -rf "${BUILD_DIR}/.github" 2>/dev/null || true
