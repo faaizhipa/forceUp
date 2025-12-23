@@ -17,6 +17,17 @@ echo -e "${GREEN}Starting Chrome Extension Build Process${NC}"
 VERSION=$(grep -o '"version": "[^"]*"' manifest.json | cut -d'"' -f4)
 echo -e "${YELLOW}Extension Version: ${VERSION}${NC}"
 
+# Validate version sync with package.json if it exists
+if [ -f "package.json" ]; then
+    PKG_VERSION=$(grep -o '"version": "[^"]*"' package.json | head -1 | cut -d'"' -f4)
+    if [ "$VERSION" != "$PKG_VERSION" ]; then
+        echo -e "${YELLOW}Warning: Version mismatch detected!${NC}"
+        echo -e "${YELLOW}  manifest.json: ${VERSION}${NC}"
+        echo -e "${YELLOW}  package.json: ${PKG_VERSION}${NC}"
+        echo -e "${YELLOW}Consider synchronizing versions before building.${NC}"
+    fi
+fi
+
 # Create dist directory
 DIST_DIR="dist"
 BUILD_NAME="forceUp-v${VERSION}"
@@ -53,12 +64,13 @@ cp instTimezones.dsv "${BUILD_DIR}/"
 
 # Copy directories
 echo -e "${YELLOW}Copying directories...${NC}"
-cp -r icons/ "${BUILD_DIR}/"
-cp -r img/ "${BUILD_DIR}/"
-cp -r lib/ "${BUILD_DIR}/"
-cp -r utils/ "${BUILD_DIR}/"
-cp -r preact-modules/ "${BUILD_DIR}/"
-cp -r modules/ "${BUILD_DIR}/"
+for src_dir in icons img lib utils preact-modules modules; do
+    if [ -d "${src_dir}" ]; then
+        cp -r "${src_dir}/" "${BUILD_DIR}/"
+    else
+        echo -e "${YELLOW}Warning: directory '${src_dir}/' does not exist and will not be copied.${NC}"
+    fi
+done
 
 # Clean up backup and copy files from copied directories
 # Note:
@@ -68,13 +80,18 @@ cp -r modules/ "${BUILD_DIR}/"
 #   - We intentionally scope the search to known copied folders to avoid
 #     unnecessary work over the entire build tree while still removing
 #     any "*copy.js" / "*backup.js" development artifacts that may exist there.
+#   - We search for files with patterns like "*copy.js", "* copy.js" (with space),
+#     "*backup.js", and "* backup.js" to catch all backup file naming conventions.
 echo -e "${YELLOW}Cleaning up backup files...${NC}"
 for dir in "modules" "lib" "utils" "preact-modules"; do
   if [ -d "${BUILD_DIR}/${dir}" ]; then
-    find "${BUILD_DIR}/${dir}" -name "*copy.js" -type f -delete
-    find "${BUILD_DIR}/${dir}" -name "*backup.js" -type f -delete
+    find "${BUILD_DIR}/${dir}" \( -name "*copy.js" -o -name "* copy.js" -o -name "*copy*.js" \) -type f -delete
+    find "${BUILD_DIR}/${dir}" \( -name "*backup.js" -o -name "* backup.js" -o -name "*backup*.js" \) -type f -delete
   fi
 done
+# Also clean up any backup files that may have been copied to the root of BUILD_DIR
+find "${BUILD_DIR}" -maxdepth 1 \( -name "*copy.js" -o -name "* copy.js" -o -name "*copy*.js" \) -type f -delete
+find "${BUILD_DIR}" -maxdepth 1 \( -name "*backup.js" -o -name "* backup.js" -o -name "*backup*.js" \) -type f -delete
 
 # Remove development-only directories if they exist in copied folders
 rm -rf "${BUILD_DIR}/.github" 2>/dev/null || true
