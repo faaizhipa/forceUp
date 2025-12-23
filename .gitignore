@@ -1,0 +1,32 @@
+# Build output
+dist/
+*.zip
+
+# Development files
+.vscode/
+.cursor/
+.genkit/
+*.code-workspace
+
+# Temporary files
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+
+# Node modules (if ever added)
+node_modules/
+
+# IDE files
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
